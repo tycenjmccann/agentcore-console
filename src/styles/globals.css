@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface-0 text-gray-100 antialiased;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-2 border border-surface-4 rounded-xl p-6;
+  }
+
+  .card-hover {
+    @apply card hover:border-brand-500/50 transition-colors cursor-pointer;
+  }
+
+  .btn-primary {
+    @apply bg-brand-600 hover:bg-brand-500 text-white px-4 py-2 rounded-lg font-medium transition-colors;
+  }
+
+  .btn-secondary {
+    @apply bg-surface-3 hover:bg-surface-4 text-gray-200 px-4 py-2 rounded-lg font-medium transition-colors border border-surface-4;
+  }
+
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-running {
+    @apply status-dot bg-green-400 animate-pulse;
+  }
+
+  .status-stopped {
+    @apply status-dot bg-gray-500;
+  }
+
+  .status-error {
+    @apply status-dot bg-red-400;
+  }
+
+  .status-pending {
+    @apply status-dot bg-yellow-400 animate-pulse;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.surface.4') transparent;
+  }
+}
