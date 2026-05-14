@@ -52,6 +52,59 @@ The app uses the standard AWS credential chain — no secrets in env files.
 
 ---
 
+## Routing Demo (Agent Skills)
+
+The Routing tab demonstrates end-to-end agent orchestration with **dynamic skill loading**:
+
+```
+Jira Ticket → Design Agent (loads skill) → Jira Update → Dev Agent (loads skill) → PR & Close
+```
+
+Each agent calls `load_skill` at runtime to get detailed instructions before producing output. This is visible in the OTEL trace as a tool invocation.
+
+### One-Command Setup
+
+```bash
+node deploy/setup-routing-agents.mjs \
+  --gateway-id <your-gateway-id> \
+  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole
+```
+
+This creates:
+1. **Skill-loader Lambda** — serves skill instructions (ios-architecture, backend-systems, etc.)
+2. **Gateway target** — exposes `load_skill` as a tool on your AgentCore gateway
+3. **Design Agent harness** — calls `load_skill` → produces architecture docs
+4. **Dev Agent harness** — calls `load_skill` → produces implementation code
+
+The script outputs agent IDs to add to `.env.local`:
+```bash
+DESIGN_AGENT_ID=routing_designer_v2-xxxxxxxxxx
+DEV_AGENT_ID=routing_developer_v2-xxxxxxxxxx
+```
+
+### Prerequisites for Routing
+
+- An existing AgentCore gateway (created via console or `agentcore` CLI)
+- An IAM execution role for harnesses with Bedrock model access
+- The gateway must allow Lambda targets
+
+### Available Skills
+
+| Skill | Agent | Purpose |
+|-------|-------|---------|
+| `ios-architecture` | Design | iOS feature architecture |
+| `backend-systems` | Design | APIs, services, infra |
+| `privacy-compliance` | Design | GDPR, data export |
+| `localization` | Design | i18n, multi-language |
+| `general-design` | Design | Catch-all design |
+| `swift-development` | Dev | iOS/Swift implementation |
+| `node-typescript` | Dev | Backend Node.js/Lambda |
+| `data-services` | Dev | Data pipelines, export |
+| `i18n-tooling` | Dev | Localization infra |
+| `full-stack` | Dev | Cross-stack features |
+
+---
+
 ## Production Deployment
 
 This app is designed to be deployed into a customer's AWS environment. The AWS SDK credential chain means **zero code changes** are needed — just deploy where an IAM role is available.

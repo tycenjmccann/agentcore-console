@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Ticket,
   Palette,
@@ -39,42 +39,42 @@ interface SampleTicket {
   tags: string[];
 }
 
-// --- Constants ---
+// --- Constants (fallback IDs; overridden by env vars via /api/agentcore/routing-config) ---
 
-const DESIGN_AGENT_ID = "routing_designer-9gQwrQ68cu";
-const DEV_AGENT_ID = "routing_developer-7T7BQLaMwC";
+const DEFAULT_DESIGN_AGENT_ID = "routing_designer_v2-wKqGGelvr8";
+const DEFAULT_DEV_AGENT_ID = "routing_developer_v2-2dADo8v01q";
 
 const SAMPLE_TICKETS: SampleTicket[] = [
   {
     title: "Add push notification support for iOS",
     description:
       "As a user, I want to receive push notifications for new matches and messages so I can stay engaged with the app even when it's not open. Support both foreground and background notifications with rich content (images, action buttons).",
-    designAgent: DESIGN_AGENT_ID,
-    devAgent: DEV_AGENT_ID,
+    designAgent: DEFAULT_DESIGN_AGENT_ID,
+    devAgent: DEFAULT_DEV_AGENT_ID,
     tags: ["ios", "notifications", "engagement"],
   },
   {
     title: "Implement rate limiting on the API",
     description:
       "We need to protect our API endpoints from abuse. Implement token-bucket rate limiting with per-user and per-IP limits. Include configurable thresholds, proper 429 responses with Retry-After headers, and metrics emission for monitoring.",
-    designAgent: DESIGN_AGENT_ID,
-    devAgent: DEV_AGENT_ID,
+    designAgent: DEFAULT_DESIGN_AGENT_ID,
+    devAgent: DEFAULT_DEV_AGENT_ID,
     tags: ["backend", "security", "infrastructure"],
   },
   {
     title: "Add GDPR data export endpoint",
     description:
       "To comply with GDPR Article 20, implement a data portability endpoint that allows users to request a full export of their personal data in a machine-readable format (JSON). Must include all profile data, messages, preferences, and activity logs.",
-    designAgent: DESIGN_AGENT_ID,
-    devAgent: DEV_AGENT_ID,
+    designAgent: DEFAULT_DESIGN_AGENT_ID,
+    devAgent: DEFAULT_DEV_AGENT_ID,
     tags: ["privacy", "compliance", "backend"],
   },
   {
     title: "Add Spanish language support",
     description:
       "Internationalize the app to support Spanish (es-ES and es-MX). Extract all user-facing strings into locale files, implement language switching in settings, and ensure proper RTL/pluralization handling. Cover both the mobile app and notification templates.",
-    designAgent: DESIGN_AGENT_ID,
-    devAgent: DEV_AGENT_ID,
+    designAgent: DEFAULT_DESIGN_AGENT_ID,
+    devAgent: DEFAULT_DEV_AGENT_ID,
     tags: ["localization", "i18n", "mobile"],
   },
 ];
@@ -119,7 +119,23 @@ export default function RoutingPage() {
   const [ticketDescription, setTicketDescription] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<SampleTicket | null>(null);
+  const [agentIds, setAgentIds] = useState({ design: DEFAULT_DESIGN_AGENT_ID, dev: DEFAULT_DEV_AGENT_ID });
+  const [arnPrefix, setArnPrefix] = useState("arn:aws:bedrock-agentcore:us-east-1:023392223961:harness");
   const abortRef = useRef<AbortController | null>(null);
+
+  // Load agent IDs and ARN config from server (env vars override defaults)
+  useEffect(() => {
+    fetch("/api/agentcore/routing-config")
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (cfg.designAgentId) setAgentIds((prev) => ({ ...prev, design: cfg.designAgentId }));
+        if (cfg.devAgentId) setAgentIds((prev) => ({ ...prev, dev: cfg.devAgentId }));
+        if (cfg.region && cfg.accountId) {
+          setArnPrefix(`arn:aws:bedrock-agentcore:${cfg.region}:${cfg.accountId}:harness`);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   function updateStage(id: string, updates: Partial<Stage>) {
     setStages((prev) =>
@@ -128,7 +144,7 @@ export default function RoutingPage() {
   }
 
   async function invokeAgent(agentId: string, prompt: string): Promise<string> {
-    const harnessArn = `arn:aws:bedrock-agentcore:us-east-1:023392223961:harness/${agentId}`;
+    const harnessArn = `${arnPrefix}/${agentId}`;
     const res = await fetch("/api/agentcore/invoke", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -136,7 +152,7 @@ export default function RoutingPage() {
         agentRuntimeArn: harnessArn,
         isHarness: true,
         prompt,
-        sessionId: `routing-${Date.now()}`,
+        sessionId: `routing-${crypto.randomUUID()}-${Date.now()}`,
       }),
       signal: abortRef.current?.signal,
     });
@@ -186,7 +202,7 @@ export default function RoutingPage() {
       try {
         const designPrompt = `You are a software design agent. Given this Jira ticket, produce a concise technical design document.\n\nTitle: ${ticketTitle}\nDescription: ${ticketDescription}\n\nProduce a design covering: architecture decisions, components involved, data flow, and key interfaces. Be concise but complete.`;
 
-        const designOutput = await invokeAgent(ticket.designAgent, designPrompt);
+        const designOutput = await invokeAgent(agentIds.design, designPrompt);
         updateStage("design", {
           status: "complete",
           output: designOutput || "(Design agent returned empty response)",
@@ -212,7 +228,7 @@ export default function RoutingPage() {
         const designOutput = stages.find((s) => s.id === "design")?.output || "";
         const devPrompt = `You are a software development agent. Given this design document, produce implementation code with clear file structure and code snippets.\n\nOriginal Ticket: ${ticketTitle}\n\nDesign Document:\n${designOutput}\n\nProduce implementation code covering the key components. Include file paths, imports, and working code.`;
 
-        const devOutput = await invokeAgent(ticket.devAgent, devPrompt);
+        const devOutput = await invokeAgent(agentIds.dev, devPrompt);
         updateStage("dev", {
           status: "complete",
           output: devOutput || "(Dev agent returned empty response)",
