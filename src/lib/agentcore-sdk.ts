@@ -258,7 +258,7 @@ export async function getRuntimeDetail(runtimeId: string): Promise<Partial<Disco
     let memoryId: string | null = null;
 
     // Common env var names that agents use for memory config
-    const memoryEnvKeys = ["MEMORY_ID", "AGENTCORE_MEMORY_ID", "MEMORY_ARN", "AGENT_MEMORY_ID", "MEMORY_RESOURCE_ID"];
+    const memoryEnvKeys = ["BEDROCK_AGENTCORE_MEMORY_ID", "MEMORY_ID", "AGENTCORE_MEMORY_ID", "MEMORY_ARN", "AGENT_MEMORY_ID", "MEMORY_RESOURCE_ID"];
     for (const key of memoryEnvKeys) {
       if (envVars[key]) {
         const val = envVars[key];
@@ -339,13 +339,24 @@ export async function findMemoryForAgent(agentId: string): Promise<string | null
 
   if (agent?.memoryId) return agent.memoryId;
 
-  // Strategy 3: Name-based matching — memory ID contains the full agent base name
+  // Strategy 3: Name-based matching — convention is {agentName}_mem-{suffix}
   const memories = await discoverMemories();
   if (memories.length === 0) return null;
 
+  // 3a: Precise prefix match using agentId base name (strips trailing -randomSuffix)
+  const agentIdBase = agentId.replace(/-[^-]+$/, "");
+  for (const mem of memories) {
+    if (mem.id.startsWith(`${agentIdBase}_mem`)) return mem.id;
+  }
+
+  // 3b: Prefix match using agent display name
   const agentName = agent?.name || agentId;
   const baseName = agentName.replace(/-[A-Za-z0-9]{6,}$/, "");
+  for (const mem of memories) {
+    if (mem.id.startsWith(`${baseName}_mem`)) return mem.id;
+  }
 
+  // 3c: Loose substring fallback
   for (const mem of memories) {
     if (mem.id.toLowerCase().includes(baseName.toLowerCase())) return mem.id;
   }
@@ -473,7 +484,13 @@ export async function invokeAgentRuntime(params: {
   const client = getAgentCoreClient();
   const encoder = new TextEncoder();
 
-  const payload = JSON.stringify({ prompt: params.prompt });
+  let payload: string;
+  try {
+    JSON.parse(params.prompt);
+    payload = params.prompt; // already valid JSON — send as-is (matches CLI behavior)
+  } catch {
+    payload = JSON.stringify({ prompt: params.prompt });
+  }
 
   const command = new InvokeAgentRuntimeCommand({
     agentRuntimeArn: params.agentRuntimeArn,
