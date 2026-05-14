@@ -49,7 +49,13 @@ Available tool types: code_editor, terminal, file_search, git, web_search, brows
 Be conversational but efficient. Generate the config as soon as you have enough information.`;
 
 export async function POST(req: NextRequest) {
-  const { prompt, sessionId, history } = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { prompt, sessionId, history } = body;
 
   if (!prompt) {
     return Response.json({ error: "prompt is required" }, { status: 400 });

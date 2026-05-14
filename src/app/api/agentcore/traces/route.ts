@@ -18,7 +18,41 @@ function getLogsClient(): CloudWatchLogsClient {
 }
 
 // In-memory cache for recently captured traces (immediate availability during streaming)
-const traceCache: Map<string, TraceRecord[]> = new Map();
+// Bounded: max 100 entries, 5-minute TTL per entry
+const TRACE_CACHE_MAX = 100;
+const TRACE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+interface CacheEntry {
+  traces: TraceRecord[];
+  insertedAt: number;
+}
+
+const traceCache: Map<string, CacheEntry> = new Map();
+
+function traceCacheGet(key: string): TraceRecord[] | undefined {
+  const entry = traceCache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() - entry.insertedAt > TRACE_CACHE_TTL_MS) {
+    traceCache.delete(key);
+    return undefined;
+  }
+  // Move to end for LRU ordering
+  traceCache.delete(key);
+  traceCache.set(key, entry);
+  return entry.traces;
+}
+
+function traceCacheSet(key: string, traces: TraceRecord[]): void {
+  // Delete first so re-insertion moves it to the end
+  traceCache.delete(key);
+  // Evict oldest entries (first in map) if at capacity
+  while (traceCache.size >= TRACE_CACHE_MAX) {
+    const oldest = traceCache.keys().next().value;
+    if (oldest !== undefined) traceCache.delete(oldest);
+    else break;
+  }
+  traceCache.set(key, { traces, insertedAt: Date.now() });
+}
 
 interface TraceRecord {
   id: string;
@@ -43,7 +77,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Check in-memory cache first (real-time traces captured during streaming)
-  const cached = traceCache.get(sessionId) || [];
+  const cached = traceCacheGet(sessionId) || [];
   if (cached.length > 0) {
     return NextResponse.json({ traces: cached, source: "realtime_cache" });
   }
@@ -74,9 +108,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "session_id and traces[] required" }, { status: 400 });
   }
 
-  const existing = traceCache.get(session_id) || [];
+  const existing = traceCacheGet(session_id) || [];
   existing.push(...traces);
-  traceCache.set(session_id, existing);
+  traceCacheSet(session_id, existing);
 
   return NextResponse.json({ stored: true, total: existing.length });
 }

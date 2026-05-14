@@ -7,7 +7,13 @@ import { invokeAgentRuntime, invokeHarnessAgent, getPayloadFormat } from "@/lib/
  * Detects harness agents (name starts with "harness_") and routes accordingly.
  */
 export async function POST(req: NextRequest) {
-  const { agentRuntimeArn, agentId, prompt, sessionId, isHarness, systemPrompt, history, payloadFormat } = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { agentRuntimeArn, agentId, prompt, sessionId, isHarness, systemPrompt, history, payloadFormat } = body;
 
   if (!prompt) {
     return Response.json({ error: "prompt is required" }, { status: 400 });

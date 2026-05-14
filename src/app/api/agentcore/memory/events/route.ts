@@ -111,7 +111,13 @@ export async function GET(req: NextRequest) {
  * Store a conversation turn (user + assistant) in memory
  */
 export async function POST(req: NextRequest) {
-  const { agent_id, session_id, actor_id, user_message, assistant_message } = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { agent_id, session_id, actor_id, user_message, assistant_message } = body;
 
   if (!agent_id || !session_id || !user_message) {
     return NextResponse.json({ error: "agent_id, session_id, user_message required" }, { status: 400 });

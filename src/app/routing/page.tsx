@@ -199,10 +199,11 @@ export default function RoutingPage() {
 
       // Stage 2: Design Agent
       updateStage("design", { status: "active" });
+      let designOutput = "";
       try {
         const designPrompt = `You are a software design agent. Given this Jira ticket, produce a concise technical design document.\n\nTitle: ${ticketTitle}\nDescription: ${ticketDescription}\n\nProduce a design covering: architecture decisions, components involved, data flow, and key interfaces. Be concise but complete.`;
 
-        const designOutput = await invokeAgent(agentIds.design, designPrompt);
+        designOutput = await invokeAgent(agentIds.design, designPrompt);
         updateStage("design", {
           status: "complete",
           output: designOutput || "(Design agent returned empty response)",
@@ -225,7 +226,6 @@ export default function RoutingPage() {
       // Stage 4: Dev Agent
       updateStage("dev", { status: "active" });
       try {
-        const designOutput = stages.find((s) => s.id === "design")?.output || "";
         const devPrompt = `You are a software development agent. Given this design document, produce implementation code with clear file structure and code snippets.\n\nOriginal Ticket: ${ticketTitle}\n\nDesign Document:\n${designOutput}\n\nProduce implementation code covering the key components. Include file paths, imports, and working code.`;
 
         const devOutput = await invokeAgent(agentIds.dev, devPrompt);

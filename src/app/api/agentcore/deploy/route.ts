@@ -7,7 +7,12 @@ import { NextRequest } from "next/server";
  * For now, it validates the config and returns a success response.
  */
 export async function POST(req: NextRequest) {
-  const config = await req.json();
+  let config;
+  try {
+    config = await req.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
   if (!config.agent_name) {
     return Response.json({ error: "agent_name is required" }, { status: 400 });

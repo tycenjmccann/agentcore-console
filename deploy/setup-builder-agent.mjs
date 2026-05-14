@@ -4,24 +4,42 @@
  *
  * Creates:
  *   1. Builder-tools Lambda (list_agents, list_gateway_tools, create_harness, etc.)
- *   2. Gateway targets for each tool on your IAM gateway
- *   3. Builder Agent harness with memory + gateway tools
+ *   2. Gateway targets for each tool on your IAM gateway (if gateway provided)
+ *   3. Builder Agent harness with memory + tools (gateway and/or remote MCP)
+ *
+ * Tool Discovery Methods (at least one required):
+ *   - AgentCore Gateway: --gateway-id <id>  (exposes builder tools via gateway targets)
+ *   - Remote MCP Server: --mcp-url <url>    (repeatable, connects to MCP servers for tool discovery)
  *
  * Prerequisites:
  *   - AWS credentials configured
- *   - An existing IAM-auth AgentCore gateway
  *   - An IAM execution role for harnesses (with Bedrock model access)
- *   - An existing AgentCore memory (or create one via console)
+ *   - At least one tool source: gateway ID and/or MCP server URL(s)
+ *   - (Optional) An existing AgentCore memory
  *
  * Usage:
+ *   # Option A: AgentCore Gateway (deploys Lambda + gateway targets)
  *   node deploy/setup-builder-agent.mjs \
  *     --gateway-id <your-iam-gateway-id> \
  *     --harness-role-arn <arn:aws:iam::ACCOUNT:role/YourHarnessRole> \
- *     --memory-id <your-memory-id> \
- *     [--region us-east-1]
+ *     [--memory-id <memory-id>] [--region us-east-1]
+ *
+ *   # Option B: Remote MCP servers (no Lambda needed)
+ *   node deploy/setup-builder-agent.mjs \
+ *     --mcp-url https://your-mcp-server.example.com/sse \
+ *     --mcp-url https://another-mcp.example.com/sse \
+ *     --harness-role-arn <arn:aws:iam::ACCOUNT:role/YourHarnessRole> \
+ *     [--memory-id <memory-id>] [--region us-east-1]
+ *
+ *   # Option C: Both gateway + MCP
+ *   node deploy/setup-builder-agent.mjs \
+ *     --gateway-id <your-iam-gateway-id> \
+ *     --mcp-url https://your-mcp-server.example.com/sse \
+ *     --harness-role-arn <arn:aws:iam::ACCOUNT:role/YourHarnessRole> \
+ *     [--memory-id <memory-id>] [--region us-east-1]
  */
 
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -34,28 +52,52 @@ function getArg(name) {
   const idx = args.indexOf(`--${name}`);
   return idx >= 0 ? args[idx + 1] : null;
 }
+function getAllArgs(name) {
+  const results = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === `--${name}` && i + 1 < args.length) {
+      results.push(args[i + 1]);
+    }
+  }
+  return results;
+}
 
 const REGION = getArg("region") || process.env.AWS_REGION || "us-east-1";
 const GATEWAY_ID = getArg("gateway-id");
 const HARNESS_ROLE_ARN = getArg("harness-role-arn");
 const MEMORY_ID = getArg("memory-id");
+const MCP_URLS = getAllArgs("mcp-url");
 
-if (!GATEWAY_ID || !HARNESS_ROLE_ARN) {
+if (!HARNESS_ROLE_ARN || (!GATEWAY_ID && MCP_URLS.length === 0)) {
   console.error(`
 Usage:
   node deploy/setup-builder-agent.mjs \\
-    --gateway-id <your-iam-gateway-id> \\
     --harness-role-arn <arn:aws:iam::ACCOUNT:role/YourHarnessRole> \\
+    [--gateway-id <gateway-id>] \\
+    [--mcp-url <url>] \\
     [--memory-id <memory-id>] \\
     [--region us-east-1]
 
 Required:
-  --gateway-id        IAM-auth AgentCore gateway ID
   --harness-role-arn  IAM role ARN for harness (needs Bedrock + AgentCore access)
+
+Tool Sources (at least one required):
+  --gateway-id        AgentCore gateway ID (deploys Lambda + gateway targets)
+  --mcp-url           Remote MCP server URL (repeatable for multiple servers)
 
 Optional:
   --memory-id         AgentCore memory ID (for persistent context)
   --region            AWS region (default: us-east-1)
+
+Examples:
+  # Gateway only
+  node deploy/setup-builder-agent.mjs --gateway-id gw-abc123 --harness-role-arn arn:aws:iam::123:role/Role
+
+  # MCP only
+  node deploy/setup-builder-agent.mjs --mcp-url https://mcp.example.com/sse --harness-role-arn arn:aws:iam::123:role/Role
+
+  # Both
+  node deploy/setup-builder-agent.mjs --gateway-id gw-abc123 --mcp-url https://mcp.example.com/sse --harness-role-arn arn:aws:iam::123:role/Role
 `);
   process.exit(1);
 }
@@ -72,230 +114,193 @@ const agentcore = new BedrockAgentCoreControlClient({ region: REGION });
 const LAMBDA_NAME = "agentis-builder-tools";
 const ROLE_NAME = "AgentisBuilderToolsRole";
 const accountId = HARNESS_ROLE_ARN.split(":")[4];
-const gatewayArn = `arn:aws:bedrock-agentcore:${REGION}:${accountId}:gateway/${GATEWAY_ID}`;
+const gatewayArn = GATEWAY_ID ? `arn:aws:bedrock-agentcore:${REGION}:${accountId}:gateway/${GATEWAY_ID}` : null;
 
 console.log("\n🏗️  Deploying Agentis Builder Agent");
 console.log(`   Region: ${REGION}`);
-console.log(`   Gateway: ${GATEWAY_ID}`);
+if (GATEWAY_ID) console.log(`   Gateway: ${GATEWAY_ID}`);
+if (MCP_URLS.length > 0) console.log(`   MCP Servers: ${MCP_URLS.join(", ")}`);
 console.log(`   Harness Role: ${HARNESS_ROLE_ARN}`);
 console.log(`   Memory: ${MEMORY_ID || "(will create)"}\n`);
 
 // ============================================================
-// Step 1: IAM Role for Lambda
+// Step 1 & 2: IAM Role + Lambda (only if using gateway)
 // ============================================================
-console.log("1/4 Creating IAM role for builder-tools Lambda...");
+let lambdaArn = null;
 
-const trustPolicy = JSON.stringify({
-  Version: "2012-10-17",
-  Statement: [{
-    Effect: "Allow",
-    Principal: { Service: "lambda.amazonaws.com" },
-    Action: "sts:AssumeRole",
-  }],
-});
+if (GATEWAY_ID) {
+  console.log("1/4 Creating IAM role for builder-tools Lambda...");
 
-let lambdaRoleArn;
-try {
-  const existing = await iam.send(new GetRoleCommand({ RoleName: ROLE_NAME }));
-  lambdaRoleArn = existing.Role.Arn;
-  console.log(`   ✓ Role exists: ${lambdaRoleArn}`);
-} catch {
-  const role = await iam.send(new CreateRoleCommand({
-    RoleName: ROLE_NAME,
-    AssumeRolePolicyDocument: trustPolicy,
-    Description: "Execution role for agentis-builder-tools Lambda",
-  }));
-  lambdaRoleArn = role.Role.Arn;
+  const trustPolicy = JSON.stringify({
+    Version: "2012-10-17",
+    Statement: [{
+      Effect: "Allow",
+      Principal: { Service: "lambda.amazonaws.com" },
+      Action: "sts:AssumeRole",
+    }],
+  });
 
-  await iam.send(new PutRolePolicyCommand({
-    RoleName: ROLE_NAME,
-    PolicyName: "BuilderToolsPolicy",
-    PolicyDocument: JSON.stringify({
-      Version: "2012-10-17",
-      Statement: [
-        {
-          Effect: "Allow",
-          Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
-          Resource: "arn:aws:logs:*:*:*",
-        },
-        {
-          Effect: "Allow",
-          Action: [
-            "bedrock-agentcore:ListHarnesses",
-            "bedrock-agentcore:ListAgentRuntimes",
-            "bedrock-agentcore:ListMemories",
-            "bedrock-agentcore:ListGateways",
-            "bedrock-agentcore:ListGatewayTargets",
-            "bedrock-agentcore:GetHarness",
-            "bedrock-agentcore:GetAgentRuntime",
-            "bedrock-agentcore:CreateHarness",
-          ],
-          Resource: "*",
-        },
-      ],
-    }),
-  }));
-  console.log(`   ✓ Created: ${lambdaRoleArn}`);
-  console.log("   ⏳ Waiting for IAM propagation (10s)...");
-  await sleep(10000);
-}
+  let lambdaRoleArn;
+  try {
+    const existing = await iam.send(new GetRoleCommand({ RoleName: ROLE_NAME }));
+    lambdaRoleArn = existing.Role.Arn;
+    console.log(`   ✓ Role exists: ${lambdaRoleArn}`);
+  } catch {
+    const role = await iam.send(new CreateRoleCommand({
+      RoleName: ROLE_NAME,
+      AssumeRolePolicyDocument: trustPolicy,
+      Description: "Execution role for agentis-builder-tools Lambda",
+    }));
+    lambdaRoleArn = role.Role.Arn;
 
-// ============================================================
-// Step 2: Deploy builder-tools Lambda
-// ============================================================
-console.log("2/4 Deploying builder-tools Lambda...");
-
-const lambdaDir = join(__dirname, "..", "lambda", "builder-tools");
-
-// Bundle with node_modules for SDK (Lambda doesn't include bedrock-agentcore-control by default)
-// Use a lightweight inline package.json + install approach
-const packageJson = JSON.stringify({
-  name: "agentis-builder-tools",
-  type: "module",
-  dependencies: {
-    "@aws-sdk/client-bedrock-agentcore-control": "*",
-  },
-});
-
-execSync(`cd "${lambdaDir}" && echo '${packageJson}' > package.json && npm install --omit=dev --silent 2>/dev/null`, { stdio: "pipe" });
-execSync(`cd "${lambdaDir}" && zip -rq function.zip index.mjs node_modules package.json`, { stdio: "pipe" });
-const zipBuffer = readFileSync(join(lambdaDir, "function.zip"));
-
-let lambdaArn;
-try {
-  await lambda.send(new GetFunctionCommand({ FunctionName: LAMBDA_NAME }));
-  const updated = await lambda.send(new UpdateFunctionCodeCommand({
-    FunctionName: LAMBDA_NAME,
-    ZipFile: zipBuffer,
-  }));
-  lambdaArn = updated.FunctionArn;
-  console.log(`   ✓ Updated existing Lambda: ${lambdaArn}`);
-} catch {
-  const created = await lambda.send(new CreateFunctionCommand({
-    FunctionName: LAMBDA_NAME,
-    Runtime: "nodejs20.x",
-    Handler: "index.handler",
-    Role: lambdaRoleArn,
-    Code: { ZipFile: zipBuffer },
-    Timeout: 30,
-    MemorySize: 256,
-    Environment: {
-      Variables: {
-        AWS_REGION_OVERRIDE: REGION,
-        HARNESS_ROLE_ARN: HARNESS_ROLE_ARN,
-      },
-    },
-    Description: "Management tools for the Agentis Builder Agent (list/create agents, tools, memories)",
-  }));
-  lambdaArn = created.FunctionArn;
-  console.log(`   ✓ Created: ${lambdaArn}`);
-}
-
-// Add gateway invoke permission
-try {
-  await lambda.send(new AddPermissionCommand({
-    FunctionName: LAMBDA_NAME,
-    StatementId: "AllowAgentCoreGateway",
-    Action: "lambda:InvokeFunction",
-    Principal: "bedrock-agentcore.amazonaws.com",
-    SourceArn: gatewayArn,
-  }));
-  console.log("   ✓ Gateway invoke permission added");
-} catch (e) {
-  if (e.name === "ResourceConflictException") {
-    console.log("   ✓ Gateway invoke permission already exists");
-  } else {
-    console.warn(`   ⚠ Permission warning: ${e.message}`);
+    await iam.send(new PutRolePolicyCommand({
+      RoleName: ROLE_NAME,
+      PolicyName: "BuilderToolsPolicy",
+      PolicyDocument: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Effect: "Allow",
+            Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+            Resource: "arn:aws:logs:*:*:*",
+          },
+          {
+            Effect: "Allow",
+            Action: [
+              "bedrock-agentcore:ListHarnesses",
+              "bedrock-agentcore:ListAgentRuntimes",
+              "bedrock-agentcore:ListMemories",
+              "bedrock-agentcore:ListGateways",
+              "bedrock-agentcore:ListGatewayTargets",
+              "bedrock-agentcore:GetHarness",
+              "bedrock-agentcore:GetAgentRuntime",
+              "bedrock-agentcore:CreateHarness",
+            ],
+            Resource: "*",
+          },
+        ],
+      }),
+    }));
+    console.log(`   ✓ Created: ${lambdaRoleArn}`);
+    console.log("   ⏳ Waiting for IAM propagation (10s)...");
+    await sleep(10000);
   }
+
+  // Deploy builder-tools Lambda
+  console.log("2/4 Deploying builder-tools Lambda...");
+
+  const lambdaDir = join(__dirname, "..", "lambda", "builder-tools");
+
+  const packageJson = JSON.stringify({
+    name: "agentis-builder-tools",
+    type: "module",
+    dependencies: {
+      "@aws-sdk/client-bedrock-agentcore-control": "*",
+    },
+  });
+
+  writeFileSync(join(lambdaDir, "package.json"), packageJson);
+  execSync(`cd "${lambdaDir}" && npm install --omit=dev --silent 2>/dev/null`, { stdio: "pipe" });
+  execSync(`cd "${lambdaDir}" && zip -rq function.zip index.mjs node_modules package.json`, { stdio: "pipe" });
+  const zipBuffer = readFileSync(join(lambdaDir, "function.zip"));
+
+  try {
+    await lambda.send(new GetFunctionCommand({ FunctionName: LAMBDA_NAME }));
+    const updated = await lambda.send(new UpdateFunctionCodeCommand({
+      FunctionName: LAMBDA_NAME,
+      ZipFile: zipBuffer,
+    }));
+    lambdaArn = updated.FunctionArn;
+    console.log(`   ✓ Updated existing Lambda: ${lambdaArn}`);
+  } catch {
+    const created = await lambda.send(new CreateFunctionCommand({
+      FunctionName: LAMBDA_NAME,
+      Runtime: "nodejs20.x",
+      Handler: "index.handler",
+      Role: lambdaRoleArn,
+      Code: { ZipFile: zipBuffer },
+      Timeout: 30,
+      MemorySize: 256,
+      Environment: {
+        Variables: {
+          AWS_REGION_OVERRIDE: REGION,
+          HARNESS_ROLE_ARN: HARNESS_ROLE_ARN,
+        },
+      },
+      Description: "Management tools for the Agentis Builder Agent (list/create agents, tools, memories)",
+    }));
+    lambdaArn = created.FunctionArn;
+    console.log(`   ✓ Created: ${lambdaArn}`);
+  }
+
+  // Add gateway invoke permission
+  try {
+    await lambda.send(new AddPermissionCommand({
+      FunctionName: LAMBDA_NAME,
+      StatementId: "AllowAgentCoreGateway",
+      Action: "lambda:InvokeFunction",
+      Principal: "bedrock-agentcore.amazonaws.com",
+      SourceArn: gatewayArn,
+    }));
+    console.log("   ✓ Gateway invoke permission added");
+  } catch (e) {
+    if (e.name === "ResourceConflictException") {
+      console.log("   ✓ Gateway invoke permission already exists");
+    } else {
+      console.warn(`   ⚠ Permission warning: ${e.message}`);
+    }
+  }
+
+  // Clean up build artifacts
+  execSync(`cd "${lambdaDir}" && rm -rf node_modules package.json function.zip`, { stdio: "pipe" });
+
+  // ============================================================
+  // Step 3: Create gateway targets for each builder tool
+  // ============================================================
+  console.log("3/4 Creating gateway targets for builder tools...");
+  console.log(`   ℹ Create these gateway targets on gateway ${GATEWAY_ID}:`);
+  console.log(`   Each target uses Lambda ARN: ${lambdaArn}\n`);
+
+  const builderTools = [
+    {
+      name: "BuilderListAgents",
+      toolName: "list_agents",
+      description: "List all deployed AI agents (harnesses and runtimes) in this AWS account.",
+    },
+    {
+      name: "BuilderListTools",
+      toolName: "list_gateway_tools",
+      description: "List all available tools across all AgentCore gateways.",
+    },
+    {
+      name: "BuilderListMemories",
+      toolName: "list_memories",
+      description: "List all AgentCore memory resources available for attachment to agents.",
+    },
+    {
+      name: "BuilderCreateAgent",
+      toolName: "create_harness",
+      description: "Deploy a new AI agent as an AgentCore harness.",
+    },
+    {
+      name: "BuilderGetAgentDetail",
+      toolName: "get_agent_detail",
+      description: "Get full configuration details of a specific agent by its ID.",
+    },
+  ];
+
+  for (const tool of builderTools) {
+    console.log(`   → ${tool.name} (${tool.toolName})`);
+  }
+
+  console.log(`\n   To create these targets, use the AgentCore MCP gateway_target_create tool`);
+  console.log(`   or run the targets setup interactively (see README).`);
+  console.log(`   Lambda ARN for all targets: ${lambdaArn}`);
+} else {
+  console.log("1/4 Skipping Lambda/IAM (no --gateway-id provided)");
+  console.log("2/4 Skipping Lambda deployment");
+  console.log("3/4 Skipping gateway targets");
 }
-
-// Clean up build artifacts
-execSync(`cd "${lambdaDir}" && rm -rf node_modules package.json function.zip`, { stdio: "pipe" });
-
-// ============================================================
-// Step 3: Create gateway targets for each builder tool
-// ============================================================
-console.log("3/4 Creating gateway targets for builder tools...");
-console.log(`   ℹ Create these gateway targets on gateway ${GATEWAY_ID}:`);
-console.log(`   Each target uses Lambda ARN: ${lambdaArn}\n`);
-
-const builderTools = [
-  {
-    name: "BuilderListAgents",
-    toolName: "list_agents",
-    description: "List all deployed AI agents (harnesses and runtimes) in this AWS account. Returns name, type, status, and ID for each agent.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        _tool_name: { type: "string", const: "list_agents" },
-      },
-      required: ["_tool_name"],
-    },
-  },
-  {
-    name: "BuilderListTools",
-    toolName: "list_gateway_tools",
-    description: "List all available tools across all AgentCore gateways. Shows what tools can be attached to new agents.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        _tool_name: { type: "string", const: "list_gateway_tools" },
-      },
-      required: ["_tool_name"],
-    },
-  },
-  {
-    name: "BuilderListMemories",
-    toolName: "list_memories",
-    description: "List all AgentCore memory resources available for attachment to agents.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        _tool_name: { type: "string", const: "list_memories" },
-      },
-      required: ["_tool_name"],
-    },
-  },
-  {
-    name: "BuilderCreateAgent",
-    toolName: "create_harness",
-    description: "Deploy a new AI agent as an AgentCore harness. Requires name, system prompt, and optionally gateway/memory configuration.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        _tool_name: { type: "string", const: "create_harness" },
-        harness_name: { type: "string", description: "Agent name (snake_case, starts with letter, max 48 chars)" },
-        system_prompt: { type: "string", description: "Full system prompt for the agent" },
-        model_id: { type: "string", description: "Model ID (default: global.anthropic.claude-sonnet-4-5-20250929-v1:0)" },
-        gateway_id: { type: "string", description: "Gateway ID to attach tools from" },
-        memory_arn: { type: "string", description: "Memory ARN for persistent context" },
-        execution_role_arn: { type: "string", description: "IAM role ARN for the harness" },
-      },
-      required: ["_tool_name", "harness_name", "system_prompt"],
-    },
-  },
-  {
-    name: "BuilderGetAgentDetail",
-    toolName: "get_agent_detail",
-    description: "Get full configuration details of a specific agent by its ID. Shows model, tools, memory, system prompt, and settings.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        _tool_name: { type: "string", const: "get_agent_detail" },
-        agent_id: { type: "string", description: "Harness or runtime agent ID" },
-      },
-      required: ["_tool_name", "agent_id"],
-    },
-  },
-];
-
-for (const tool of builderTools) {
-  console.log(`   → ${tool.name} (${tool.toolName})`);
-}
-
-console.log(`\n   To create these targets, use the AgentCore MCP gateway_target_create tool`);
-console.log(`   or run the targets setup interactively (see README).`);
-console.log(`   Lambda ARN for all targets: ${lambdaArn}`);
 
 // ============================================================
 // Step 4: Create Builder Agent harness
@@ -372,17 +377,36 @@ if (existing) {
   process.exit(0);
 }
 
+// Build tools array dynamically based on provided sources
+const tools = [];
+
+if (GATEWAY_ID) {
+  tools.push({
+    type: "agentcore_gateway",
+    name: "builder_tools",
+    config: { agentCoreGateway: { gatewayArn } },
+  });
+}
+
+for (let i = 0; i < MCP_URLS.length; i++) {
+  const url = MCP_URLS[i];
+  const name = `mcp_tools_${i + 1}`;
+  tools.push({
+    type: "remote_mcp",
+    name,
+    config: { remoteMcp: { url } },
+  });
+}
+
+console.log(`   Tools configured: ${tools.map(t => `${t.type}:${t.name}`).join(", ")}`);
+
 // Build harness config
 const harnessConfig = {
   harnessName: "agentis_builder",
   executionRoleArn: HARNESS_ROLE_ARN,
   model: { bedrockModelConfig: { modelId: "global.anthropic.claude-sonnet-4-5-20250929-v1:0" } },
   systemPrompt: [{ text: BUILDER_SYSTEM_PROMPT }],
-  tools: [{
-    type: "agentcore_gateway",
-    name: "builder_tools",
-    config: { agentCoreGateway: { gatewayArn } },
-  }],
+  tools,
   allowedTools: ["*"],
   truncation: { strategy: "sliding_window", config: { slidingWindow: { messagesCount: 150 } } },
   maxIterations: 75,

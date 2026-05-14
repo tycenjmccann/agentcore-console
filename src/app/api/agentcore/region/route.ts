@@ -29,7 +29,13 @@ export async function GET() {
  * Switch the active region (clears caches)
  */
 export async function POST(req: NextRequest) {
-  const { region } = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { region } = body;
 
   if (!region || !AGENTCORE_REGIONS.includes(region)) {
     return Response.json(

@@ -150,6 +150,12 @@ The builder has **persistent memory** so it remembers what it's previously creat
 
 ### Deploying the Builder Agent
 
+The builder agent needs visibility into your tools/skills infrastructure. Choose the method that matches your setup:
+
+#### Option A: AgentCore Gateway (Lambda-backed tools)
+
+Best if you already have an AgentCore IAM gateway. Deploys a Lambda with 5 management tools and registers them as gateway targets.
+
 ```bash
 node deploy/setup-builder-agent.mjs \
   --gateway-id <your-iam-gateway-id> \
@@ -159,10 +165,49 @@ node deploy/setup-builder-agent.mjs \
 
 **What this creates:**
 1. **Builder-tools Lambda** — 5 management tools (list agents, tools, memories, create agent, inspect agent)
-2. **Gateway target** (`BuilderTools`) — exposes all 5 tools on your IAM gateway
+2. **Gateway targets** — exposes all 5 tools on your IAM gateway
 3. **Builder Agent harness** — with memory and gateway tools attached
 
-**Output:**
+**Prerequisites:**
+- IAM-auth AgentCore gateway
+- IAM execution role for the harness (Bedrock model access)
+- Lambda execution role (auto-created) with AgentCore control plane permissions
+
+#### Option B: Remote MCP Server(s)
+
+Best if you expose your tool catalog via MCP servers (e.g., a centralized tool registry, custom MCP endpoint, or third-party MCP service). No Lambda needed.
+
+```bash
+node deploy/setup-builder-agent.mjs \
+  --mcp-url https://your-mcp-server.example.com/sse \
+  --mcp-url https://another-mcp.example.com/sse \
+  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \
+  --memory-id <your-memory-id>
+```
+
+**What this creates:**
+1. **Builder Agent harness** — connected to your MCP server(s) for tool discovery
+
+**Prerequisites:**
+- MCP server(s) accessible from the harness runtime (public URL or VPC-connected)
+- MCP server must implement the standard MCP protocol (SSE transport)
+- IAM execution role for the harness (Bedrock model access)
+
+#### Option C: Both Gateway + MCP
+
+Combine gateway tools (for AgentCore management) with MCP servers (for additional tool catalogs):
+
+```bash
+node deploy/setup-builder-agent.mjs \
+  --gateway-id <your-iam-gateway-id> \
+  --mcp-url https://your-tool-registry.example.com/sse \
+  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \
+  --memory-id <your-memory-id>
+```
+
+#### Output
+
+All options produce:
 ```bash
 BUILDER_AGENT_ID=agentis_builder-xxxxxxxxxx
 ```
@@ -171,9 +216,18 @@ Add to `.env.local` — the Build page will use the real harness agent instead o
 
 ### Prerequisites for Builder Agent
 
-1. **IAM-auth AgentCore gateway** — the builder's tools call control plane APIs (ListHarnesses, CreateHarness, etc.)
-2. **IAM execution role** for the harness — needs Bedrock model access
-3. **Lambda execution role** — needs AgentCore control plane permissions:
+**All options require:**
+1. **IAM execution role** for the harness — needs Bedrock model access
+2. **Harness role** — needs memory access if using memory (`ListEvents`, `CreateEvent`, `ListSessions`)
+3. **(Optional) AgentCore Memory** — for persistent context across sessions:
+   ```bash
+   # Via AgentCore MCP tools or SDK:
+   # memory_create({ name: "my_builder_memory" })
+   ```
+
+**Gateway option (A/C) additionally requires:**
+4. **IAM-auth AgentCore gateway**
+5. **Lambda execution role** (auto-created) with control plane permissions:
    ```json
    {
      "Effect": "Allow",
@@ -190,15 +244,14 @@ Add to `.env.local` — the Build page will use the real harness agent instead o
      "Resource": "*"
    }
    ```
-4. **Harness role** — needs memory access (`ListEvents`, `CreateEvent`, `ListSessions`)
-5. **(Optional) AgentCore Memory** — for persistent context across sessions. Create one via:
-   ```bash
-   # Via AgentCore MCP tools or SDK:
-   # memory_create({ name: "my_builder_memory" })
-   ```
+
+**MCP option (B/C) additionally requires:**
+6. MCP server URL(s) reachable from the harness runtime
+7. MCP server must serve tools via standard SSE transport
 
 ### How It Works
 
+**Gateway path:**
 ```
 User (Build page) → InvokeHarness(agentis_builder)
                          ↓
@@ -214,6 +267,22 @@ User (Build page) → InvokeHarness(agentis_builder)
     └────────────────────────────────────────┘
                     ↓
               Streams response back with agent data
+```
+
+**MCP path:**
+```
+User (Build page) → InvokeHarness(agentis_builder)
+                         ↓
+              Builder Agent (Claude Sonnet)
+                    ↓ tool calls ↓
+    ┌────────────────────────────────────────┐
+    │ Remote MCP Server(s)                   │
+    │  • Tools auto-discovered via MCP      │
+    │  • Agent calls tools as needed        │
+    │  • Supports any MCP-compatible server │
+    └────────────────────────────────────────┘
+                    ↓
+              Streams response back with tool results
 ```
 
 Without `BUILDER_AGENT_ID`, the Build page falls back to a direct Converse API call (no tools, no memory — just config generation).

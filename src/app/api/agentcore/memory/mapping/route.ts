@@ -24,7 +24,13 @@ export async function GET() {
  * Set a memory mapping: { agentId, memoryId }
  */
 export async function POST(req: NextRequest) {
-  const { agentId, memoryId } = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { agentId, memoryId } = body;
 
   if (!agentId) {
     return Response.json({ error: "agentId required" }, { status: 400 });

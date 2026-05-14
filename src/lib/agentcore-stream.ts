@@ -79,7 +79,11 @@ export async function streamAgentInvocation(request: StreamRequest): Promise<str
     throw err;
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) {
+    throw new Error("No response body received");
+  }
+
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let fullResponse = "";
@@ -163,7 +167,11 @@ export async function streamBuilderChat(request: BuilderStreamRequest): Promise<
     throw err;
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) {
+    throw new Error("No response body received");
+  }
+
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let fullResponse = "";
