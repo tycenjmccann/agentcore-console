@@ -16,6 +16,7 @@ import {
   ArrowDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getClientRegion } from "@/lib/client-cache";
 
 // --- Types ---
 
@@ -123,9 +124,14 @@ export default function RoutingPage() {
   const [arnPrefix, setArnPrefix] = useState("arn:aws:bedrock-agentcore:us-east-1:023392223961:harness");
   const abortRef = useRef<AbortController | null>(null);
 
+  // Abort any in-flight requests on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
+
   // Load agent IDs and ARN config from server (env vars override defaults)
   useEffect(() => {
-    fetch("/api/agentcore/routing-config")
+    fetch("/api/agentcore/routing-config", { headers: { "x-aws-region": getClientRegion() } })
       .then((r) => r.json())
       .then((cfg) => {
         if (cfg.designAgentId) setAgentIds((prev) => ({ ...prev, design: cfg.designAgentId }));
@@ -147,7 +153,7 @@ export default function RoutingPage() {
     const harnessArn = `${arnPrefix}/${agentId}`;
     const res = await fetch("/api/agentcore/invoke", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-aws-region": getClientRegion() },
       body: JSON.stringify({
         agentRuntimeArn: harnessArn,
         isHarness: true,

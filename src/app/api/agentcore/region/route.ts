@@ -1,7 +1,5 @@
 import { NextRequest } from "next/server";
-
-// Server-side region state — mutable at runtime via POST
-let currentRegion = process.env.AWS_REGION || "us-east-1";
+import { DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
 // Regions where Bedrock AgentCore is available
 const AGENTCORE_REGIONS = [
@@ -15,18 +13,20 @@ const AGENTCORE_REGIONS = [
 
 /**
  * GET /api/agentcore/region
- * Returns current region and available regions
+ * Returns the default region (from env) and available regions.
+ * Region selection is now client-side state (localStorage) sent via x-aws-region header.
  */
 export async function GET() {
   return Response.json({
-    current: currentRegion,
+    current: DEFAULT_REGION,
     available: AGENTCORE_REGIONS,
   });
 }
 
 /**
  * POST /api/agentcore/region
- * Switch the active region (clears caches)
+ * No-op — region is now per-request client-side state sent via x-aws-region header.
+ * Kept for backward compatibility so existing UI code doesn't break.
  */
 export async function POST(req: NextRequest) {
   let body;
@@ -44,13 +44,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  currentRegion = region;
-
-  // Clear SDK singleton clients so they reconnect to new region
-  // Dynamic import to avoid circular deps
-  const { resetClients } = await import("@/lib/agentcore-sdk");
-  resetClients(region);
-
-  return Response.json({ current: currentRegion });
+  // No server-side state mutation — region travels with each request via x-aws-region header
+  return Response.json({ current: region });
 }
-

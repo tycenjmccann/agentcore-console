@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Globe, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
+import { invalidateCachePrefix } from "@/lib/client-cache";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -16,45 +17,43 @@ export default function Header() {
     ? "Agent Detail"
     : pageTitles[pathname] || "AgentCore Console";
 
-  const [region, setRegion] = useState("us-east-1");
+  const [region, setRegion] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("aws-region") || "us-east-1";
+    }
+    return "us-east-1";
+  });
   const [regions, setRegions] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
+    // Fetch available regions from the server (just the list, no mutable state)
     fetch("/api/agentcore/region")
       .then((r) => r.json())
       .then((data) => {
-        setRegion(data.current || "");
         setRegions(data.available || []);
+        // If localStorage doesn't have a region yet, use the server default
+        if (!localStorage.getItem("aws-region") && data.current) {
+          localStorage.setItem("aws-region", data.current);
+          setRegion(data.current);
+        }
       })
       .catch(() => {});
   }, []);
 
-  const switchRegion = async (newRegion: string) => {
+  const switchRegion = (newRegion: string) => {
     if (newRegion === region) {
       setShowDropdown(false);
       return;
     }
-    setSwitching(true);
+    // Store in localStorage — all future fetch calls will read from here
+    localStorage.setItem("aws-region", newRegion);
+    setRegion(newRegion);
     setShowDropdown(false);
-    try {
-      const res = await fetch("/api/agentcore/region", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ region: newRegion }),
-      });
-      const data = await res.json();
-      if (data.current) {
-        setRegion(data.current);
-        // Reload page to refresh all data with new region
-        window.location.reload();
-      }
-    } catch {
-      // Failed to switch
-    } finally {
-      setSwitching(false);
-    }
+    // Invalidate all cached data so it refetches with new region
+    invalidateCachePrefix("/api/");
+    // Reload page to refresh all data with new region
+    window.location.reload();
   };
 
   return (
@@ -67,11 +66,10 @@ export default function Header() {
           <button
             onClick={() => setShowDropdown(!showDropdown)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-2 border border-surface-4 hover:border-brand-500/50 transition-colors text-xs"
-            disabled={switching}
           >
             <Globe className="w-3.5 h-3.5 text-brand-400" />
             <span className="text-gray-300 font-mono">
-              {switching ? "switching..." : region || "loading..."}
+              {region || "loading..."}
             </span>
             <ChevronDown className="w-3 h-3 text-gray-500" />
           </button>

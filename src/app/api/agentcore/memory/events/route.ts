@@ -4,17 +4,17 @@ import {
   ListEventsCommand,
   CreateEventCommand,
 } from "@aws-sdk/client-bedrock-agentcore";
-import { findMemoryForAgent, getActiveRegion } from "@/lib/agentcore-sdk";
+import { findMemoryForAgent, DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
 const DEFAULT_ACTOR_ID = "agentcore_user";
 
-let client: BedrockAgentCoreClient | null = null;
-let clientRegion: string | null = null;
-function getClient(): BedrockAgentCoreClient {
-  const region = getActiveRegion();
-  if (!client || clientRegion !== region) {
+// Per-region client cache
+const clients = new Map<string, BedrockAgentCoreClient>();
+function getClient(region: string): BedrockAgentCoreClient {
+  let client = clients.get(region);
+  if (!client) {
     client = new BedrockAgentCoreClient({ region });
-    clientRegion = region;
+    clients.set(region, client);
   }
   return client;
 }
@@ -24,6 +24,7 @@ function getClient(): BedrockAgentCoreClient {
  * Lists events (conversation turns) for a session
  */
 export async function GET(req: NextRequest) {
+  const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
   const agentId = req.nextUrl.searchParams.get("agent_id");
   const sessionId = req.nextUrl.searchParams.get("session_id");
   const actorId = req.nextUrl.searchParams.get("actor_id") || DEFAULT_ACTOR_ID;
@@ -32,13 +33,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "agent_id and session_id required" }, { status: 400 });
   }
 
-  const memoryId = await findMemoryForAgent(agentId);
+  const memoryId = await findMemoryForAgent(agentId, region);
   if (!memoryId) {
     return NextResponse.json({ messages: [] });
   }
 
   try {
-    const c = getClient();
+    const c = getClient(region);
     const res = await c.send(
       new ListEventsCommand({
         memoryId,
@@ -111,6 +112,7 @@ export async function GET(req: NextRequest) {
  * Store a conversation turn (user + assistant) in memory
  */
 export async function POST(req: NextRequest) {
+  const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
   let body;
   try {
     body = await req.json();
@@ -123,7 +125,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "agent_id, session_id, user_message required" }, { status: 400 });
   }
 
-  const memoryId = await findMemoryForAgent(agent_id);
+  const memoryId = await findMemoryForAgent(agent_id, region);
   if (!memoryId) {
     // No memory configured for this agent — silently skip
     return NextResponse.json({ stored: false });
@@ -151,7 +153,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const c = getClient();
+    const c = getClient(region);
     await c.send(
       new CreateEventCommand({
         memoryId,

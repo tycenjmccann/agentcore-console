@@ -4,16 +4,18 @@ import {
   removeMemoryMapping,
   getAllMemoryMappings,
   discoverMemories,
+  DEFAULT_REGION,
 } from "@/lib/agentcore-sdk";
 
 /**
  * GET /api/agentcore/memory/mapping
- * Returns all agent→memory mappings and available memories.
+ * Returns all agent->memory mappings and available memories.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
   const [mappings, memories] = await Promise.all([
     Promise.resolve(getAllMemoryMappings()),
-    discoverMemories(),
+    discoverMemories(region),
   ]);
 
   return Response.json({ mappings, memories });

@@ -6,6 +6,7 @@ import {
   Timer, CheckCircle2, Wrench, Server,
 } from "lucide-react";
 import Link from "next/link";
+import { getClientRegion } from "@/lib/client-cache";
 
 interface AgentDetail {
   id: string;
@@ -58,7 +59,7 @@ export default function AgentsPage() {
 
   useEffect(() => {
     // Fetch all agents, then enrich each with detail
-    fetch("/api/agentcore/agents")
+    fetch("/api/agentcore/agents", { headers: { "x-aws-region": getClientRegion() } })
       .then((r) => {
         if (!r.ok) throw new Error(`API returned ${r.status}`);
         return r.json();

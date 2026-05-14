@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { discoverAgents, getHarnessDetail, getRuntimeDetail, findMemoryForAgent, findLogGroupForAgent } from "@/lib/agentcore-sdk";
+import { discoverAgents, getHarnessDetail, getRuntimeDetail, findMemoryForAgent, findLogGroupForAgent, DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
 /**
  * GET /api/agentcore/agents
@@ -9,10 +9,11 @@ import { discoverAgents, getHarnessDetail, getRuntimeDetail, findMemoryForAgent,
  * Returns enriched detail for a specific agent (memory, log group, model, tools).
  */
 export async function GET(req: NextRequest) {
+  const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
   const agentId = req.nextUrl.searchParams.get("id");
 
   try {
-    const agents = await discoverAgents();
+    const agents = await discoverAgents(region);
 
     // If requesting a specific agent's detail
     if (agentId) {
@@ -23,13 +24,13 @@ export async function GET(req: NextRequest) {
 
       // Enrich with detail — harnesses and runtimes have different detail APIs
       const [logGroup, detail] = await Promise.all([
-        findLogGroupForAgent(agentId, agent.name),
-        agent.type === "harness" ? getHarnessDetail(agentId) : getRuntimeDetail(agentId),
+        findLogGroupForAgent(agentId, agent.name, region),
+        agent.type === "harness" ? getHarnessDetail(agentId, region) : getRuntimeDetail(agentId, region),
       ]);
 
       // Memory ID comes from the agent config (programmatic, not name-guessing)
       // Fall back to findMemoryForAgent only if detail didn't provide one
-      const memoryId = detail.memoryId || await findMemoryForAgent(agentId);
+      const memoryId = detail.memoryId || await findMemoryForAgent(agentId, region);
 
       // Spread detail first, then override with our resolved values
       // (detail.memoryId may be undefined even when findMemoryForAgent found one)

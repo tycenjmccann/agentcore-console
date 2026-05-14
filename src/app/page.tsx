@@ -2,9 +2,8 @@
 
 import { useState, useEffect } from "react";
 import {
-  Bot, Brain, Cpu, Activity, ArrowRight, MessageSquare,
-  Zap, Clock, Ticket, Layers, CheckCircle2,
-  TrendingUp, Timer,
+  Bot, Brain, Cpu, ArrowRight, MessageSquare,
+  Zap, Clock, Timer,
 } from "lucide-react";
 import Link from "next/link";
 import { cachedFetch, getCached } from "@/lib/client-cache";
@@ -41,17 +40,6 @@ interface MetricsData {
   }>;
 }
 
-// Jira metrics — real API integration coming soon
-function useJiraMetrics() {
-  return {
-    ticketsResolved: 234,
-    ticketsInProgress: 18,
-    epicsActive: 5,
-    storiesCompleted: 89,
-    storiesInProgress: 12,
-    avgResolutionTime: 4.2,
-  };
-}
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -74,7 +62,6 @@ export default function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>(() => getCached<Agent[]>("/api/agentcore/agents") || []);
   const [metrics, setMetrics] = useState<MetricsData | null>(() => getCached<MetricsData>("/api/agentcore/metrics"));
   const [loading, setLoading] = useState(!getCached("/api/agentcore/agents"));
-  const jira = useJiraMetrics();
 
   useEffect(() => {
     // Fetch with cache — returns instantly if cached, revalidates in background
@@ -134,79 +121,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Jira Section */}
-      <div className="card">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Jira</h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <BigMetric
-            label="Tickets Resolved"
-            value={loading ? "—" : jira.ticketsResolved.toString()}
-            sub={`${jira.ticketsInProgress} in progress`}
-            icon={CheckCircle2}
-            color="text-green-400"
-          />
-          <BigMetric
-            label="Active Epics"
-            value={loading ? "—" : jira.epicsActive.toString()}
-            sub="in progress"
-            icon={Layers}
-            color="text-orange-400"
-          />
-          <BigMetric
-            label="Stories Done"
-            value={loading ? "—" : jira.storiesCompleted.toString()}
-            sub={`${jira.storiesInProgress} active`}
-            icon={Ticket}
-            color="text-blue-400"
-          />
-          <BigMetric
-            label="Avg Resolution"
-            value={loading ? "—" : `${jira.avgResolutionTime}m`}
-            sub="per ticket"
-            icon={Timer}
-            color="text-emerald-400"
-          />
-          <BigMetric
-            label="Throughput"
-            value={loading ? "—" : `${Math.round(jira.ticketsResolved / 7)}/day`}
-            sub="avg this week"
-            icon={TrendingUp}
-            color="text-purple-400"
-          />
-          <BigMetric
-            label="Automation Rate"
-            value={loading ? "—" : "92%"}
-            sub="no human needed"
-            icon={Activity}
-            color="text-brand-400"
-          />
-        </div>
-
-        {/* Epics breakdown */}
-        <div className="mt-5 pt-4 border-t border-surface-4">
-          <p className="text-xs text-gray-500 mb-3">Epic Progress</p>
-          <div className="space-y-2.5">
-            {[
-              { epic: "Customer Onboarding Automation", stories: 12, done: 9, color: "bg-orange-500" },
-              { epic: "Support Ticket Resolution", stories: 24, done: 21, color: "bg-blue-500" },
-              { epic: "Account Migration", stories: 8, done: 3, color: "bg-purple-500" },
-              { epic: "Billing Dispute Handling", stories: 15, done: 14, color: "bg-green-500" },
-              { epic: "Data Cleanup Sprint", stories: 30, done: 28, color: "bg-cyan-500" },
-            ].map((e) => (
-              <div key={e.epic} className="flex items-center gap-3">
-                <span className="text-xs text-gray-300 w-56 truncate flex-shrink-0">{e.epic}</span>
-                <div className="flex-1 h-2 bg-surface-3 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full ${e.color} rounded-full`}
-                    style={{ width: `${(e.done / e.stories) * 100}%` }}
-                  />
-                </div>
-                <span className="text-[11px] text-gray-500 w-16 text-right flex-shrink-0">{e.done}/{e.stories}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      {/* TODO: integrate with real ticket system */}
 
       {/* Agent Performance Table */}
       <div className="card">

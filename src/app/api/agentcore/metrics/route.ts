@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 import {
@@ -19,45 +19,61 @@ import {
 import {
   discoverAgents,
   findMemoryForAgent,
-  getActiveRegion,
+  DEFAULT_REGION,
 } from "@/lib/agentcore-sdk";
 
-let logsClient: CloudWatchLogsClient | null = null;
-let logsClientRegion: string | null = null;
-function getLogsClient(): CloudWatchLogsClient {
-  const region = getActiveRegion();
-  if (!logsClient || logsClientRegion !== region) {
-    logsClient = new CloudWatchLogsClient({ region });
-    logsClientRegion = region;
+// Per-region client caches
+const logsClients = new Map<string, CloudWatchLogsClient>();
+function getLogsClient(region: string): CloudWatchLogsClient {
+  let client = logsClients.get(region);
+  if (!client) {
+    client = new CloudWatchLogsClient({ region });
+    logsClients.set(region, client);
   }
-  return logsClient;
+  return client;
 }
 
-let cwClient: CloudWatchClient | null = null;
-let cwClientRegion: string | null = null;
-function getCWClient(): CloudWatchClient {
-  const region = getActiveRegion();
-  if (!cwClient || cwClientRegion !== region) {
-    cwClient = new CloudWatchClient({ region });
-    cwClientRegion = region;
+const cwClients = new Map<string, CloudWatchClient>();
+function getCWClient(region: string): CloudWatchClient {
+  let client = cwClients.get(region);
+  if (!client) {
+    client = new CloudWatchClient({ region });
+    cwClients.set(region, client);
   }
-  return cwClient;
+  return client;
 }
 
-let memClient: BedrockAgentCoreClient | null = null;
-let memClientRegion: string | null = null;
-function getMemClient(): BedrockAgentCoreClient {
-  const region = getActiveRegion();
-  if (!memClient || memClientRegion !== region) {
-    memClient = new BedrockAgentCoreClient({ region });
-    memClientRegion = region;
+const memClients = new Map<string, BedrockAgentCoreClient>();
+function getMemClient(region: string): BedrockAgentCoreClient {
+  let client = memClients.get(region);
+  if (!client) {
+    client = new BedrockAgentCoreClient({ region });
+    memClients.set(region, client);
   }
-  return memClient;
+  return client;
 }
 
-// Cache metrics for 2 minutes
-let metricsCache: { data: unknown; ts: number } | null = null;
+// Per-region metrics cache (2 minutes TTL)
+const metricsCaches = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL = 120_000;
+
+// Max agents to fetch detailed metrics for (avoids rate limiting)
+const MAX_AGENTS_FOR_METRICS = 20;
+
+// Process items in batches of `limit` to control concurrency
+async function processInBatches<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += limit) {
+    const batch = items.slice(i, i + limit);
+    const batchResults = await Promise.all(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+}
 
 interface AgentMetrics {
   id: string;
@@ -77,19 +93,22 @@ interface AgentMetrics {
  * - AWS/Bedrock-AgentCore CloudWatch metrics (Invocations, Latency)
  * - AgentCore Memory API (session counts)
  */
-export async function GET() {
-  if (metricsCache && Date.now() - metricsCache.ts < CACHE_TTL) {
-    return NextResponse.json(metricsCache.data);
+export async function GET(req: NextRequest) {
+  const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
+
+  const cached = metricsCaches.get(region);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return NextResponse.json(cached.data);
   }
 
   try {
-    const agents = await discoverAgents();
+    const agents = await discoverAgents(region);
 
     // Fetch token usage from aws/spans and CW metrics in parallel
     const [tokensByAgent, cwMetricsByAgent, sessionCounts] = await Promise.all([
-      getTokenUsageFromSpans(),
-      getCWMetricsForAgents(agents),
-      getSessionCounts(agents),
+      getTokenUsageFromSpans(region),
+      getCWMetricsForAgents(agents, region),
+      getSessionCounts(agents, region),
     ]);
 
     // Build per-agent metrics
@@ -109,7 +128,7 @@ export async function GET() {
         sessions,
         tokensIn: tokens.input,
         tokensOut: tokens.output,
-        avgDuration: cw.avgLatency > 0 ? Math.round(cw.avgLatency / 1000) : 0, // ms → seconds
+        avgDuration: cw.avgLatency > 0 ? Math.round(cw.avgLatency / 1000) : 0, // ms -> seconds
         totalDuration: cw.totalDuration > 0 ? Math.round(cw.totalDuration / 1000) : 0,
         invocations: cw.invocations,
       };
@@ -138,7 +157,7 @@ export async function GET() {
       agentMetrics,
     };
 
-    metricsCache = { data: result, ts: Date.now() };
+    metricsCaches.set(region, { data: result, ts: Date.now() });
     return NextResponse.json(result);
   } catch (error) {
     console.error("Metrics error:", error);
@@ -148,18 +167,15 @@ export async function GET() {
 
 /**
  * Query aws/spans log group for per-agent token usage.
- * Spans with name "chat ..." contain gen_ai.usage.input_tokens and output_tokens,
- * grouped by resource.attributes.service.name (which identifies the agent).
  */
-async function getTokenUsageFromSpans(): Promise<Record<string, { input: number; output: number; calls: number }>> {
+async function getTokenUsageFromSpans(region: string): Promise<Record<string, { input: number; output: number; calls: number }>> {
   const empty: Record<string, { input: number; output: number; calls: number }> = {};
 
   try {
-    const client = getLogsClient();
+    const client = getLogsClient(region);
     const endTime = Math.floor(Date.now() / 1000);
     const startTime = endTime - 30 * 24 * 60 * 60; // Last 30 days
 
-    // Query all chat spans (model invocations) — they contain token usage per agent
     const query = `fields @message | filter name like /^chat / | limit 10000`;
 
     const startRes = await client.send(
@@ -176,7 +192,6 @@ async function getTokenUsageFromSpans(): Promise<Record<string, { input: number;
     const results = await pollQuery(client, startRes.queryId, 15);
     if (!results || results.length === 0) return empty;
 
-    // Parse spans and aggregate by service name
     const agents: Record<string, { input: number; output: number; calls: number }> = {};
 
     for (const row of results) {
@@ -210,41 +225,33 @@ async function getTokenUsageFromSpans(): Promise<Record<string, { input: number;
 
 /**
  * Get CloudWatch metrics (Invocations, Latency) from AWS/Bedrock-AgentCore namespace.
- * CW requires all 3 dimensions: Resource (runtime ARN), Operation, Name.
- *
- * Strategy: First discover dimension combos via ListMetrics, then query stats.
  */
 async function getCWMetricsForAgents(
-  agents: Array<{ id: string; name: string; type: string; arn: string }>
+  agents: Array<{ id: string; name: string; type: string; arn: string }>,
+  region: string
 ): Promise<Record<string, { invocations: number; avgLatency: number; totalDuration: number }>> {
   const result: Record<string, { invocations: number; avgLatency: number; totalDuration: number }> = {};
-  const cw = getCWClient();
+  const cw = getCWClient(region);
   const endTime = new Date();
   const startTime = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30 days
 
-  // Discover all InvokeAgentRuntime metric dimension combos
   const listRes = await cw.send(new ListMetricsCommand({
     Namespace: "AWS/Bedrock-AgentCore",
     MetricName: "Invocations",
     Dimensions: [{ Name: "Operation", Value: "InvokeAgentRuntime" }],
   }));
 
-  // Build map: agent name → { resourceArn, cwName } for querying
   const cwDimMap: Record<string, { resource: string; name: string }[]> = {};
   for (const metric of listRes.Metrics || []) {
     const dims = Object.fromEntries((metric.Dimensions || []).map((d) => [d.Name!, d.Value!]));
     if (!dims.Resource || !dims.Name) continue;
 
-    // Extract agent base name from CW Name dimension (format: "agent_name::DEFAULT")
     const baseName = dims.Name.replace(/::DEFAULT$/, "");
     if (!cwDimMap[baseName]) cwDimMap[baseName] = [];
     cwDimMap[baseName].push({ resource: dims.Resource, name: dims.Name });
   }
 
-  // Match agents to their CW dimension entries and query
   const promises = agents.map(async (agent) => {
-    // For harnesses: CW name is "harness_<harnessName>::DEFAULT"
-    // For runtimes: CW name is "<runtimeName>::DEFAULT"
     const lookupName = agent.type === "harness" ? `harness_${agent.name}` : agent.name;
     const entries = cwDimMap[lookupName] || [];
 
@@ -254,7 +261,6 @@ async function getCWMetricsForAgents(
     }
 
     try {
-      // Query all matching entries (agent may have multiple runtime versions) and sum
       let totalInvocations = 0;
       let weightedLatency = 0;
       let totalDuration = 0;
@@ -290,7 +296,7 @@ async function getCWMetricsForAgents(
         const durSum = latRes.Datapoints?.reduce((s, dp) => s + (dp.Sum || 0), 0) || 0;
 
         totalInvocations += inv;
-        weightedLatency += avgLat * inv; // Weight by invocation count
+        weightedLatency += avgLat * inv;
         totalDuration += durSum;
       }
 
@@ -309,14 +315,15 @@ async function getCWMetricsForAgents(
  * Get session counts for all agents from AgentCore Memory.
  */
 async function getSessionCounts(
-  agents: Array<{ id: string }>
+  agents: Array<{ id: string }>,
+  region: string
 ): Promise<Record<string, number>> {
   const result: Record<string, number> = {};
-  const client = getMemClient();
+  const client = getMemClient(region);
 
   const promises = agents.map(async (agent) => {
     try {
-      const memoryId = await findMemoryForAgent(agent.id);
+      const memoryId = await findMemoryForAgent(agent.id, region);
       if (!memoryId) { result[agent.id] = 0; return; }
 
       const actorsRes = await client.send(new ListActorsCommand({ memoryId }));

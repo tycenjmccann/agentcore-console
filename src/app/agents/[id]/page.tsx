@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, use } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ArrowLeft, Bot, Brain, Cpu, Server, Wrench, Send, User, Plus, Clock,
   MessageSquare, Loader2, Terminal, Zap, ChevronRight, ChevronDown,
@@ -10,7 +10,7 @@ import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { streamAgentInvocation, AgentInfo, TraceEvent } from "@/lib/agentcore-stream";
-import { cachedFetch, getCached } from "@/lib/client-cache";
+import { cachedFetch, getCached, getClientRegion } from "@/lib/client-cache";
 
 interface AgentDetail {
   id: string;
@@ -50,8 +50,8 @@ interface TraceStep {
   details?: Record<string, unknown>;
 }
 
-export default function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id: agentId } = use(params);
+export default function AgentDetailPage({ params }: { params: { id: string } }) {
+  const { id: agentId } = params;
   const cacheKey = `/api/agentcore/agents?id=${agentId}`;
   const [agent, setAgent] = useState<AgentDetail | null>(() => getCached<AgentDetail>(cacheKey));
   const [loading, setLoading] = useState(!getCached(cacheKey));
@@ -102,15 +102,6 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
   const [expanded, setExpanded] = useState(false);
 
-  // Mock per-agent metrics — will wire to real APIs
-  const agentMetrics = {
-    sessions: 142,
-    tokensIn: 482_000,
-    tokensOut: 391_000,
-    ticketsResolved: 37,
-    avgDuration: 72, // seconds
-    successRate: 94,
-  };
 
   return (
     <div className="card !py-3 !px-4">
@@ -155,15 +146,6 @@ function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
         </button>
       </div>
 
-      {/* Per-agent usage metrics */}
-      <div className="mt-3 pt-3 border-t border-surface-4 grid grid-cols-3 md:grid-cols-6 gap-3">
-        <MiniMetric label="Sessions" value={agentMetrics.sessions.toString()} />
-        <MiniMetric label="Tokens In" value={`${(agentMetrics.tokensIn / 1000).toFixed(0)}K`} />
-        <MiniMetric label="Tokens Out" value={`${(agentMetrics.tokensOut / 1000).toFixed(0)}K`} />
-        <MiniMetric label="Tickets" value={agentMetrics.ticketsResolved.toString()} />
-        <MiniMetric label="Avg Duration" value={`${agentMetrics.avgDuration}s`} />
-        <MiniMetric label="Success" value={`${agentMetrics.successRate}%`} />
-      </div>
 
       {expanded && (
         <div className="mt-3 pt-3 border-t border-surface-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
@@ -249,7 +231,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
 
   // Fetch available memories for the selector
   useEffect(() => {
-    fetch("/api/agentcore/memory/mapping")
+    fetch("/api/agentcore/memory/mapping", { headers: { "x-aws-region": getClientRegion() } })
       .then((r) => r.json())
       .then((data) => {
         setAvailableMemories(data.memories || []);
@@ -262,7 +244,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   }, [agent.id]);
 
   const refreshSessions = useCallback(() => {
-    fetch(`/api/agentcore/memory/sessions?agent_id=${agent.id}`)
+    fetch(`/api/agentcore/memory/sessions?agent_id=${agent.id}`, { headers: { "x-aws-region": getClientRegion() } })
       .then((r) => r.json())
       .then((data) => setSessions(data.sessions || []))
       .catch(() => {});
@@ -270,7 +252,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
 
   useEffect(() => {
     setLoadingSessions(true);
-    fetch(`/api/agentcore/memory/sessions?agent_id=${agent.id}`)
+    fetch(`/api/agentcore/memory/sessions?agent_id=${agent.id}`, { headers: { "x-aws-region": getClientRegion() } })
       .then((r) => r.json())
       .then((data) => setSessions(data.sessions || []))
       .catch(() => setSessions([]))
@@ -298,12 +280,12 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
     // Persist the mapping server-side
     await fetch("/api/agentcore/memory/mapping", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-aws-region": getClientRegion() },
       body: JSON.stringify({ agentId: agent.id, memoryId: memoryId || null }),
     });
     // Re-fetch sessions with the new memory
     setLoadingSessions(true);
-    fetch(`/api/agentcore/memory/sessions?agent_id=${agent.id}`)
+    fetch(`/api/agentcore/memory/sessions?agent_id=${agent.id}`, { headers: { "x-aws-region": getClientRegion() } })
       .then((r) => r.json())
       .then((data) => setSessions(data.sessions || []))
       .catch(() => setSessions([]))
@@ -334,9 +316,10 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
     setElapsedTime(0);
 
     try {
+      const regionHeaders = { "x-aws-region": getClientRegion() };
       const [messagesRes, tracesRes] = await Promise.all([
-        fetch(`/api/agentcore/memory/events?agent_id=${agent.id}&session_id=${session.sessionId}&actor_id=${session.actorId}`),
-        fetch(`/api/agentcore/traces?session_id=${session.sessionId}&agent_id=${agent.id}`),
+        fetch(`/api/agentcore/memory/events?agent_id=${agent.id}&session_id=${session.sessionId}&actor_id=${session.actorId}`, { headers: regionHeaders }),
+        fetch(`/api/agentcore/traces?session_id=${session.sessionId}&agent_id=${agent.id}`, { headers: regionHeaders }),
       ]);
 
       const messagesData = await messagesRes.json();
@@ -367,7 +350,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
     (userMsg: string, assistantMsg: string) => {
       fetch("/api/agentcore/memory/events", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-aws-region": getClientRegion() },
         body: JSON.stringify({
           agent_id: agent.id,
           session_id: sessionId,
@@ -386,7 +369,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
       if (!sessionId || traces.length === 0) return;
       fetch("/api/agentcore/traces", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-aws-region": getClientRegion() },
         body: JSON.stringify({ session_id: sessionId, traces }),
       }).catch(() => {});
     },

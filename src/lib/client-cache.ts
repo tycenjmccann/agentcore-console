@@ -16,6 +16,21 @@ const cache = new Map<string, CacheEntry<unknown>>();
 const DEFAULT_TTL = 120_000;
 
 /**
+ * Get the active AWS region from localStorage (client-side only).
+ */
+export function getClientRegion(): string {
+  if (typeof window === "undefined") return "us-east-1";
+  return localStorage.getItem("aws-region") || "us-east-1";
+}
+
+/**
+ * Build default headers for API requests (includes region).
+ */
+function defaultHeaders(): Record<string, string> {
+  return { "x-aws-region": getClientRegion() };
+}
+
+/**
  * Fetch with client-side caching. Returns cached data immediately if available,
  * and revalidates in the background after TTL expires.
  *
@@ -71,7 +86,7 @@ export function invalidateCachePrefix(prefix: string) {
 }
 
 async function fetchAndCache<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: defaultHeaders() });
   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
   const data = (await res.json()) as T;
   cache.set(url, { data, ts: Date.now() });

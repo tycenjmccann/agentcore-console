@@ -1,5 +1,6 @@
 // Server-side AgentCore SDK client
 // Dynamic discovery via Control Plane + invocation via Data Plane
+// Region is passed per-request — no shared mutable state.
 
 import {
   BedrockRuntimeClient,
@@ -22,124 +23,80 @@ import {
   DescribeLogGroupsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 
-let activeRegion = process.env.AWS_REGION || "us-east-1";
+export const DEFAULT_REGION = process.env.AWS_REGION || "us-east-1";
 
-// Singleton clients
-let bedrockClient: BedrockRuntimeClient | null = null;
-let agentCoreClient: BedrockAgentCoreClient | null = null;
-let controlClient: BedrockAgentCoreControlClient | null = null;
-let logsClient: CloudWatchLogsClient | null = null;
+// Per-region client cache (avoids recreating clients on every call)
+const bedrockClients = new Map<string, BedrockRuntimeClient>();
+const agentCoreClients = new Map<string, BedrockAgentCoreClient>();
+const controlClients = new Map<string, BedrockAgentCoreControlClient>();
+const logsClients = new Map<string, CloudWatchLogsClient>();
 
-// Agent → Memory mapping (user-defined, persisted to disk)
-import { readFileSync, writeFileSync, existsSync } from "fs";
-import { join } from "path";
-
-const MAPPINGS_FILE = join(process.cwd(), ".memory-mappings.json");
-
-function loadMappings(): Record<string, string> {
-  try {
-    if (existsSync(MAPPINGS_FILE)) {
-      return JSON.parse(readFileSync(MAPPINGS_FILE, "utf-8"));
-    }
-  } catch { /* ignore */ }
-  return {};
-}
-
-function saveMappings(mappings: Record<string, string>) {
-  writeFileSync(MAPPINGS_FILE, JSON.stringify(mappings, null, 2));
-}
+// In-memory store — not shared across ECS tasks or durable across restarts. Swap with DynamoDB/Redis for production persistence.
+const memoryMappings = new Map<string, string>();
+const payloadFormats = new Map<string, string>();
 
 export function setMemoryMapping(agentId: string, memoryId: string) {
-  const mappings = loadMappings();
-  mappings[agentId] = memoryId;
-  saveMappings(mappings);
+  memoryMappings.set(agentId, memoryId);
 }
 
 export function removeMemoryMapping(agentId: string) {
-  const mappings = loadMappings();
-  delete mappings[agentId];
-  saveMappings(mappings);
+  memoryMappings.delete(agentId);
 }
 
 export function getMemoryMapping(agentId: string): string | null {
-  const mappings = loadMappings();
-  return mappings[agentId] || null;
+  return memoryMappings.get(agentId) || null;
 }
 
 export function getAllMemoryMappings(): Record<string, string> {
-  return loadMappings();
-}
-
-// Agent → Payload Format mapping (persisted to disk)
-const FORMATS_FILE = join(process.cwd(), ".payload-formats.json");
-
-function loadFormats(): Record<string, string> {
-  try {
-    if (existsSync(FORMATS_FILE)) {
-      return JSON.parse(readFileSync(FORMATS_FILE, "utf-8"));
-    }
-  } catch { /* ignore */ }
-  return {};
-}
-
-function saveFormats(formats: Record<string, string>) {
-  writeFileSync(FORMATS_FILE, JSON.stringify(formats, null, 2));
+  return Object.fromEntries(memoryMappings);
 }
 
 export function setPayloadFormat(agentId: string, format: string) {
-  const formats = loadFormats();
-  formats[agentId] = format;
-  saveFormats(formats);
+  payloadFormats.set(agentId, format);
 }
 
 export function getPayloadFormat(agentId: string): string | null {
-  const formats = loadFormats();
-  return formats[agentId] || null;
+  return payloadFormats.get(agentId) || null;
 }
 
 export function getAllPayloadFormats(): Record<string, string> {
-  return loadFormats();
+  return Object.fromEntries(payloadFormats);
 }
 
-/**
- * Get the currently active AWS region.
- */
-export function getActiveRegion(): string {
-  return activeRegion;
+function getBedrockClient(region: string): BedrockRuntimeClient {
+  let client = bedrockClients.get(region);
+  if (!client) {
+    client = new BedrockRuntimeClient({ region });
+    bedrockClients.set(region, client);
+  }
+  return client;
 }
 
-/**
- * Reset all SDK clients and caches — called when region changes.
- */
-export function resetClients(newRegion: string) {
-  activeRegion = newRegion;
-  bedrockClient = null;
-  agentCoreClient = null;
-  controlClient = null;
-  logsClient = null;
-  agentCache = null;
-  memoryCache = null;
-  logGroupCache = null;
+function getAgentCoreClient(region: string): BedrockAgentCoreClient {
+  let client = agentCoreClients.get(region);
+  if (!client) {
+    client = new BedrockAgentCoreClient({ region });
+    agentCoreClients.set(region, client);
+  }
+  return client;
 }
 
-function getBedrockClient(): BedrockRuntimeClient {
-  if (!bedrockClient) bedrockClient = new BedrockRuntimeClient({ region: activeRegion });
-  return bedrockClient;
+function getControlClient(region: string): BedrockAgentCoreControlClient {
+  let client = controlClients.get(region);
+  if (!client) {
+    client = new BedrockAgentCoreControlClient({ region });
+    controlClients.set(region, client);
+  }
+  return client;
 }
 
-function getAgentCoreClient(): BedrockAgentCoreClient {
-  if (!agentCoreClient) agentCoreClient = new BedrockAgentCoreClient({ region: activeRegion });
-  return agentCoreClient;
-}
-
-function getControlClient(): BedrockAgentCoreControlClient {
-  if (!controlClient) controlClient = new BedrockAgentCoreControlClient({ region: activeRegion });
-  return controlClient;
-}
-
-function getLogsClient(): CloudWatchLogsClient {
-  if (!logsClient) logsClient = new CloudWatchLogsClient({ region: activeRegion });
-  return logsClient;
+export function getLogsClient(region: string): CloudWatchLogsClient {
+  let client = logsClients.get(region);
+  if (!client) {
+    client = new CloudWatchLogsClient({ region });
+    logsClients.set(region, client);
+  }
+  return client;
 }
 
 // ─── Agent Discovery ───────────────────────────────────────────────────────────
@@ -167,19 +124,20 @@ export interface DiscoveredMemory {
   status: string;
 }
 
-// Cache with TTL
-let agentCache: { data: DiscoveredAgent[]; ts: number } | null = null;
-let memoryCache: { data: DiscoveredMemory[]; ts: number } | null = null;
-let logGroupCache: { data: string[]; ts: number } | null = null;
+// Per-region cache with TTL
+const agentCaches = new Map<string, { data: DiscoveredAgent[]; ts: number }>();
+const memoryCaches = new Map<string, { data: DiscoveredMemory[]; ts: number }>();
+const logGroupCaches = new Map<string, { data: string[]; ts: number }>();
 const CACHE_TTL = 60_000; // 60 seconds
 
 /**
  * Discover all agents (harnesses + runtimes) in the account.
  */
-export async function discoverAgents(): Promise<DiscoveredAgent[]> {
-  if (agentCache && Date.now() - agentCache.ts < CACHE_TTL) return agentCache.data;
+export async function discoverAgents(region: string = DEFAULT_REGION): Promise<DiscoveredAgent[]> {
+  const cached = agentCaches.get(region);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
 
-  const client = getControlClient();
+  const client = getControlClient(region);
   const agents: DiscoveredAgent[] = [];
 
   // List harnesses
@@ -223,16 +181,16 @@ export async function discoverAgents(): Promise<DiscoveredAgent[]> {
     console.error("Failed to list runtimes:", err);
   }
 
-  agentCache = { data: agents, ts: Date.now() };
+  agentCaches.set(region, { data: agents, ts: Date.now() });
   return agents;
 }
 
 /**
  * Get detailed info for a specific harness agent (model, tools, system prompt).
  */
-export async function getHarnessDetail(harnessId: string): Promise<Partial<DiscoveredAgent>> {
+export async function getHarnessDetail(harnessId: string, region: string = DEFAULT_REGION): Promise<Partial<DiscoveredAgent>> {
   try {
-    const client = getControlClient();
+    const client = getControlClient(region);
     const res = await client.send(new GetHarnessCommand({ harnessId }));
     const h = res.harness;
     if (!h) return {};
@@ -277,9 +235,9 @@ export async function getHarnessDetail(harnessId: string): Promise<Partial<Disco
 /**
  * Get runtime detail — extracts memory ID from env vars or runtime config.
  */
-export async function getRuntimeDetail(runtimeId: string): Promise<Partial<DiscoveredAgent>> {
+export async function getRuntimeDetail(runtimeId: string, region: string = DEFAULT_REGION): Promise<Partial<DiscoveredAgent>> {
   try {
-    const client = getControlClient();
+    const client = getControlClient(region);
     const res = await client.send(new GetAgentRuntimeCommand({ agentRuntimeId: runtimeId }));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rt = res as any;
@@ -326,18 +284,19 @@ export async function getRuntimeDetail(runtimeId: string): Promise<Partial<Disco
 /**
  * Discover all memory resources in the account.
  */
-export async function discoverMemories(): Promise<DiscoveredMemory[]> {
-  if (memoryCache && Date.now() - memoryCache.ts < CACHE_TTL) return memoryCache.data;
+export async function discoverMemories(region: string = DEFAULT_REGION): Promise<DiscoveredMemory[]> {
+  const cached = memoryCaches.get(region);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
 
   try {
-    const client = getControlClient();
+    const client = getControlClient(region);
     const res = await client.send(new ListMemoriesCommand({ maxResults: 100 }));
     const memories = (res.memories || []).map((m) => ({
       id: m.id || "",
       arn: m.arn,
       status: m.status || "UNKNOWN",
     }));
-    memoryCache = { data: memories, ts: Date.now() };
+    memoryCaches.set(region, { data: memories, ts: Date.now() });
     return memories;
   } catch (err) {
     console.error("Failed to list memories:", err);
@@ -349,29 +308,29 @@ export async function discoverMemories(): Promise<DiscoveredMemory[]> {
  * Find the memory ID associated with an agent by naming convention.
  * Convention: memory ID contains agent name or ID substring.
  */
-export async function findMemoryForAgent(agentId: string): Promise<string | null> {
+export async function findMemoryForAgent(agentId: string, region: string = DEFAULT_REGION): Promise<string | null> {
   // Strategy 1: User-defined mapping (fastest, persisted to disk)
   const mapped = getMemoryMapping(agentId);
   if (mapped) return mapped;
 
   // Strategy 2: Pull memory ID from agent config (harness memory field, runtime env vars)
-  const agents = await discoverAgents();
+  const agents = await discoverAgents(region);
   const agent = agents.find((a) => a.id === agentId);
 
   if (agent?.type === "harness") {
-    const detail = await getHarnessDetail(agentId);
+    const detail = await getHarnessDetail(agentId, region);
     if (detail.memoryId) return detail.memoryId;
   }
 
   if (agent?.type === "runtime") {
-    const runtimeDetail = await getRuntimeDetail(agentId);
+    const runtimeDetail = await getRuntimeDetail(agentId, region);
     if (runtimeDetail.memoryId) return runtimeDetail.memoryId;
   }
 
   if (agent?.memoryId) return agent.memoryId;
 
   // Strategy 3: Name-based matching — convention is {agentName}_mem-{suffix}
-  const memories = await discoverMemories();
+  const memories = await discoverMemories(region);
   if (memories.length === 0) return null;
 
   // 3a: Precise prefix match using agentId base name (strips trailing -randomSuffix)
@@ -398,11 +357,12 @@ export async function findMemoryForAgent(agentId: string): Promise<string | null
 /**
  * Discover CloudWatch log groups for AgentCore runtimes.
  */
-export async function discoverLogGroups(): Promise<string[]> {
-  if (logGroupCache && Date.now() - logGroupCache.ts < CACHE_TTL) return logGroupCache.data;
+export async function discoverLogGroups(region: string = DEFAULT_REGION): Promise<string[]> {
+  const cached = logGroupCaches.get(region);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
 
   try {
-    const client = getLogsClient();
+    const client = getLogsClient(region);
     const res = await client.send(
       new DescribeLogGroupsCommand({
         logGroupNamePrefix: "/aws/bedrock-agentcore/runtimes/",
@@ -410,7 +370,7 @@ export async function discoverLogGroups(): Promise<string[]> {
       })
     );
     const groups = (res.logGroups || []).map((g) => g.logGroupName!).filter(Boolean);
-    logGroupCache = { data: groups, ts: Date.now() };
+    logGroupCaches.set(region, { data: groups, ts: Date.now() });
     return groups;
   } catch (err) {
     console.error("Failed to discover log groups:", err);
@@ -421,14 +381,14 @@ export async function discoverLogGroups(): Promise<string[]> {
 /**
  * Find the log group for an agent by matching its name/ID in the log group path.
  */
-export async function findLogGroupForAgent(agentId: string, agentName?: string): Promise<string | null> {
-  const groups = await discoverLogGroups();
+export async function findLogGroupForAgent(agentId: string, agentName?: string, region: string = DEFAULT_REGION): Promise<string | null> {
+  const groups = await discoverLogGroups(region);
   if (groups.length === 0) return null;
 
   // Get agent name from discovery cache if not provided
   let name = agentName;
   if (!name) {
-    const agents = await discoverAgents();
+    const agents = await discoverAgents(region);
     const agent = agents.find((a) => a.id === agentId);
     name = agent?.name;
   }
@@ -462,9 +422,10 @@ export async function findLogGroupForAgent(agentId: string, agentName?: string):
  */
 export async function streamBuilderConverse(
   messages: Array<{ role: string; content: string }>,
-  systemPrompt: string
+  systemPrompt: string,
+  region: string = DEFAULT_REGION
 ): Promise<ReadableStream> {
-  const client = getBedrockClient();
+  const client = getBedrockClient(region);
   const encoder = new TextEncoder();
 
   const converseMessages = messages.map((m) => ({
@@ -547,8 +508,10 @@ export async function invokeAgentRuntime(params: {
   prompt: string;
   sessionId: string;
   payloadFormat?: PayloadFormat | string;
+  region?: string;
 }): Promise<ReadableStream> {
-  const client = getAgentCoreClient();
+  const region = params.region || DEFAULT_REGION;
+  const client = getAgentCoreClient(region);
   const encoder = new TextEncoder();
 
   const payload = buildRuntimePayload(params.prompt, params.sessionId, params.payloadFormat);
@@ -625,8 +588,10 @@ export async function invokeHarnessAgent(params: {
   sessionId: string;
   systemPrompt?: string;
   history?: Array<{ role: string; content: string }>;
+  region?: string;
 }): Promise<ReadableStream> {
-  const client = getAgentCoreClient();
+  const region = params.region || DEFAULT_REGION;
+  const client = getAgentCoreClient(region);
   const encoder = new TextEncoder();
 
   const { InvokeHarnessCommand } = await import("@aws-sdk/client-bedrock-agentcore");

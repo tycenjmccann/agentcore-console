@@ -1,21 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  CloudWatchLogsClient,
   DescribeLogStreamsCommand,
   GetLogEventsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
-import { getActiveRegion, findLogGroupForAgent } from "@/lib/agentcore-sdk";
-
-let logsClient: CloudWatchLogsClient | null = null;
-let logsClientRegion: string | null = null;
-function getLogsClient(): CloudWatchLogsClient {
-  const region = getActiveRegion();
-  if (!logsClient || logsClientRegion !== region) {
-    logsClient = new CloudWatchLogsClient({ region });
-    logsClientRegion = region;
-  }
-  return logsClient;
-}
+import { findLogGroupForAgent, getLogsClient, DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
 // In-memory cache for recently captured traces (immediate availability during streaming)
 // Bounded: max 100 entries, 5-minute TTL per entry
@@ -69,6 +57,7 @@ interface TraceRecord {
  * Priority: in-memory real-time cache → CloudWatch runtime logs for the agent.
  */
 export async function GET(req: NextRequest) {
+  const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
   const sessionId = req.nextUrl.searchParams.get("session_id");
   const agentId = req.nextUrl.searchParams.get("agent_id");
 
@@ -85,7 +74,7 @@ export async function GET(req: NextRequest) {
   // Fall back to CloudWatch runtime logs for the agent
   if (agentId) {
     try {
-      const traces = await queryAgentRuntimeLogs(agentId, sessionId);
+      const traces = await queryAgentRuntimeLogs(agentId, sessionId, region);
       if (traces.length > 0) {
         return NextResponse.json({ traces, source: "cloudwatch_logs" });
       }
@@ -120,11 +109,11 @@ export async function POST(req: NextRequest) {
  * Uses DescribeLogStreams + GetLogEvents (works without StartQuery/FilterLogEvents permissions).
  * Filters for log lines mentioning the session ID when possible.
  */
-async function queryAgentRuntimeLogs(agentId: string, sessionId: string): Promise<TraceRecord[]> {
-  const logGroup = await findLogGroupForAgent(agentId);
+async function queryAgentRuntimeLogs(agentId: string, sessionId: string, region: string): Promise<TraceRecord[]> {
+  const logGroup = await findLogGroupForAgent(agentId, undefined, region);
   if (!logGroup) return [];
 
-  const client = getLogsClient();
+  const client = getLogsClient(region);
 
   const streamsRes = await client.send(
     new DescribeLogStreamsCommand({
@@ -161,7 +150,7 @@ async function queryAgentRuntimeLogs(agentId: string, sessionId: string): Promis
       allTraces.push({
         id: `log_${event.timestamp}_${Math.random().toString(36).slice(2, 8)}`,
         event: categorizeLogLine(msg),
-        name: msg.length > 140 ? msg.slice(0, 140) + "…" : msg,
+        name: msg.length > 140 ? msg.slice(0, 140) + "\u2026" : msg,
         timestamp: new Date(event.timestamp || 0).toISOString(),
       });
     }

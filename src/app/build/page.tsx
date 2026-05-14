@@ -54,10 +54,16 @@ export default function BuildPage() {
       { id: agentMsgId, role: "agent", content: "", timestamp: new Date().toISOString() },
     ]);
 
+    // Build history from previous messages (exclude the latest user message we just added)
+    const history = messages
+      .filter((m) => m.id !== "welcome" && m.content.trim())
+      .map((m) => ({ role: m.role === "agent" ? "assistant" : "user", content: m.content }));
+
     try {
       await streamBuilderChat({
         prompt: input,
         sessionId,
+        history,
         onChunk: (chunk) => {
           setMessages((prev) =>
             prev.map((msg) =>

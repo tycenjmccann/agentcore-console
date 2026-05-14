@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { invokeAgentRuntime, invokeHarnessAgent, getPayloadFormat } from "@/lib/agentcore-sdk";
+import { invokeAgentRuntime, invokeHarnessAgent, getPayloadFormat, DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
 /**
  * POST /api/agentcore/invoke
@@ -7,6 +7,7 @@ import { invokeAgentRuntime, invokeHarnessAgent, getPayloadFormat } from "@/lib/
  * Detects harness agents (name starts with "harness_") and routes accordingly.
  */
 export async function POST(req: NextRequest) {
+  const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
   let body;
   try {
     body = await req.json();
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
         sessionId: sid,
         systemPrompt,
         history,
+        region,
       });
     } else if (agentRuntimeArn) {
       // Regular runtime agents use InvokeAgentRuntime
@@ -43,6 +45,7 @@ export async function POST(req: NextRequest) {
         prompt,
         sessionId: sid,
         payloadFormat: resolvedFormat,
+        region,
       });
     } else {
       return Response.json({ error: "agentRuntimeArn or isHarness required" }, { status: 400 });

@@ -4,15 +4,15 @@ import {
   ListSessionsCommand,
   ListActorsCommand,
 } from "@aws-sdk/client-bedrock-agentcore";
-import { findMemoryForAgent, getActiveRegion } from "@/lib/agentcore-sdk";
+import { findMemoryForAgent, DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
-let client: BedrockAgentCoreClient | null = null;
-let clientRegion: string | null = null;
-function getClient() {
-  const region = getActiveRegion();
-  if (!client || clientRegion !== region) {
+// Per-region client cache
+const clients = new Map<string, BedrockAgentCoreClient>();
+function getClient(region: string) {
+  let client = clients.get(region);
+  if (!client) {
     client = new BedrockAgentCoreClient({ region });
-    clientRegion = region;
+    clients.set(region, client);
   }
   return client;
 }
@@ -22,18 +22,19 @@ function getClient() {
  * Lists sessions for a given agent from AgentCore Memory
  */
 export async function GET(req: NextRequest) {
+  const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
   const agentId = req.nextUrl.searchParams.get("agent_id");
   if (!agentId) {
     return NextResponse.json({ error: "agent_id required" }, { status: 400 });
   }
 
-  const memoryId = await findMemoryForAgent(agentId);
+  const memoryId = await findMemoryForAgent(agentId, region);
   if (!memoryId) {
     return NextResponse.json({ sessions: [] });
   }
 
   try {
-    const c = getClient();
+    const c = getClient(region);
 
     // Get actors
     const actorsRes = await c.send(new ListActorsCommand({ memoryId }));

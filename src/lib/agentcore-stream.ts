@@ -1,6 +1,8 @@
 // AgentCore streaming client - ported from sample-amazon-bedrock-agentcore-fullstack-webapp
 // Handles SSE streaming for agent invocations
 
+import { getClientRegion } from "@/lib/client-cache";
+
 export interface TraceEvent {
   type: "trace";
   event: string;
@@ -38,6 +40,7 @@ export interface AgentInfo {
 export interface BuilderStreamRequest {
   prompt: string;
   sessionId?: string;
+  history?: Array<{ role: string; content: string }>;
   onChunk: (chunk: string) => void;
   onConfig?: (config: HarnessConfig) => void;
   onDone?: (fullResponse: string) => void;
@@ -61,7 +64,7 @@ export interface HarnessConfig {
 export async function streamAgentInvocation(request: StreamRequest): Promise<string> {
   const response = await fetch("/api/agentcore/invoke", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-aws-region": getClientRegion() },
     body: JSON.stringify({
       agentRuntimeArn: request.agentArn,
       agentId: request.agentId,
@@ -154,10 +157,11 @@ export async function streamAgentInvocation(request: StreamRequest): Promise<str
 export async function streamBuilderChat(request: BuilderStreamRequest): Promise<string> {
   const response = await fetch("/api/agentcore/builder", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-aws-region": getClientRegion() },
     body: JSON.stringify({
       prompt: request.prompt,
       sessionId: request.sessionId,
+      history: request.history,
     }),
   });
 
@@ -232,7 +236,7 @@ export function parseHarnessConfig(text: string): HarnessConfig | null {
  * List available agents from AgentCore
  */
 export async function listAgentCoreAgents(): Promise<AgentInfo[]> {
-  const response = await fetch("/api/agentcore/agents");
+  const response = await fetch("/api/agentcore/agents", { headers: { "x-aws-region": getClientRegion() } });
   if (!response.ok) return [];
   return response.json();
 }
@@ -243,7 +247,7 @@ export async function listAgentCoreAgents(): Promise<AgentInfo[]> {
 export async function deployHarnessAgent(config: HarnessConfig): Promise<{ agentId: string; status: string }> {
   const response = await fetch("/api/agentcore/deploy", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-aws-region": getClientRegion() },
     body: JSON.stringify(config),
   });
 

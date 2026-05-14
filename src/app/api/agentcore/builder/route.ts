@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { invokeHarnessAgent, streamBuilderConverse } from "@/lib/agentcore-sdk";
+import { invokeHarnessAgent, streamBuilderConverse, DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
 /**
  * POST /api/agentcore/builder
@@ -49,6 +49,7 @@ Available tool types: code_editor, terminal, file_search, git, web_search, brows
 Be conversational but efficient. Generate the config as soon as you have enough information.`;
 
 export async function POST(req: NextRequest) {
+  const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
   let body;
   try {
     body = await req.json();
@@ -64,11 +65,11 @@ export async function POST(req: NextRequest) {
   try {
     // If builder harness is deployed, use it (real agent with tools + memory)
     if (BUILDER_AGENT_ID) {
-      return await invokeBuilderHarness(prompt, sessionId, history);
+      return await invokeBuilderHarness(prompt, sessionId, history, region);
     }
 
     // Fallback: direct Converse API (no tools, no memory)
-    return await invokeFallbackConverse(prompt, history);
+    return await invokeFallbackConverse(prompt, history, region);
   } catch (error) {
     console.error("Builder error:", error);
     return Response.json(
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
  * Invoke the Builder Agent harness — has access to list_agents, list_gateway_tools,
  * create_harness, list_memories, get_agent_detail tools via gateway.
  */
-async function invokeBuilderHarness(prompt: string, sessionId?: string, history?: Array<{ role: string; content: string }>) {
+async function invokeBuilderHarness(prompt: string, sessionId: string | undefined, history: Array<{ role: string; content: string }> | undefined, region: string) {
   const sid = sessionId || `builder-${crypto.randomUUID()}-${Date.now()}`;
 
   // Build history for the harness
@@ -92,7 +93,6 @@ async function invokeBuilderHarness(prompt: string, sessionId?: string, history?
   }));
 
   // Resolve harness ARN — we need the full ARN
-  const region = process.env.AWS_REGION || "us-east-1";
   const { STSClient, GetCallerIdentityCommand } = await import("@aws-sdk/client-sts");
   const sts = new STSClient({ region });
   const identity = await sts.send(new GetCallerIdentityCommand({}));
@@ -104,6 +104,7 @@ async function invokeBuilderHarness(prompt: string, sessionId?: string, history?
     prompt,
     sessionId: sid,
     history: harnessHistory,
+    region,
   });
 
   return new Response(stream, {
@@ -118,7 +119,7 @@ async function invokeBuilderHarness(prompt: string, sessionId?: string, history?
 /**
  * Fallback: direct Converse API without tools/memory.
  */
-async function invokeFallbackConverse(prompt: string, history?: Array<{ role: string; content: string }>) {
+async function invokeFallbackConverse(prompt: string, history: Array<{ role: string; content: string }> | undefined, region: string) {
   const messages: Array<{ role: string; content: string }> = [];
   if (history && Array.isArray(history)) {
     for (const msg of history) {
@@ -127,7 +128,7 @@ async function invokeFallbackConverse(prompt: string, history?: Array<{ role: st
   }
   messages.push({ role: "user", content: prompt });
 
-  const stream = await streamBuilderConverse(messages, FALLBACK_SYSTEM_PROMPT);
+  const stream = await streamBuilderConverse(messages, FALLBACK_SYSTEM_PROMPT, region);
 
   return new Response(stream, {
     headers: {
