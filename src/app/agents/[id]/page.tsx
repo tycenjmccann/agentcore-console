@@ -7,6 +7,8 @@ import {
   Activity, CheckCircle2, Database,
 } from "lucide-react";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { streamAgentInvocation, AgentInfo, TraceEvent } from "@/lib/agentcore-stream";
 import { cachedFetch, getCached } from "@/lib/client-cache";
 
@@ -654,7 +656,9 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                   {msg.role === "agent" && msg.agent_name && (
                     <p className="text-xs text-brand-400 mb-1 font-medium">{msg.agent_name}</p>
                   )}
-                  <p className="text-sm text-gray-200 whitespace-pre-wrap">{msg.content}</p>
+                  <div className="text-sm text-gray-200 prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-code:text-cyan-300 prose-code:bg-surface-1 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-surface-1 prose-pre:border prose-pre:border-surface-4 prose-a:text-brand-400">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                  </div>
                   {msg.role === "agent" && msg.content === "" && isStreaming && (
                     <div className="flex gap-1">
                       <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />

@@ -70,6 +70,37 @@ export function getAllMemoryMappings(): Record<string, string> {
   return loadMappings();
 }
 
+// Agent → Payload Format mapping (persisted to disk)
+const FORMATS_FILE = join(process.cwd(), ".payload-formats.json");
+
+function loadFormats(): Record<string, string> {
+  try {
+    if (existsSync(FORMATS_FILE)) {
+      return JSON.parse(readFileSync(FORMATS_FILE, "utf-8"));
+    }
+  } catch { /* ignore */ }
+  return {};
+}
+
+function saveFormats(formats: Record<string, string>) {
+  writeFileSync(FORMATS_FILE, JSON.stringify(formats, null, 2));
+}
+
+export function setPayloadFormat(agentId: string, format: string) {
+  const formats = loadFormats();
+  formats[agentId] = format;
+  saveFormats(formats);
+}
+
+export function getPayloadFormat(agentId: string): string | null {
+  const formats = loadFormats();
+  return formats[agentId] || null;
+}
+
+export function getAllPayloadFormats(): Record<string, string> {
+  return loadFormats();
+}
+
 /**
  * Get the currently active AWS region.
  */
@@ -476,21 +507,51 @@ export async function streamBuilderConverse(
 /**
  * Invoke a deployed AgentCore Runtime agent (non-harness).
  */
+/**
+ * Supported runtime payload formats.
+ * Agents can declare their format, or we'll try the most common ones.
+ */
+export type PayloadFormat = "prompt" | "messages" | "input_text" | "query" | "custom";
+
+const PAYLOAD_BUILDERS: Record<string, (prompt: string, sessionId: string) => object> = {
+  // Most common: simple prompt field
+  prompt: (prompt) => ({ prompt }),
+  // Converse-style messages array
+  messages: (prompt) => ({ messages: [{ role: "user", content: [{ text: prompt }] }] }),
+  // Simple input.text pattern
+  input_text: (prompt) => ({ input: { text: prompt } }),
+  // Query pattern (RAG agents)
+  query: (prompt) => ({ query: prompt }),
+};
+
+/**
+ * Build the invoke payload for a runtime agent.
+ * If format is specified, use it directly. Otherwise default to "prompt".
+ * The "custom" format passes the prompt as-is (for agents that expect raw JSON input from the user).
+ */
+function buildRuntimePayload(prompt: string, sessionId: string, format?: PayloadFormat | string): string {
+  if (format === "custom") {
+    // User is expected to send valid JSON as the prompt
+    try { JSON.parse(prompt); return prompt; } catch { /* fall through to prompt format */ }
+  }
+  // Auto-detect: if prompt is already valid JSON and no explicit format, send as-is
+  if (!format) {
+    try { JSON.parse(prompt); return prompt; } catch { /* not JSON, use default builder */ }
+  }
+  const builder = PAYLOAD_BUILDERS[format || "prompt"] || PAYLOAD_BUILDERS.prompt;
+  return JSON.stringify(builder(prompt, sessionId));
+}
+
 export async function invokeAgentRuntime(params: {
   agentRuntimeArn: string;
   prompt: string;
   sessionId: string;
+  payloadFormat?: PayloadFormat | string;
 }): Promise<ReadableStream> {
   const client = getAgentCoreClient();
   const encoder = new TextEncoder();
 
-  let payload: string;
-  try {
-    JSON.parse(params.prompt);
-    payload = params.prompt; // already valid JSON — send as-is (matches CLI behavior)
-  } catch {
-    payload = JSON.stringify({ prompt: params.prompt });
-  }
+  const payload = buildRuntimePayload(params.prompt, params.sessionId, params.payloadFormat);
 
   const command = new InvokeAgentRuntimeCommand({
     agentRuntimeArn: params.agentRuntimeArn,
@@ -517,10 +578,27 @@ export async function invokeAgentRuntime(params: {
             let text = body;
             try {
               const parsed = JSON.parse(body);
+              // Handle various response structures from different agent frameworks
               if (parsed.result?.content) {
+                // MCP/A2A style: { result: { content: [{ text: "..." }] } }
                 text = parsed.result.content.map((b: { text?: string }) => b.text || "").join("");
+              } else if (parsed.output?.text) {
+                // Simple output style: { output: { text: "..." } }
+                text = parsed.output.text;
+              } else if (parsed.output?.message?.content) {
+                // Converse output: { output: { message: { content: [{ text: "..." }] } } }
+                text = parsed.output.message.content.map((b: { text?: string }) => b.text || "").join("");
+              } else if (parsed.completion) {
+                // Completion style: { completion: "..." }
+                text = parsed.completion;
               } else if (parsed.response) {
-                text = typeof parsed.response === "string" ? parsed.response : JSON.stringify(parsed.response);
+                // Generic response field
+                text = typeof parsed.response === "string" ? parsed.response : JSON.stringify(parsed.response, null, 2);
+              } else if (parsed.answer) {
+                // Q&A style: { answer: "..." }
+                text = parsed.answer;
+              } else if (typeof parsed === "string") {
+                text = parsed;
               }
             } catch { /* use raw body */ }
             const data = JSON.stringify({ type: "text", content: text });

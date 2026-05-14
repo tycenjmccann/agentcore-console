@@ -52,6 +52,91 @@ The app uses the standard AWS credential chain — no secrets in env files.
 
 ---
 
+## Multi-Format Agent Invocation
+
+Different agents expect different payload structures. The console auto-handles this with configurable payload formats per agent.
+
+### Supported Request Formats
+
+| Format | Payload Sent | Use Case |
+|--------|---|---|
+| `prompt` (default) | `{"prompt": "..."}` | Most custom agents |
+| `messages` | `{"messages": [{"role":"user","content":[{"text":"..."}]}]}` | Converse-style agents |
+| `input_text` | `{"input": {"text": "..."}}` | Simple input agents |
+| `query` | `{"query": "..."}` | RAG agents |
+| `custom` | Raw user input as JSON | Agents expecting custom JSON structs |
+
+### Supported Response Formats (auto-detected)
+
+The console parses agent responses in any of these shapes:
+- SSE streams (`data: ...` lines)
+- `{ result: { content: [{ text: "..." }] } }` — MCP/A2A style
+- `{ output: { message: { content: [{ text: "..." }] } } }` — Converse output
+- `{ output: { text: "..." } }` — Simple output
+- `{ completion: "..." }` — Completion style
+- `{ response: "..." }` — Generic response
+- `{ answer: "..." }` — Q&A style
+- Raw text fallback
+
+### Configuring Per-Agent Format
+
+```bash
+# Set format for a specific agent
+curl -X POST http://localhost:3000/api/agentcore/payload-format \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "my-agent-id", "format": "messages"}'
+
+# Check current format
+curl http://localhost:3000/api/agentcore/payload-format?agent_id=my-agent-id
+```
+
+Format is persisted in `.payload-formats.json` and used automatically on all subsequent invocations. Can also be passed per-request via the `payloadFormat` field in the invoke body.
+
+### Adding a New Invoke Pattern
+
+If your agent uses a payload structure not listed above, add it in two places:
+
+**1. Request format** — `src/lib/agentcore-sdk.ts`, in the `PAYLOAD_BUILDERS` object:
+
+```typescript
+// In src/lib/agentcore-sdk.ts, find the PAYLOAD_BUILDERS constant:
+const PAYLOAD_BUILDERS: Record<string, (prompt: string, sessionId: string) => object> = {
+  prompt: (prompt) => ({ prompt }),
+  messages: (prompt) => ({ messages: [{ role: "user", content: [{ text: prompt }] }] }),
+  input_text: (prompt) => ({ input: { text: prompt } }),
+  query: (prompt) => ({ query: prompt }),
+  // ADD YOUR FORMAT HERE:
+  my_format: (prompt) => ({ my_field: { nested: prompt }, session: sessionId }),
+};
+```
+
+**2. Response format** — same file, in the response parsing block (search for `// Handle various response structures`):
+
+```typescript
+// Add a new else-if for your agent's response shape:
+} else if (parsed.my_response_field?.text) {
+  text = parsed.my_response_field.text;
+}
+```
+
+**3. Register the format name** — `src/app/api/agentcore/payload-format/route.ts`, add your format name to the `valid` array:
+
+```typescript
+const valid = ["prompt", "messages", "input_text", "query", "custom", "my_format"];
+```
+
+**4. Configure your agent to use it:**
+
+```bash
+curl -X POST http://localhost:3000/api/agentcore/payload-format \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "your-agent-id", "format": "my_format"}'
+```
+
+That's it — the console will now use your custom format for that agent on every invocation.
+
+---
+
 ## Routing Demo (Agent Skills)
 
 The Routing tab demonstrates end-to-end agent orchestration with **dynamic skill loading**:

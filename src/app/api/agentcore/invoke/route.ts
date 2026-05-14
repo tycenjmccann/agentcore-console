@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { invokeAgentRuntime, invokeHarnessAgent } from "@/lib/agentcore-sdk";
+import { invokeAgentRuntime, invokeHarnessAgent, getPayloadFormat } from "@/lib/agentcore-sdk";
 
 /**
  * POST /api/agentcore/invoke
@@ -7,7 +7,7 @@ import { invokeAgentRuntime, invokeHarnessAgent } from "@/lib/agentcore-sdk";
  * Detects harness agents (name starts with "harness_") and routes accordingly.
  */
 export async function POST(req: NextRequest) {
-  const { agentRuntimeArn, agentId, prompt, sessionId, isHarness, systemPrompt, history } = await req.json();
+  const { agentRuntimeArn, agentId, prompt, sessionId, isHarness, systemPrompt, history, payloadFormat } = await req.json();
 
   if (!prompt) {
     return Response.json({ error: "prompt is required" }, { status: 400 });
@@ -29,10 +29,14 @@ export async function POST(req: NextRequest) {
       });
     } else if (agentRuntimeArn) {
       // Regular runtime agents use InvokeAgentRuntime
+      // Resolve payload format: explicit param > saved config > default "prompt"
+      const agentKey = agentId || agentRuntimeArn.split("/").pop() || "";
+      const resolvedFormat = payloadFormat || getPayloadFormat(agentKey) || undefined;
       stream = await invokeAgentRuntime({
         agentRuntimeArn,
         prompt,
         sessionId: sid,
+        payloadFormat: resolvedFormat,
       });
     } else {
       return Response.json({ error: "agentRuntimeArn or isHarness required" }, { status: 400 });
