@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, use } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ArrowLeft, Bot, Brain, Cpu, Server, Wrench, Send, User, Plus, Clock,
   MessageSquare, Loader2, Terminal, Zap, ChevronRight, ChevronDown,
@@ -46,8 +46,8 @@ interface TraceStep {
   details?: Record<string, unknown>;
 }
 
-export default function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id: agentId } = use(params);
+export default function AgentDetailPage({ params }: { params: { id: string } }) {
+  const agentId = params.id;
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
