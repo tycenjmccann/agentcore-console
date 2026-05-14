@@ -121,13 +121,19 @@ export async function discoverAgents(): Promise<DiscoveredAgent[]> {
     console.error("Failed to list harnesses:", err);
   }
 
-  // List runtimes
+  // List runtimes (filter out harness-backing runtimes — those are implementation details)
+  const harnessNames = new Set(agents.map((a) => a.name));
   try {
     const runtimeRes = await client.send(new ListAgentRuntimesCommand({ maxResults: 100 }));
     for (const r of runtimeRes.agentRuntimes || []) {
+      const name = r.agentRuntimeName || r.agentRuntimeId!;
+      // Skip runtimes that are backing endpoints for harnesses (pattern: "harness_<harnessName>")
+      if (name.startsWith("harness_") && harnessNames.has(name.replace("harness_", ""))) {
+        continue;
+      }
       agents.push({
         id: r.agentRuntimeId!,
-        name: r.agentRuntimeName || r.agentRuntimeId!,
+        name,
         arn: r.agentRuntimeArn!,
         type: "runtime",
         status: r.status || "UNKNOWN",
