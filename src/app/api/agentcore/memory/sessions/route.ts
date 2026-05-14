@@ -65,10 +65,22 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Sort by createdAt descending
-    allSessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Deduplicate by sessionId (same session can appear under multiple actors)
+    // Keep the most recent entry for each session ID
+    const deduped = new Map<string, typeof allSessions[0]>();
+    for (const s of allSessions) {
+      const existing = deduped.get(s.sessionId);
+      if (!existing || new Date(s.createdAt) > new Date(existing.createdAt)) {
+        deduped.set(s.sessionId, s);
+      }
+    }
 
-    return NextResponse.json({ sessions: allSessions });
+    // Sort by createdAt descending
+    const sorted = Array.from(deduped.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    return NextResponse.json({ sessions: sorted });
   } catch (error) {
     console.error("Memory sessions error:", error);
     return NextResponse.json({ sessions: [] });

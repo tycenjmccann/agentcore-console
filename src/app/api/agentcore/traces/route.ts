@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   DescribeLogStreamsCommand,
   GetLogEventsCommand,
+  StartQueryCommand,
+  GetQueryResultsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 import { findLogGroupForAgent, getLogsClient, DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
@@ -83,6 +85,17 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Fall back to aws/spans OTEL log group (requires Transaction Search enabled)
+  try {
+    const traces = await queryOtelSpans(sessionId, region);
+    if (traces.length > 0) {
+      return NextResponse.json({ traces, source: "otel_spans" });
+    }
+  } catch (err) {
+    // Transaction Search not enabled or aws/spans doesn't exist — silent fallback
+    console.debug("OTEL spans query skipped:", (err as Error).message);
+  }
+
   return NextResponse.json({ traces: [], source: "empty" });
 }
 
@@ -159,6 +172,68 @@ async function queryAgentRuntimeLogs(agentId: string, sessionId: string, region:
   // Sort chronologically
   allTraces.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   return allTraces;
+}
+
+/**
+ * Query the aws/spans OTEL log group for traces matching a session ID.
+ * Requires Transaction Search to be enabled in the account.
+ */
+async function queryOtelSpans(sessionId: string, region: string): Promise<TraceRecord[]> {
+  const client = getLogsClient(region);
+  const logGroupName = "aws/spans";
+
+  // Use CloudWatch Logs Insights to find spans for this session
+  const endTime = Date.now();
+  const startTime = endTime - 14 * 24 * 60 * 60 * 1000; // 14 days back
+
+  const startRes = await client.send(new StartQueryCommand({
+    logGroupName,
+    startTime: Math.floor(startTime / 1000),
+    endTime: Math.floor(endTime / 1000),
+    queryString: `fields @timestamp, name, kind, status.code, attributes.session_id, duration
+      | filter attributes.session_id = "${sessionId}" or resource.attributes.session_id = "${sessionId}"
+      | sort @timestamp asc
+      | limit 100`,
+  }));
+
+  if (!startRes.queryId) return [];
+
+  // Poll for results (max 5s)
+  for (let i = 0; i < 10; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const results = await client.send(new GetQueryResultsCommand({ queryId: startRes.queryId }));
+
+    if (results.status === "Complete" || results.status === "Cancelled" || results.status === "Failed") {
+      if (!results.results || results.results.length === 0) return [];
+
+      return results.results.map((row, idx) => {
+        const fields: Record<string, string> = {};
+        for (const f of row) {
+          if (f.field && f.value) fields[f.field] = f.value;
+        }
+        return {
+          id: `otel_${idx}_${Date.now()}`,
+          event: categorizeOtelSpan(fields.name || "", fields["kind"] || ""),
+          name: fields.name || "span",
+          timestamp: fields["@timestamp"] || new Date().toISOString(),
+          duration: fields.duration ? parseFloat(fields.duration) : undefined,
+          details: fields,
+        };
+      });
+    }
+  }
+
+  return [];
+}
+
+function categorizeOtelSpan(name: string, kind: string): string {
+  const n = name.toLowerCase();
+  if (n.includes("tool") || n.includes("function")) return "tool_call";
+  if (n.includes("model") || n.includes("llm") || n.includes("converse") || n.includes("invoke_model")) return "model_call";
+  if (n.includes("memory") || n.includes("session")) return "service_call";
+  if (n.includes("error") || n.includes("fail")) return "error";
+  if (kind === "SERVER" || n.includes("request") || n.includes("invoke")) return "request";
+  return "span";
 }
 
 function categorizeLogLine(msg: string): string {
