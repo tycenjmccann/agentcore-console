@@ -77,6 +77,7 @@ export interface DiscoveredAgent {
   memoryId?: string;
   logGroup?: string;
   model?: string;
+  description?: string;
   systemPrompt?: string;
   tools?: Array<{ type: string; name?: string }>;
 }
@@ -164,7 +165,14 @@ export async function getHarnessDetail(harnessId: string): Promise<Partial<Disco
       name: t.remoteMcp?.url || t.inlineFunction?.name || t.type,
     })) || [];
 
-    return { model: modelId, systemPrompt, tools };
+    // Extract a short description from system prompt (first sentence or first 120 chars)
+    let description: string | undefined;
+    if (systemPrompt) {
+      const firstSentence = systemPrompt.match(/^[^.!?\n]+[.!?]?/)?.[0] || "";
+      description = firstSentence.length > 120 ? firstSentence.slice(0, 117) + "..." : firstSentence;
+    }
+
+    return { model: modelId, systemPrompt, tools, description };
   } catch (err) {
     console.error("Failed to get harness detail:", err);
     return {};

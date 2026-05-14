@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Bot, Brain, Cpu, Loader2 } from "lucide-react";
+import {
+  Bot, Brain, Cpu, Loader2, MessageSquare, Zap, Clock,
+  Timer, CheckCircle2, Wrench, Server,
+} from "lucide-react";
 import Link from "next/link";
 
-interface Agent {
+interface AgentDetail {
   id: string;
   name: string;
   arn: string;
@@ -12,26 +15,77 @@ interface Agent {
   status: string;
   createdAt?: string;
   updatedAt?: string;
+  memoryId?: string | null;
+  logGroup?: string | null;
+  model?: string;
+  description?: string;
+  tools?: Array<{ type: string; name?: string }>;
+}
+
+// Mock per-agent metrics — will wire to real APIs
+function getMockMetrics(agentId: string) {
+  // Use agent ID hash for deterministic mock data
+  const hash = agentId.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return {
+    sessions: (hash % 180) + 20,
+    tokensIn: ((hash * 7) % 500000) + 50000,
+    tokensOut: ((hash * 5) % 400000) + 40000,
+    ticketsResolved: (hash % 55) + 5,
+    avgDuration: (hash % 110) + 30,
+    totalDuration: ((hash * 13) % 18000) + 2000,
+  };
+}
+
+function formatNumber(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toString();
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  const hours = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  if (hours < 24) return `${hours}h ${mins}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agents, setAgents] = useState<AgentDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Fetch all agents, then enrich each with detail
     fetch("/api/agentcore/agents")
       .then((r) => {
         if (!r.ok) throw new Error(`API returned ${r.status}`);
         return r.json();
       })
-      .then((data) => {
+      .then(async (data) => {
         if (data.error) {
           setError(data.error);
           setAgents([]);
-        } else {
-          setAgents(Array.isArray(data) ? data : []);
+          return;
         }
+        const list = Array.isArray(data) ? data : [];
+        setAgents(list);
+
+        // Enrich each agent with detail (model, tools, description) in parallel
+        const enriched = await Promise.all(
+          list.map(async (agent: AgentDetail) => {
+            try {
+              const res = await fetch(`/api/agentcore/agents?id=${agent.id}`);
+              if (res.ok) {
+                const detail = await res.json();
+                return { ...agent, ...detail };
+              }
+            } catch { /* keep basic info */ }
+            return agent;
+          })
+        );
+        setAgents(enriched);
       })
       .catch((err) => {
         setError(err.message);
@@ -84,56 +138,135 @@ export default function AgentsPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {agents.map((agent) => (
-            <Link
-              key={agent.id}
-              href={`/agents/${agent.id}`}
-              className="card hover:border-brand-600/40 transition-colors group"
-              data-testid={`agent-card-${agent.id}`}
-            >
-              <div className="flex items-start gap-3">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                  agent.type === "harness" ? "bg-brand-600/20" : "bg-purple-600/20"
-                }`}>
-                  {agent.type === "harness" ? (
-                    <Brain className="w-5 h-5 text-brand-400" />
-                  ) : (
-                    <Cpu className="w-5 h-5 text-purple-400" />
-                  )}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {agents.map((agent) => {
+            const m = getMockMetrics(agent.id);
+            return (
+              <Link
+                key={agent.id}
+                href={`/agents/${agent.id}`}
+                className="card hover:border-brand-600/40 transition-colors group"
+                data-testid={`agent-card-${agent.id}`}
+              >
+                {/* Header row: icon, name, type, status */}
+                <div className="flex items-start gap-3">
+                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                    agent.type === "harness" ? "bg-brand-600/20" : "bg-purple-600/20"
+                  }`}>
+                    {agent.type === "harness" ? (
+                      <Brain className="w-6 h-6 text-brand-400" />
+                    ) : (
+                      <Cpu className="w-6 h-6 text-purple-400" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-base font-bold text-gray-100 group-hover:text-white truncate">
+                        {agent.name}
+                      </p>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded border flex-shrink-0 ${
+                        agent.type === "harness"
+                          ? "bg-brand-600/10 text-brand-400 border-brand-600/30"
+                          : "bg-purple-600/10 text-purple-400 border-purple-600/30"
+                      }`}>
+                        {agent.type.toUpperCase()}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border flex-shrink-0 ${
+                        agent.status === "ACTIVE" || agent.status === "READY"
+                          ? "bg-green-400/10 text-green-400 border-green-400/30"
+                          : "bg-gray-400/10 text-gray-400 border-gray-400/30"
+                      }`}>
+                        {agent.status}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-gray-600 font-mono mt-0.5">{agent.id}</p>
+                    {agent.description && (
+                      <p className="text-xs text-gray-400 mt-1.5 line-clamp-2">{agent.description}</p>
+                    )}
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-200 group-hover:text-white truncate">
-                    {agent.name}
-                  </p>
-                  <p className="text-[10px] text-gray-600 font-mono truncate mt-0.5">{agent.id}</p>
+
+                {/* Model & Tools row */}
+                {(agent.model || (agent.tools && agent.tools.length > 0)) && (
+                  <div className="mt-3 pt-3 border-t border-surface-4/50 flex items-center gap-4 text-[11px]">
+                    {agent.model && (
+                      <span className="text-gray-500 flex items-center gap-1 truncate">
+                        <Bot className="w-3 h-3 flex-shrink-0" />
+                        <span className="truncate">{agent.model.split("/").pop()?.split(":")[0] || agent.model}</span>
+                      </span>
+                    )}
+                    {agent.tools && agent.tools.length > 0 && (
+                      <span className="text-gray-500 flex items-center gap-1">
+                        <Wrench className="w-3 h-3 flex-shrink-0" />
+                        {agent.tools.length} tool{agent.tools.length !== 1 ? "s" : ""}
+                        {agent.tools.slice(0, 2).map((t, i) => (
+                          <span key={i} className="text-gray-600 ml-1 hidden md:inline">
+                            {i > 0 && "·"} {t.name || t.type}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                    {agent.memoryId && (
+                      <span className="text-gray-500 flex items-center gap-1">
+                        <Server className="w-3 h-3 flex-shrink-0" /> Memory
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Metrics row */}
+                <div className="mt-3 pt-3 border-t border-surface-4/50 grid grid-cols-3 md:grid-cols-6 gap-3">
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-1 mb-0.5">
+                      <MessageSquare className="w-3 h-3 text-brand-400" />
+                      <span className="text-[10px] text-gray-500">Sessions</span>
+                    </div>
+                    <p className="text-lg font-bold text-white">{m.sessions}</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-1 mb-0.5">
+                      <Zap className="w-3 h-3 text-cyan-400" />
+                      <span className="text-[10px] text-gray-500">Tokens</span>
+                    </div>
+                    <p className="text-sm font-semibold">
+                      <span className="text-cyan-300">{formatNumber(m.tokensIn)}</span>
+                      <span className="text-gray-600 mx-0.5">/</span>
+                      <span className="text-purple-300">{formatNumber(m.tokensOut)}</span>
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-1 mb-0.5">
+                      <CheckCircle2 className="w-3 h-3 text-green-400" />
+                      <span className="text-[10px] text-gray-500">Tickets</span>
+                    </div>
+                    <p className="text-lg font-bold text-green-400">{m.ticketsResolved}</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-1 mb-0.5">
+                      <Timer className="w-3 h-3 text-yellow-400" />
+                      <span className="text-[10px] text-gray-500">Avg</span>
+                    </div>
+                    <p className="text-sm font-semibold text-gray-200">{formatDuration(m.avgDuration)}</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-1 mb-0.5">
+                      <Clock className="w-3 h-3 text-emerald-400" />
+                      <span className="text-[10px] text-gray-500">Total</span>
+                    </div>
+                    <p className="text-lg font-bold text-emerald-300">{formatDuration(m.totalDuration)}</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-1 mb-0.5">
+                      <span className="text-[10px] text-gray-500">Updated</span>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      {agent.updatedAt ? new Date(agent.updatedAt).toLocaleDateString() : "—"}
+                    </p>
+                  </div>
                 </div>
-              </div>
-
-              <div className="flex items-center justify-between mt-4">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                  agent.type === "harness"
-                    ? "bg-brand-600/10 text-brand-400 border-brand-600/30"
-                    : "bg-purple-600/10 text-purple-400 border-purple-600/30"
-                }`}>
-                  {agent.type.toUpperCase()}
-                </span>
-                <span className={`text-xs px-2 py-0.5 rounded-full border ${
-                  agent.status === "ACTIVE" || agent.status === "READY"
-                    ? "bg-green-400/10 text-green-400 border-green-400/30"
-                    : "bg-gray-400/10 text-gray-400 border-gray-400/30"
-                }`}>
-                  {agent.status}
-                </span>
-              </div>
-
-              {agent.updatedAt && (
-                <p className="text-[10px] text-gray-600 mt-2">
-                  Updated {new Date(agent.updatedAt).toLocaleDateString()}
-                </p>
-              )}
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>
