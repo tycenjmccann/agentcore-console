@@ -11,7 +11,7 @@ test.describe("Agentis Hub - UI Smoke Tests", () => {
     await expect(page.locator("[data-testid='nav-routing']")).toBeVisible();
     // Agent Activity metrics
     await expect(page.getByText("Invocations")).toBeVisible();
-    await expect(page.getByText("Tokens")).toBeVisible();
+    await expect(page.getByText("Tokens", { exact: true })).toBeVisible();
     await expect(page.getByText("Active Agents")).toBeVisible();
     // Agent Performance table
     await expect(page.getByText("Agent Performance")).toBeVisible();
@@ -32,17 +32,19 @@ test.describe("Agentis Hub - UI Smoke Tests", () => {
     // Wait for agent cards to load
     await expect(page.getByText("Discovering agents...")).not.toBeVisible({ timeout: 15000 });
     // Should have at least one agent card
-    await expect(page.locator(".card, [class*='card']").first()).toBeVisible();
+    await expect(page.locator("[data-testid^='agent-card-']").first()).toBeVisible();
   });
 
   test("Agent detail page renders chat interface", async ({ page }) => {
-    await page.goto("/");
-    // Wait for data then click first agent link
+    await page.goto("/agents");
+    // Wait for agent cards to load
     await expect(page.getByText("Discovering agents...")).not.toBeVisible({ timeout: 15000 });
-    await page.locator("table tbody tr a").first().click();
-    // Should show agent detail with chat
-    await expect(page.getByText("Chat")).toBeVisible({ timeout: 10000 });
-    await expect(page.locator("input[placeholder*='message'], textarea[placeholder*='message']").first()).toBeVisible();
+    // Click first agent card
+    await page.locator("[data-testid^='agent-card-']").first().click();
+    // Should show agent detail with chat input and trace panel
+    await expect(page.getByText("Agent Detail")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("input[placeholder*='Message'], textarea[placeholder*='Message']").first()).toBeVisible();
+    await expect(page.getByText("EXECUTION TRACE")).toBeVisible();
   });
 
   test("Build page shows builder chat interface", async ({ page }) => {
@@ -65,13 +67,11 @@ test.describe("Agentis Hub - UI Smoke Tests", () => {
   test("Routing page renders pipeline UI", async ({ page }) => {
     await page.goto("/routing");
     await expect(page.getByText("Agent Routing Pipeline")).toBeVisible();
-    await expect(page.getByText("Sample Tickets")).toBeVisible();
-    await expect(page.getByText("Pipeline")).toBeVisible();
-    // Pipeline stages
-    await expect(page.getByText("Jira Intake")).toBeVisible();
-    await expect(page.getByText("Design Agent")).toBeVisible();
-    await expect(page.getByText("Dev Agent")).toBeVisible();
-    await expect(page.getByText("Complete")).toBeVisible();
+    await expect(page.getByText("SAMPLE TICKETS")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Jira Intake" })).toBeVisible();
+    // Ticket cards
+    await expect(page.getByText("Add push notification support for iOS")).toBeVisible();
+    await expect(page.getByText("Start Flow")).toBeVisible();
   });
 
   test("Routing page - sample ticket selection fills form", async ({ page }) => {

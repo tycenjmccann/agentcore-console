@@ -137,6 +137,89 @@ That's it — the console will now use your custom format for that agent on ever
 
 ---
 
+## Builder Agent (Agent that Creates Agents)
+
+The Build tab is powered by a real AgentCore harness agent that can:
+- **See all deployed agents** — calls `list_agents` to inspect your account
+- **Discover available tools** — calls `list_gateway_tools` to see what's on your gateways
+- **Check memories** — calls `list_memories` to find available memory resources
+- **Create new agents** — calls `create_harness` to deploy agents with the right config
+- **Inspect agents** — calls `get_agent_detail` to show full config of any agent
+
+The builder has **persistent memory** so it remembers what it's previously created and can suggest modifications.
+
+### Deploying the Builder Agent
+
+```bash
+node deploy/setup-builder-agent.mjs \
+  --gateway-id <your-iam-gateway-id> \
+  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \
+  --memory-id <your-memory-id>
+```
+
+**What this creates:**
+1. **Builder-tools Lambda** — 5 management tools (list agents, tools, memories, create agent, inspect agent)
+2. **Gateway target** (`BuilderTools`) — exposes all 5 tools on your IAM gateway
+3. **Builder Agent harness** — with memory and gateway tools attached
+
+**Output:**
+```bash
+BUILDER_AGENT_ID=agentis_builder-xxxxxxxxxx
+```
+
+Add to `.env.local` — the Build page will use the real harness agent instead of direct Converse.
+
+### Prerequisites for Builder Agent
+
+1. **IAM-auth AgentCore gateway** — the builder's tools call control plane APIs (ListHarnesses, CreateHarness, etc.)
+2. **IAM execution role** for the harness — needs Bedrock model access
+3. **Lambda execution role** — needs AgentCore control plane permissions:
+   ```json
+   {
+     "Effect": "Allow",
+     "Action": [
+       "bedrock-agentcore:ListHarnesses",
+       "bedrock-agentcore:ListAgentRuntimes",
+       "bedrock-agentcore:ListMemories",
+       "bedrock-agentcore:ListGateways",
+       "bedrock-agentcore:ListGatewayTargets",
+       "bedrock-agentcore:GetHarness",
+       "bedrock-agentcore:GetAgentRuntime",
+       "bedrock-agentcore:CreateHarness"
+     ],
+     "Resource": "*"
+   }
+   ```
+4. **Harness role** — needs memory access (`ListEvents`, `CreateEvent`, `ListSessions`)
+5. **(Optional) AgentCore Memory** — for persistent context across sessions. Create one via:
+   ```bash
+   # Via AgentCore MCP tools or SDK:
+   # memory_create({ name: "my_builder_memory" })
+   ```
+
+### How It Works
+
+```
+User (Build page) → InvokeHarness(agentis_builder)
+                         ↓
+              Builder Agent (Claude Sonnet)
+                    ↓ tool calls ↓
+    ┌────────────────────────────────────────┐
+    │ Gateway Target: BuilderTools (Lambda)  │
+    │  • list_agents → ListHarnesses API    │
+    │  • list_gateway_tools → ListGateways  │
+    │  • create_harness → CreateHarness API │
+    │  • list_memories → ListMemories API   │
+    │  • get_agent_detail → GetHarness API  │
+    └────────────────────────────────────────┘
+                    ↓
+              Streams response back with agent data
+```
+
+Without `BUILDER_AGENT_ID`, the Build page falls back to a direct Converse API call (no tools, no memory — just config generation).
+
+---
+
 ## Routing Demo (Agent Skills)
 
 The Routing tab demonstrates end-to-end agent orchestration with **dynamic skill loading**:
