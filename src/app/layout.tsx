@@ -7,8 +7,8 @@ import Header from "@/components/layout/Header";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Agentis - Autonomous Coding Agent Platform",
-  description: "Build, deploy, invoke, monitor, and debug AI coding agents",
+  title: "Agentis Hub",
+  description: "Amazon Bedrock AgentCore management console",
 };
 
 export default function RootLayout({

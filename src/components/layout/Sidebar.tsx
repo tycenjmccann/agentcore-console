@@ -22,8 +22,8 @@ export default function Sidebar() {
             <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-white">AgentCore</h1>
-            <p className="text-xs text-gray-500">Console</p>
+            <h1 className="text-lg font-bold text-white">Agentis</h1>
+            <p className="text-xs text-gray-500">Hub</p>
           </div>
         </div>
       </div>

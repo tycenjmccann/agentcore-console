@@ -4,13 +4,16 @@ import {
   StartQueryCommand,
   GetQueryResultsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
-import { findLogGroupForAgent } from "@/lib/agentcore-sdk";
-
-const REGION = process.env.AWS_REGION || "us-east-1";
+import { findLogGroupForAgent, getActiveRegion } from "@/lib/agentcore-sdk";
 
 let logsClient: CloudWatchLogsClient | null = null;
+let logsClientRegion: string | null = null;
 function getLogsClient(): CloudWatchLogsClient {
-  if (!logsClient) logsClient = new CloudWatchLogsClient({ region: REGION });
+  const region = getActiveRegion();
+  if (!logsClient || logsClientRegion !== region) {
+    logsClient = new CloudWatchLogsClient({ region });
+    logsClientRegion = region;
+  }
   return logsClient;
 }
 

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { discoverAgents, getHarnessDetail, findMemoryForAgent, findLogGroupForAgent } from "@/lib/agentcore-sdk";
+import { discoverAgents, getHarnessDetail, getRuntimeDetail, findMemoryForAgent, findLogGroupForAgent } from "@/lib/agentcore-sdk";
 
 /**
  * GET /api/agentcore/agents
@@ -21,18 +21,23 @@ export async function GET(req: NextRequest) {
         return Response.json({ error: "Agent not found" }, { status: 404 });
       }
 
-      // Enrich with detail
-      const [memoryId, logGroup, detail] = await Promise.all([
-        findMemoryForAgent(agentId),
+      // Enrich with detail — harnesses and runtimes have different detail APIs
+      const [logGroup, detail] = await Promise.all([
         findLogGroupForAgent(agentId, agent.name),
-        agent.type === "harness" ? getHarnessDetail(agentId) : Promise.resolve({}),
+        agent.type === "harness" ? getHarnessDetail(agentId) : getRuntimeDetail(agentId),
       ]);
 
+      // Memory ID comes from the agent config (programmatic, not name-guessing)
+      // Fall back to findMemoryForAgent only if detail didn't provide one
+      const memoryId = detail.memoryId || await findMemoryForAgent(agentId);
+
+      // Spread detail first, then override with our resolved values
+      // (detail.memoryId may be undefined even when findMemoryForAgent found one)
       return Response.json({
         ...agent,
+        ...detail,
         memoryId,
         logGroup,
-        ...detail,
       });
     }
 

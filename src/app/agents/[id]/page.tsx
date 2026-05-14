@@ -214,6 +214,11 @@ function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
   );
 }
 
+interface MemoryOption {
+  id: string;
+  status: string;
+}
+
 function InvokeUI({ agent }: { agent: AgentDetail }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -222,6 +227,8 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [availableMemories, setAvailableMemories] = useState<MemoryOption[]>([]);
+  const [linkedMemory, setLinkedMemory] = useState<string>(agent.memoryId || "");
   const [traceSteps, setTraceSteps] = useState<TraceStep[]>([]);
   const [expandedTrace, setExpandedTrace] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<"idle" | "active" | "complete">("idle");
@@ -235,6 +242,20 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
       setSessionId(`sess_${crypto.randomUUID().replace(/-/g, "")}${Date.now()}`);
     }
   }, [sessionId]);
+
+  // Fetch available memories for the selector
+  useEffect(() => {
+    fetch("/api/agentcore/memory/mapping")
+      .then((r) => r.json())
+      .then((data) => {
+        setAvailableMemories(data.memories || []);
+        // If there's a saved mapping for this agent, use it
+        if (data.mappings?.[agent.id]) {
+          setLinkedMemory(data.mappings[agent.id]);
+        }
+      })
+      .catch(() => {});
+  }, [agent.id]);
 
   useEffect(() => {
     setLoadingSessions(true);
@@ -261,6 +282,23 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
     traceEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [traceSteps]);
 
+  const handleMemoryChange = useCallback(async (memoryId: string) => {
+    setLinkedMemory(memoryId);
+    // Persist the mapping server-side
+    await fetch("/api/agentcore/memory/mapping", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agentId: agent.id, memoryId: memoryId || null }),
+    });
+    // Re-fetch sessions with the new memory
+    setLoadingSessions(true);
+    fetch(`/api/agentcore/memory/sessions?agent_id=${agent.id}`)
+      .then((r) => r.json())
+      .then((data) => setSessions(data.sessions || []))
+      .catch(() => setSessions([]))
+      .finally(() => setLoadingSessions(false));
+  }, [agent.id]);
+
   const startNewSession = useCallback(() => {
     setSessionId(`sess_${crypto.randomUUID().replace(/-/g, "")}${Date.now()}`);
     setMessages([]);
@@ -271,7 +309,12 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   }, []);
 
   const resumeSession = useCallback(async (session: Session) => {
-    setSessionId(session.sessionId);
+    // AgentCore requires session IDs >= 33 chars. If the stored session ID is too short,
+    // generate a new valid one for future messages but still load history from the original.
+    const validSessionId = session.sessionId.length >= 33
+      ? session.sessionId
+      : `sess_${crypto.randomUUID().replace(/-/g, "")}${Date.now()}`;
+    setSessionId(validSessionId);
     setLoadingHistory(true);
     setMessages([]);
     setTraceSteps([]);
@@ -536,6 +579,28 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                 </div>
               </button>
             ))
+          )}
+        </div>
+
+        {/* Memory Selector */}
+        <div className="mt-3 pt-3 border-t border-surface-4">
+          <label className="text-[10px] text-gray-500 uppercase tracking-wide font-medium flex items-center gap-1 mb-1.5">
+            <Database className="w-3 h-3" /> Memory
+          </label>
+          <select
+            value={linkedMemory}
+            onChange={(e) => handleMemoryChange(e.target.value)}
+            className="w-full bg-surface-3 border border-surface-4 rounded-lg px-2 py-1.5 text-[10px] text-gray-300 font-mono focus:outline-none focus:border-brand-600/50"
+          >
+            <option value="">None</option>
+            {availableMemories.map((mem) => (
+              <option key={mem.id} value={mem.id}>
+                {mem.id.replace(/-[A-Za-z0-9]{10,}$/, "")}
+              </option>
+            ))}
+          </select>
+          {linkedMemory && (
+            <p className="text-[9px] text-gray-600 mt-1 truncate">{linkedMemory}</p>
           )}
         </div>
       </div>

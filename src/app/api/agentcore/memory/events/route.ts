@@ -4,14 +4,18 @@ import {
   ListEventsCommand,
   CreateEventCommand,
 } from "@aws-sdk/client-bedrock-agentcore";
-import { findMemoryForAgent } from "@/lib/agentcore-sdk";
+import { findMemoryForAgent, getActiveRegion } from "@/lib/agentcore-sdk";
 
-const REGION = process.env.AWS_REGION || "us-east-1";
 const DEFAULT_ACTOR_ID = "agentcore_user";
 
 let client: BedrockAgentCoreClient | null = null;
+let clientRegion: string | null = null;
 function getClient(): BedrockAgentCoreClient {
-  if (!client) client = new BedrockAgentCoreClient({ region: REGION });
+  const region = getActiveRegion();
+  if (!client || clientRegion !== region) {
+    client = new BedrockAgentCoreClient({ region });
+    clientRegion = region;
+  }
   return client;
 }
 

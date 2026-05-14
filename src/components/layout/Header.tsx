@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Globe, ChevronDown } from "lucide-react";
+import { Globe, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 const pageTitles: Record<string, string> = {
@@ -16,7 +16,7 @@ export default function Header() {
     ? "Agent Detail"
     : pageTitles[pathname] || "AgentCore Console";
 
-  const [region, setRegion] = useState("");
+  const [region, setRegion] = useState("us-east-1");
   const [regions, setRegions] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [switching, setSwitching] = useState(false);
@@ -62,16 +62,6 @@ export default function Header() {
       <h2 className="text-lg font-semibold text-white">{title}</h2>
 
       <div className="flex items-center gap-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-          <input
-            type="text"
-            placeholder="Search agents..."
-            data-testid="global-search"
-            className="bg-surface-2 border border-surface-4 rounded-lg pl-9 pr-4 py-1.5 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-brand-500/50 w-64"
-          />
-        </div>
-
         {/* Region Selector */}
         <div className="relative">
           <button

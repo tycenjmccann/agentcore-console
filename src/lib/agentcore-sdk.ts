@@ -15,6 +15,7 @@ import {
   ListAgentRuntimesCommand,
   ListMemoriesCommand,
   GetHarnessCommand,
+  GetAgentRuntimeCommand,
 } from "@aws-sdk/client-bedrock-agentcore-control";
 import {
   CloudWatchLogsClient,
@@ -28,6 +29,53 @@ let bedrockClient: BedrockRuntimeClient | null = null;
 let agentCoreClient: BedrockAgentCoreClient | null = null;
 let controlClient: BedrockAgentCoreControlClient | null = null;
 let logsClient: CloudWatchLogsClient | null = null;
+
+// Agent → Memory mapping (user-defined, persisted to disk)
+import { readFileSync, writeFileSync, existsSync } from "fs";
+import { join } from "path";
+
+const MAPPINGS_FILE = join(process.cwd(), ".memory-mappings.json");
+
+function loadMappings(): Record<string, string> {
+  try {
+    if (existsSync(MAPPINGS_FILE)) {
+      return JSON.parse(readFileSync(MAPPINGS_FILE, "utf-8"));
+    }
+  } catch { /* ignore */ }
+  return {};
+}
+
+function saveMappings(mappings: Record<string, string>) {
+  writeFileSync(MAPPINGS_FILE, JSON.stringify(mappings, null, 2));
+}
+
+export function setMemoryMapping(agentId: string, memoryId: string) {
+  const mappings = loadMappings();
+  mappings[agentId] = memoryId;
+  saveMappings(mappings);
+}
+
+export function removeMemoryMapping(agentId: string) {
+  const mappings = loadMappings();
+  delete mappings[agentId];
+  saveMappings(mappings);
+}
+
+export function getMemoryMapping(agentId: string): string | null {
+  const mappings = loadMappings();
+  return mappings[agentId] || null;
+}
+
+export function getAllMemoryMappings(): Record<string, string> {
+  return loadMappings();
+}
+
+/**
+ * Get the currently active AWS region.
+ */
+export function getActiveRegion(): string {
+  return activeRegion;
+}
 
 /**
  * Reset all SDK clients and caches — called when region changes.
@@ -178,9 +226,68 @@ export async function getHarnessDetail(harnessId: string): Promise<Partial<Disco
       description = firstSentence.length > 120 ? firstSentence.slice(0, 117) + "..." : firstSentence;
     }
 
-    return { model: modelId, systemPrompt, tools, description };
+    // Extract memory ID from harness config (the API returns the ARN directly)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const memoryConfig = (h as any).memory?.agentCoreMemoryConfiguration;
+    let memoryId: string | null = null;
+    if (memoryConfig?.arn) {
+      // ARN format: arn:aws:bedrock-agentcore:region:account:memory/MEMORY_ID
+      const arnParts = memoryConfig.arn.split("/");
+      memoryId = arnParts[arnParts.length - 1] || null;
+    }
+
+    return { model: modelId, systemPrompt, tools, description, memoryId: memoryId || undefined };
   } catch (err) {
     console.error("Failed to get harness detail:", err);
+    return {};
+  }
+}
+
+/**
+ * Get runtime detail — extracts memory ID from env vars or runtime config.
+ */
+export async function getRuntimeDetail(runtimeId: string): Promise<Partial<DiscoveredAgent>> {
+  try {
+    const client = getControlClient();
+    const res = await client.send(new GetAgentRuntimeCommand({ agentRuntimeId: runtimeId }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rt = res as any;
+
+    // Check environment variables for memory ARN/ID references
+    const envVars = rt.environmentVariables || {};
+    let memoryId: string | null = null;
+
+    // Common env var names that agents use for memory config
+    const memoryEnvKeys = ["MEMORY_ID", "AGENTCORE_MEMORY_ID", "MEMORY_ARN", "AGENT_MEMORY_ID", "MEMORY_RESOURCE_ID"];
+    for (const key of memoryEnvKeys) {
+      if (envVars[key]) {
+        const val = envVars[key];
+        // If it's an ARN, extract the ID
+        if (val.includes("memory/")) {
+          memoryId = val.split("memory/")[1] || null;
+        } else {
+          memoryId = val;
+        }
+        break;
+      }
+    }
+
+    // Also check all env vars for anything containing a memory ARN pattern
+    if (!memoryId) {
+      for (const val of Object.values(envVars)) {
+        if (typeof val === "string" && val.includes(":memory/")) {
+          memoryId = val.split("memory/")[1] || null;
+          break;
+        }
+      }
+    }
+
+    return {
+      description: rt.description || undefined,
+      memoryId: memoryId || undefined,
+    };
+  } catch (err) {
+    console.error("Failed to get runtime detail:", err);
     return {};
   }
 }
@@ -212,17 +319,37 @@ export async function discoverMemories(): Promise<DiscoveredMemory[]> {
  * Convention: memory ID contains agent name or ID substring.
  */
 export async function findMemoryForAgent(agentId: string): Promise<string | null> {
-  const memories = await discoverMemories();
-  // Try exact substring match on agent ID parts
-  const agentParts = agentId.split(/[-_]/).filter((p) => p.length > 3);
-  for (const mem of memories) {
-    for (const part of agentParts) {
-      if (mem.id.includes(part)) return mem.id;
-    }
+  // Strategy 1: User-defined mapping (fastest, persisted to disk)
+  const mapped = getMemoryMapping(agentId);
+  if (mapped) return mapped;
+
+  // Strategy 2: Pull memory ID from agent config (harness memory field, runtime env vars)
+  const agents = await discoverAgents();
+  const agent = agents.find((a) => a.id === agentId);
+
+  if (agent?.type === "harness") {
+    const detail = await getHarnessDetail(agentId);
+    if (detail.memoryId) return detail.memoryId;
   }
-  // Fallback: return first active memory if only one exists
-  const active = memories.filter((m) => m.status === "ACTIVE");
-  if (active.length === 1) return active[0].id;
+
+  if (agent?.type === "runtime") {
+    const runtimeDetail = await getRuntimeDetail(agentId);
+    if (runtimeDetail.memoryId) return runtimeDetail.memoryId;
+  }
+
+  if (agent?.memoryId) return agent.memoryId;
+
+  // Strategy 3: Name-based matching — memory ID contains the full agent base name
+  const memories = await discoverMemories();
+  if (memories.length === 0) return null;
+
+  const agentName = agent?.name || agentId;
+  const baseName = agentName.replace(/-[A-Za-z0-9]{6,}$/, "");
+
+  for (const mem of memories) {
+    if (mem.id.toLowerCase().includes(baseName.toLowerCase())) return mem.id;
+  }
+
   return null;
 }
 
@@ -254,17 +381,35 @@ export async function discoverLogGroups(): Promise<string[]> {
  */
 export async function findLogGroupForAgent(agentId: string, agentName?: string): Promise<string | null> {
   const groups = await discoverLogGroups();
-  // Match by agent ID or name in the log group path
-  const searchTerms = [agentId, ...(agentName ? [agentName.replace(/\s+/g, "_").toLowerCase()] : [])];
+  if (groups.length === 0) return null;
+
+  // Get agent name from discovery cache if not provided
+  let name = agentName;
+  if (!name) {
+    const agents = await discoverAgents();
+    const agent = agents.find((a) => a.id === agentId);
+    name = agent?.name;
+  }
+
+  const baseName = (name || agentId).replace(/-[A-Za-z0-9]{6,}$/, "");
+
+  // Strategy 1: Log group contains the full agent base name
   for (const group of groups) {
-    for (const term of searchTerms) {
-      // Check if any significant part of the agent ID appears in the log group
-      const parts = term.split(/[-_]/).filter((p) => p.length > 4);
-      for (const part of parts) {
-        if (group.toLowerCase().includes(part.toLowerCase())) return group;
-      }
+    if (group.toLowerCase().includes(baseName.toLowerCase())) return group;
+  }
+
+  // Strategy 2: Significant name parts (> 5 chars, non-generic)
+  const genericWords = new Set(["agent", "runtime", "harness", "default", "service"]);
+  const significantParts = baseName
+    .split(/[-_]/)
+    .filter((p) => p.length > 5 && !genericWords.has(p.toLowerCase()));
+
+  for (const group of groups) {
+    for (const part of significantParts) {
+      if (group.toLowerCase().includes(part.toLowerCase())) return group;
     }
   }
+
   return null;
 }
 

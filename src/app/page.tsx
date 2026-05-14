@@ -17,35 +17,38 @@ interface Agent {
   updatedAt?: string;
 }
 
-// Mock metrics — will be replaced with real API calls (AgentCore Memory + Jira)
-function useDashboardMetrics(agents: Agent[]) {
+interface MetricsData {
+  usage: {
+    totalSessions: number;
+    totalTokensIn: number;
+    totalTokensOut: number;
+    avgSessionDuration: number;
+    totalDuration: number;
+    totalInvocations: number;
+    activeAgents: number;
+    totalAgents: number;
+  };
+  agentMetrics: Array<{
+    id: string;
+    name: string;
+    sessions: number;
+    tokensIn: number;
+    tokensOut: number;
+    avgDuration: number;
+    totalDuration: number;
+    invocations: number;
+  }>;
+}
+
+// Jira metrics — real API integration coming soon
+function useJiraMetrics() {
   return {
-    usage: {
-      totalSessions: 847,
-      totalTokensIn: 2_340_000,
-      totalTokensOut: 1_870_000,
-      avgSessionDuration: 94, // seconds
-      totalDuration: 79_518, // seconds (all sessions combined)
-      sessionsToday: 63,
-      sessionsThisWeek: 312,
-    },
-    productivity: {
-      ticketsResolved: 234,
-      ticketsInProgress: 18,
-      epicsActive: 5,
-      storiesCompleted: 89,
-      storiesInProgress: 12,
-      avgResolutionTime: 4.2, // minutes
-    },
-    agentMetrics: agents.map((a) => ({
-      id: a.id,
-      sessions: Math.floor(Math.random() * 200) + 20,
-      tokensIn: Math.floor(Math.random() * 500000) + 50000,
-      tokensOut: Math.floor(Math.random() * 400000) + 40000,
-      ticketsResolved: Math.floor(Math.random() * 60) + 5,
-      avgDuration: Math.floor(Math.random() * 120) + 30,
-      totalDuration: Math.floor(Math.random() * 20000) + 2000,
-    })),
+    ticketsResolved: 234,
+    ticketsInProgress: 18,
+    epicsActive: 5,
+    storiesCompleted: 89,
+    storiesInProgress: 12,
+    avgResolutionTime: 4.2,
   };
 }
 
@@ -67,17 +70,23 @@ function formatDuration(seconds: number): string {
 
 export default function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [metrics, setMetrics] = useState<MetricsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const jira = useJiraMetrics();
 
   useEffect(() => {
-    fetch("/api/agentcore/agents")
-      .then((r) => r.json())
-      .then((data) => setAgents(Array.isArray(data) ? data : []))
+    // Fetch agents and real metrics in parallel
+    Promise.all([
+      fetch("/api/agentcore/agents").then((r) => r.json()),
+      fetch("/api/agentcore/metrics").then((r) => r.json()),
+    ])
+      .then(([agentsData, metricsData]) => {
+        setAgents(Array.isArray(agentsData) ? agentsData : []);
+        if (metricsData && !metricsData.error) setMetrics(metricsData);
+      })
       .catch(() => setAgents([]))
       .finally(() => setLoading(false));
   }, []);
-
-  const metrics = useDashboardMetrics(agents);
 
   return (
     <div className="space-y-6">
@@ -86,37 +95,37 @@ export default function DashboardPage() {
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Agent Activity</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <BigMetric
-            label="Sessions"
-            value={loading ? "—" : metrics.usage.totalSessions.toString()}
-            sub={`${metrics.usage.sessionsToday} today · ${metrics.usage.sessionsThisWeek} this week`}
+            label="Invocations"
+            value={loading ? "—" : (metrics?.usage.totalInvocations ?? 0).toString()}
+            sub={`${metrics?.usage.totalSessions ?? 0} sessions`}
             icon={MessageSquare}
             color="text-brand-400"
           />
           <BigMetric
             label="Tokens"
-            value={loading ? "—" : `${formatNumber(metrics.usage.totalTokensIn)} / ${formatNumber(metrics.usage.totalTokensOut)}`}
+            value={loading ? "—" : `${formatNumber(metrics?.usage.totalTokensIn ?? 0)} / ${formatNumber(metrics?.usage.totalTokensOut ?? 0)}`}
             sub="in / out"
             icon={Zap}
             color="text-cyan-400"
           />
           <BigMetric
             label="Avg Duration"
-            value={loading ? "—" : formatDuration(metrics.usage.avgSessionDuration)}
+            value={loading ? "—" : formatDuration(metrics?.usage.avgSessionDuration ?? 0)}
             sub="per session"
             icon={Timer}
             color="text-yellow-400"
           />
           <BigMetric
             label="Total Duration"
-            value={loading ? "—" : formatDuration(metrics.usage.totalDuration)}
+            value={loading ? "—" : formatDuration(metrics?.usage.totalDuration ?? 0)}
             sub="autonomous work time"
             icon={Clock}
             color="text-emerald-400"
           />
           <BigMetric
             label="Active Agents"
-            value={loading ? "—" : agents.filter((a) => a.status === "ACTIVE" || a.status === "READY").length.toString()}
-            sub={`of ${agents.length} total`}
+            value={loading ? "—" : (metrics?.usage.activeAgents ?? agents.filter((a) => a.status === "ACTIVE" || a.status === "READY").length).toString()}
+            sub={`of ${metrics?.usage.totalAgents ?? agents.length} total`}
             icon={Bot}
             color="text-brand-400"
           />
@@ -129,35 +138,35 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <BigMetric
             label="Tickets Resolved"
-            value={loading ? "—" : metrics.productivity.ticketsResolved.toString()}
-            sub={`${metrics.productivity.ticketsInProgress} in progress`}
+            value={loading ? "—" : jira.ticketsResolved.toString()}
+            sub={`${jira.ticketsInProgress} in progress`}
             icon={CheckCircle2}
             color="text-green-400"
           />
           <BigMetric
             label="Active Epics"
-            value={loading ? "—" : metrics.productivity.epicsActive.toString()}
+            value={loading ? "—" : jira.epicsActive.toString()}
             sub="in progress"
             icon={Layers}
             color="text-orange-400"
           />
           <BigMetric
             label="Stories Done"
-            value={loading ? "—" : metrics.productivity.storiesCompleted.toString()}
-            sub={`${metrics.productivity.storiesInProgress} active`}
+            value={loading ? "—" : jira.storiesCompleted.toString()}
+            sub={`${jira.storiesInProgress} active`}
             icon={Ticket}
             color="text-blue-400"
           />
           <BigMetric
             label="Avg Resolution"
-            value={loading ? "—" : `${metrics.productivity.avgResolutionTime}m`}
+            value={loading ? "—" : `${jira.avgResolutionTime}m`}
             sub="per ticket"
             icon={Timer}
             color="text-emerald-400"
           />
           <BigMetric
             label="Throughput"
-            value={loading ? "—" : `${Math.round(metrics.productivity.ticketsResolved / 7)}/day`}
+            value={loading ? "—" : `${Math.round(jira.ticketsResolved / 7)}/day`}
             sub="avg this week"
             icon={TrendingUp}
             color="text-purple-400"
@@ -218,15 +227,15 @@ export default function DashboardPage() {
                   <th className="text-left py-3 px-3 text-xs text-gray-500 font-semibold uppercase tracking-wide">Agent</th>
                   <th className="text-right py-3 px-3 text-xs text-gray-500 font-semibold uppercase tracking-wide">Sessions</th>
                   <th className="text-right py-3 px-3 text-xs text-gray-500 font-semibold uppercase tracking-wide">Tokens (in/out)</th>
-                  <th className="text-right py-3 px-3 text-xs text-gray-500 font-semibold uppercase tracking-wide">Tickets</th>
+                  <th className="text-right py-3 px-3 text-xs text-gray-500 font-semibold uppercase tracking-wide">Invocations</th>
                   <th className="text-right py-3 px-3 text-xs text-gray-500 font-semibold uppercase tracking-wide">Avg Duration</th>
                   <th className="text-right py-3 px-3 text-xs text-gray-500 font-semibold uppercase tracking-wide">Total Duration</th>
                   <th className="text-right py-3 px-3 text-xs text-gray-500 font-semibold uppercase tracking-wide">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {agents.map((agent, idx) => {
-                  const am = metrics.agentMetrics[idx];
+                {agents.map((agent) => {
+                  const am = metrics?.agentMetrics.find((m) => m.id === agent.id);
                   return (
                     <tr key={agent.id} className="border-b border-surface-4/50 hover:bg-surface-3/30 transition-colors">
                       <td className="py-4 px-3">
@@ -252,7 +261,7 @@ export default function DashboardPage() {
                         <span className="text-base font-semibold text-purple-300">{formatNumber(am?.tokensOut || 0)}</span>
                       </td>
                       <td className="text-right py-4 px-3">
-                        <span className="text-lg font-bold text-green-400">{am?.ticketsResolved || 0}</span>
+                        <span className="text-lg font-bold text-green-400">{am?.invocations || 0}</span>
                       </td>
                       <td className="text-right py-4 px-3">
                         <span className="text-base font-semibold text-gray-200">{formatDuration(am?.avgDuration || 0)}</span>
