@@ -21,7 +21,7 @@ import {
   DescribeLogGroupsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 
-const REGION = process.env.AWS_REGION || "us-east-1";
+let activeRegion = process.env.AWS_REGION || "us-east-1";
 
 // Singleton clients
 let bedrockClient: BedrockRuntimeClient | null = null;
@@ -29,23 +29,37 @@ let agentCoreClient: BedrockAgentCoreClient | null = null;
 let controlClient: BedrockAgentCoreControlClient | null = null;
 let logsClient: CloudWatchLogsClient | null = null;
 
+/**
+ * Reset all SDK clients and caches — called when region changes.
+ */
+export function resetClients(newRegion: string) {
+  activeRegion = newRegion;
+  bedrockClient = null;
+  agentCoreClient = null;
+  controlClient = null;
+  logsClient = null;
+  agentCache = null;
+  memoryCache = null;
+  logGroupCache = null;
+}
+
 function getBedrockClient(): BedrockRuntimeClient {
-  if (!bedrockClient) bedrockClient = new BedrockRuntimeClient({ region: REGION });
+  if (!bedrockClient) bedrockClient = new BedrockRuntimeClient({ region: activeRegion });
   return bedrockClient;
 }
 
 function getAgentCoreClient(): BedrockAgentCoreClient {
-  if (!agentCoreClient) agentCoreClient = new BedrockAgentCoreClient({ region: REGION });
+  if (!agentCoreClient) agentCoreClient = new BedrockAgentCoreClient({ region: activeRegion });
   return agentCoreClient;
 }
 
 function getControlClient(): BedrockAgentCoreControlClient {
-  if (!controlClient) controlClient = new BedrockAgentCoreControlClient({ region: REGION });
+  if (!controlClient) controlClient = new BedrockAgentCoreControlClient({ region: activeRegion });
   return controlClient;
 }
 
 function getLogsClient(): CloudWatchLogsClient {
-  if (!logsClient) logsClient = new CloudWatchLogsClient({ region: REGION });
+  if (!logsClient) logsClient = new CloudWatchLogsClient({ region: activeRegion });
   return logsClient;
 }
 

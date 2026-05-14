@@ -17,12 +17,26 @@ interface Agent {
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/agentcore/agents")
-      .then((r) => r.json())
-      .then((data) => setAgents(Array.isArray(data) ? data : []))
-      .catch(() => setAgents([]))
+      .then((r) => {
+        if (!r.ok) throw new Error(`API returned ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        if (data.error) {
+          setError(data.error);
+          setAgents([]);
+        } else {
+          setAgents(Array.isArray(data) ? data : []);
+        }
+      })
+      .catch((err) => {
+        setError(err.message);
+        setAgents([]);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -46,12 +60,27 @@ export default function AgentsPage() {
         </div>
       </div>
 
-      {agents.length === 0 ? (
+      {error ? (
+        <div className="card border-red-500/20 text-center py-12">
+          <Bot className="w-10 h-10 text-red-400/60 mx-auto mb-3" />
+          <p className="text-sm text-red-400">Failed to discover agents</p>
+          <p className="text-xs text-gray-500 mt-2 max-w-md mx-auto">{error}</p>
+          <div className="mt-4 text-xs text-gray-600 space-y-1">
+            <p>Common causes:</p>
+            <ul className="list-disc list-inside text-left max-w-sm mx-auto space-y-0.5">
+              <li>AWS credentials not configured or expired</li>
+              <li>Region mismatch — agents are deployed in a different region (check the region selector above)</li>
+              <li>Missing IAM permissions: <code className="text-gray-500">bedrock-agentcore:ListHarnesses</code>, <code className="text-gray-500">bedrock-agentcore:ListAgentRuntimes</code></li>
+              <li>No agents deployed to Bedrock AgentCore in this account</li>
+            </ul>
+          </div>
+        </div>
+      ) : agents.length === 0 ? (
         <div className="card text-center py-12">
           <Bot className="w-10 h-10 text-gray-600 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">No agents found.</p>
+          <p className="text-sm text-gray-400">No agents found in this region.</p>
           <p className="text-xs text-gray-600 mt-1">
-            Deploy a harness or runtime to Bedrock AgentCore, then refresh.
+            Deploy a harness or runtime to Bedrock AgentCore, or try switching the region in the header.
           </p>
         </div>
       ) : (

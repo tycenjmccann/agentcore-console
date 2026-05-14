@@ -39,6 +39,19 @@ export async function GET(req: NextRequest) {
     return Response.json(agents);
   } catch (error) {
     console.error("List agents error:", error);
-    return Response.json({ error: "Failed to list agents" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Unknown error";
+    // Surface useful info: credential issues, access denied, etc.
+    let hint = "";
+    if (message.includes("Could not load credentials") || message.includes("CredentialsProviderError")) {
+      hint = "AWS credentials not found. Configure ~/.aws/credentials or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY environment variables.";
+    } else if (message.includes("AccessDenied") || message.includes("not authorized")) {
+      hint = "IAM permissions missing. Ensure your role/user has bedrock-agentcore:ListHarnesses and bedrock-agentcore:ListAgentRuntimes permissions.";
+    } else if (message.includes("ExpiredToken") || message.includes("expired")) {
+      hint = "AWS credentials have expired. Refresh your session (e.g., re-run aws sso login).";
+    }
+    return Response.json(
+      { error: hint || message },
+      { status: 500 }
+    );
   }
 }
