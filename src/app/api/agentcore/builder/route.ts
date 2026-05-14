@@ -1,7 +1,19 @@
 import { NextRequest } from "next/server";
-import { streamBuilderConverse } from "@/lib/agentcore-sdk";
+import { invokeHarnessAgent, streamBuilderConverse } from "@/lib/agentcore-sdk";
 
-const BUILDER_SYSTEM_PROMPT = `You are an Agent Configuration Assistant for Amazon Bedrock AgentCore.
+/**
+ * POST /api/agentcore/builder
+ * Agent builder chat — invokes the Builder Agent harness if deployed,
+ * otherwise falls back to direct Converse API.
+ *
+ * The builder agent has tools to list agents, list available gateway tools,
+ * list memories, and create new harness agents. It has memory so it
+ * remembers what it's previously created.
+ */
+
+const BUILDER_AGENT_ID = process.env.BUILDER_AGENT_ID;
+
+const FALLBACK_SYSTEM_PROMPT = `You are an Agent Configuration Assistant for Amazon Bedrock AgentCore.
 Your job is to help users create and configure AI agents using the AgentCore Harness.
 
 When a user describes an agent they want to build, you should:
@@ -14,7 +26,7 @@ IMPORTANT: Generate the configuration as a JSON code block tagged with \`\`\`age
 \`\`\`agent-config
 {
   "agent_name": "snake_case_name",
-  "model_id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+  "model_id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
   "system_prompt": "Detailed system prompt for the agent...",
   "tools": ["code_editor", "terminal", "file_search", "git"],
   "mcp_servers": {},
@@ -28,43 +40,29 @@ AGENT NAMING RULES:
 - Use snake_case (e.g. "trust_safety_agent", "backend_api_agent")
 
 Available models:
-- us.anthropic.claude-sonnet-4-20250514-v1:0 (fast, good for most tasks)
-- us.anthropic.claude-opus-4-6-v1 (most capable)
-- us.anthropic.claude-haiku-4-5-20251001-v1:0 (fastest, cheapest)
+- global.anthropic.claude-sonnet-4-5-20250929-v1:0 (fast, good for most tasks)
+- global.anthropic.claude-opus-4-6-v1 (most capable)
+- global.anthropic.claude-haiku-4-5-20251001-v1:0 (fastest, cheapest)
 
 Available tool types: code_editor, terminal, file_search, git, web_search, browser, static_analysis, calculator
 
 Be conversational but efficient. Generate the config as soon as you have enough information.`;
 
-/**
- * POST /api/agentcore/builder
- * Agent builder chat - uses Bedrock Converse API directly (same as reference webapp).
- */
 export async function POST(req: NextRequest) {
-  const { prompt, history } = await req.json();
+  const { prompt, sessionId, history } = await req.json();
 
   if (!prompt) {
     return Response.json({ error: "prompt is required" }, { status: 400 });
   }
 
   try {
-    const messages: Array<{ role: string; content: string }> = [];
-    if (history && Array.isArray(history)) {
-      for (const msg of history) {
-        messages.push({ role: msg.role, content: msg.content });
-      }
+    // If builder harness is deployed, use it (real agent with tools + memory)
+    if (BUILDER_AGENT_ID) {
+      return await invokeBuilderHarness(prompt, sessionId, history);
     }
-    messages.push({ role: "user", content: prompt });
 
-    const stream = await streamBuilderConverse(messages, BUILDER_SYSTEM_PROMPT);
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
+    // Fallback: direct Converse API (no tools, no memory)
+    return await invokeFallbackConverse(prompt, history);
   } catch (error) {
     console.error("Builder error:", error);
     return Response.json(
@@ -72,4 +70,64 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Invoke the Builder Agent harness — has access to list_agents, list_gateway_tools,
+ * create_harness, list_memories, get_agent_detail tools via gateway.
+ */
+async function invokeBuilderHarness(prompt: string, sessionId?: string, history?: Array<{ role: string; content: string }>) {
+  const sid = sessionId || `builder-${crypto.randomUUID()}-${Date.now()}`;
+
+  // Build history for the harness
+  const harnessHistory = history?.map((msg) => ({
+    role: msg.role as "user" | "assistant",
+    content: msg.content,
+  }));
+
+  // Resolve harness ARN — we need the full ARN
+  const region = process.env.AWS_REGION || "us-east-1";
+  const { STSClient, GetCallerIdentityCommand } = await import("@aws-sdk/client-sts");
+  const sts = new STSClient({ region });
+  const identity = await sts.send(new GetCallerIdentityCommand({}));
+  const accountId = identity.Account;
+  const harnessArn = `arn:aws:bedrock-agentcore:${region}:${accountId}:harness/${BUILDER_AGENT_ID}`;
+
+  const stream = await invokeHarnessAgent({
+    harnessArn,
+    prompt,
+    sessionId: sid,
+    history: harnessHistory,
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+}
+
+/**
+ * Fallback: direct Converse API without tools/memory.
+ */
+async function invokeFallbackConverse(prompt: string, history?: Array<{ role: string; content: string }>) {
+  const messages: Array<{ role: string; content: string }> = [];
+  if (history && Array.isArray(history)) {
+    for (const msg of history) {
+      messages.push({ role: msg.role, content: msg.content });
+    }
+  }
+  messages.push({ role: "user", content: prompt });
+
+  const stream = await streamBuilderConverse(messages, FALLBACK_SYSTEM_PROMPT);
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }

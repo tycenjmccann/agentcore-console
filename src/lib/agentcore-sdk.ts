@@ -650,12 +650,6 @@ export async function invokeHarnessAgent(params: {
     harnessArn: params.harnessArn,
     runtimeSessionId: params.sessionId,
     messages,
-    model: {
-      bedrockModelConfig: {
-        modelId: "us.anthropic.claude-sonnet-4-20250514-v1:0",
-        maxTokens: 4096,
-      },
-    },
   };
 
   if (params.systemPrompt) {
