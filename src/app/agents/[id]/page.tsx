@@ -507,6 +507,9 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
     cycle: { icon: Activity, color: "text-cyan-400", label: "Cycle" },
     request: { icon: Zap, color: "text-brand-400", label: "Request" },
     service_call: { icon: Database, color: "text-gray-400", label: "Service" },
+    http: { icon: Server, color: "text-gray-500", label: "HTTP" },
+    internal: { icon: Cpu, color: "text-gray-600", label: "Internal" },
+    span: { icon: Activity, color: "text-gray-400", label: "Span" },
     // Streaming / real-time events
     user_input: { icon: User, color: "text-blue-400", label: "User Input" },
     message_start: { icon: Brain, color: "text-purple-400", label: "Thinking" },

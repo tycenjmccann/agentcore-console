@@ -108,12 +108,8 @@ async function querySpansForSession(sessionId: string): Promise<TraceRecord[]> {
 }
 
 /**
- * Parse raw OTEL span JSON into meaningful trace records for the UI.
- * Filters out noise (GET/PUT S3 ops, internal ops) and highlights:
- * - Model invocations (with tokens and duration)
- * - Tool executions (with duration)
- * - Event loop cycles
- * - Agent invocations (top-level)
+ * Parse raw OTEL span JSON into trace records for the UI.
+ * No filtering — shows everything.
  */
 function parseSpansToTraceRecords(rows: Record<string, string>[]): TraceRecord[] {
   const traces: TraceRecord[] = [];
@@ -137,119 +133,73 @@ function parseSpansToTraceRecords(rows: Record<string, string>[]): TraceRecord[]
       ? new Date(obj.startTimeUnixNano / 1e6).toISOString()
       : row["@timestamp"] || "";
 
-    // Skip noisy spans
-    if (name === "GET" || name === "PUT") continue;
-    if (name === "InternalOperation") continue;
-    if (duration < 0.01 && !name.startsWith("execute_tool")) continue;
-
     const id = `span_${obj.spanId || Math.random().toString(36).slice(2, 10)}`;
+    const tokensIn = attrs["gen_ai.usage.input_tokens"];
+    const tokensOut = attrs["gen_ai.usage.output_tokens"];
+    const model = attrs["gen_ai.request.model"] || "";
 
-    // Categorize the span
+    // Categorize by span name
+    let event = "span";
+    let displayName = name;
+    const details: Record<string, unknown> = {};
+
     if (name.startsWith("invoke_agent")) {
-      // Top-level agent invocation
-      const tokensIn = attrs["gen_ai.usage.input_tokens"];
-      const tokensOut = attrs["gen_ai.usage.output_tokens"];
-      traces.push({
-        id,
-        event: "agent_invoke",
-        name: `Agent Invoke (${duration.toFixed(1)}s)`,
-        timestamp: startTime,
-        duration,
-        details: {
-          model: attrs["gen_ai.request.model"],
-          tokensIn,
-          tokensOut,
-          totalTokens: (tokensIn || 0) + (tokensOut || 0),
-        },
-      });
-    } else if (name.startsWith("chat ") || (name === "chat" && attrs["gen_ai.system"] === "strands-agents")) {
-      // Model invocation (LLM call)
-      const tokensIn = attrs["gen_ai.usage.input_tokens"];
-      const tokensOut = attrs["gen_ai.usage.output_tokens"];
-      const model = attrs["gen_ai.request.model"] || "";
+      event = "agent_invoke";
+      displayName = `Agent Invoke`;
+      if (model) details.model = model;
+      if (tokensIn) { details.tokensIn = tokensIn; details.tokensOut = tokensOut; }
+    } else if (name.startsWith("chat ")) {
+      event = "model_call";
       const shortModel = model.split("/").pop()?.replace(/^us\.anthropic\./, "").replace(/-v\d.*$/, "") || model;
-      const finishReason = attrs["gen_ai.response.finish_reasons"]?.[0] || "";
-
-      // Skip the duplicate "chat" span (strands-agents emits both a raw chat and a wrapped chat)
-      if (name === "chat" && attrs["gen_ai.system"] === "strands-agents") continue;
-
-      traces.push({
-        id,
-        event: "model_call",
-        name: `LLM: ${shortModel}`,
-        timestamp: startTime,
-        duration,
-        details: {
-          model: shortModel,
-          tokensIn,
-          tokensOut,
-          finishReason,
-          timeToFirstToken: attrs["gen_ai.server.time_to_first_token"],
-        },
-      });
+      displayName = `LLM: ${shortModel}`;
+      if (tokensIn) { details.tokensIn = tokensIn; details.tokensOut = tokensOut; }
+      details.finishReason = attrs["gen_ai.response.finish_reasons"]?.[0] || "";
+    } else if (name === "chat" && attrs["gen_ai.system"] === "strands-agents") {
+      event = "model_call";
+      displayName = `Strands Chat`;
+      if (tokensIn) { details.tokensIn = tokensIn; details.tokensOut = tokensOut; }
+      details.timeToFirstToken = attrs["gen_ai.server.time_to_first_token"];
+      details.totalTokens = attrs["gen_ai.usage.total_tokens"];
     } else if (name.startsWith("execute_tool")) {
-      // Tool execution
+      event = "tool_call";
       const toolName = name.replace("execute_tool ", "");
-      traces.push({
-        id,
-        event: "tool_call",
-        name: `Tool: ${toolName}`,
-        timestamp: startTime,
-        duration,
-        details: { tool: toolName },
-      });
+      displayName = `Tool: ${toolName}`;
+      details.tool = toolName;
     } else if (name === "execute_event_loop_cycle") {
-      // Event loop cycle (one think→act step)
-      traces.push({
-        id,
-        event: "cycle",
-        name: `Cycle (${duration.toFixed(1)}s)`,
-        timestamp: startTime,
-        duration,
-      });
+      event = "cycle";
+      displayName = `Cycle`;
     } else if (name === "POST /invocations") {
-      // Full invocation request
-      traces.push({
-        id,
-        event: "request",
-        name: `Request (${duration.toFixed(1)}s total)`,
-        timestamp: startTime,
-        duration,
-      });
+      event = "request";
+      displayName = `POST /invocations`;
     } else if (name.startsWith("Bedrock AgentCore.")) {
-      // AgentCore service calls (memory, etc.)
-      const op = name.replace("Bedrock AgentCore.", "");
-      if (duration >= 0.05) {
-        traces.push({
-          id,
-          event: "service_call",
-          name: `AgentCore: ${op}`,
-          timestamp: startTime,
-          duration,
-          details: { memoryId: attrs["gen_ai.memory.id"] },
-        });
-      }
-    } else if (name === "POST" && duration >= 0.1) {
-      // Significant POST calls (MCP tool invocations via gateway)
-      traces.push({
-        id,
-        event: "service_call",
-        name: `HTTP POST (${duration.toFixed(2)}s)`,
-        timestamp: startTime,
-        duration,
-      });
-    } else if (name.startsWith("Bedrock Runtime.CountTokens")) {
-      // Token counting (only if slow)
-      if (duration >= 0.1) {
-        traces.push({
-          id,
-          event: "service_call",
-          name: "CountTokens",
-          timestamp: startTime,
-          duration,
-        });
-      }
+      event = "service_call";
+      displayName = name.replace("Bedrock AgentCore.", "AC: ");
+      if (attrs["gen_ai.memory.id"]) details.memoryId = attrs["gen_ai.memory.id"];
+    } else if (name.startsWith("Bedrock Runtime.")) {
+      event = "service_call";
+      displayName = name.replace("Bedrock Runtime.", "BR: ");
+    } else if (name === "POST" || name === "GET" || name === "PUT") {
+      event = "http";
+      const remoteOp = attrs["aws.remote.operation"] || attrs["rpc.method"] || "";
+      const remoteSvc = attrs["aws.remote.service"] || attrs["rpc.service"] || "";
+      displayName = remoteOp ? `${name} ${remoteSvc}.${remoteOp}` : name;
+    } else if (name === "InternalOperation") {
+      event = "internal";
+      displayName = "Internal";
+    } else {
+      // Everything else — show as-is
+      event = "span";
+      displayName = name;
     }
+
+    traces.push({
+      id,
+      event,
+      name: displayName,
+      timestamp: startTime,
+      duration,
+      details: Object.keys(details).length > 0 ? details : undefined,
+    });
   }
 
   return traces;
