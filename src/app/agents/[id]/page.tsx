@@ -98,6 +98,16 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
   const [expanded, setExpanded] = useState(false);
 
+  // Mock per-agent metrics — will wire to real APIs
+  const agentMetrics = {
+    sessions: 142,
+    tokensIn: 482_000,
+    tokensOut: 391_000,
+    ticketsResolved: 37,
+    avgDuration: 72, // seconds
+    successRate: 94,
+  };
+
   return (
     <div className="card !py-3 !px-4">
       <div className="flex items-center gap-4">
@@ -139,6 +149,16 @@ function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
           {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           Details
         </button>
+      </div>
+
+      {/* Per-agent usage metrics */}
+      <div className="mt-3 pt-3 border-t border-surface-4 grid grid-cols-3 md:grid-cols-6 gap-3">
+        <MiniMetric label="Sessions" value={agentMetrics.sessions.toString()} />
+        <MiniMetric label="Tokens In" value={`${(agentMetrics.tokensIn / 1000).toFixed(0)}K`} />
+        <MiniMetric label="Tokens Out" value={`${(agentMetrics.tokensOut / 1000).toFixed(0)}K`} />
+        <MiniMetric label="Tickets" value={agentMetrics.ticketsResolved.toString()} />
+        <MiniMetric label="Avg Duration" value={`${agentMetrics.avgDuration}s`} />
+        <MiniMetric label="Success" value={`${agentMetrics.successRate}%`} />
       </div>
 
       {expanded && (
@@ -671,6 +691,15 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
           <div ref={traceEndRef} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="text-center">
+      <p className="text-[10px] text-gray-500">{label}</p>
+      <p className="text-sm font-semibold text-white">{value}</p>
     </div>
   );
 }
