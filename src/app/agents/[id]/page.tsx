@@ -259,9 +259,17 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
       .catch(() => {});
   }, [agent.id]);
 
+  const refreshSessions = useCallback(() => {
+    fetch(`/api/agentcore/memory/sessions?agent_id=${agent.id}`)
+      .then((r) => r.json())
+      .then((data) => setSessions(data.sessions || []))
+      .catch(() => {});
+  }, [agent.id]);
+
   useEffect(() => {
     setLoadingSessions(true);
-    cachedFetch<{ sessions: Session[] }>(`/api/agentcore/memory/sessions?agent_id=${agent.id}`)
+    fetch(`/api/agentcore/memory/sessions?agent_id=${agent.id}`)
+      .then((r) => r.json())
       .then((data) => setSessions(data.sessions || []))
       .catch(() => setSessions([]))
       .finally(() => setLoadingSessions(false));
@@ -364,9 +372,11 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
           user_message: userMsg,
           assistant_message: assistantMsg,
         }),
-      }).catch(() => {});
+      })
+        .then(() => refreshSessions())
+        .catch(() => {});
     },
-    [agent.id, sessionId]
+    [agent.id, sessionId, refreshSessions]
   );
 
   const persistTraces = useCallback(
