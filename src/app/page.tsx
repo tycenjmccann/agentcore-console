@@ -7,6 +7,7 @@ import {
   TrendingUp, Timer,
 } from "lucide-react";
 import Link from "next/link";
+import { cachedFetch, getCached } from "@/lib/client-cache";
 
 interface Agent {
   id: string;
@@ -69,20 +70,21 @@ function formatDuration(seconds: number): string {
 }
 
 export default function DashboardPage() {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [metrics, setMetrics] = useState<MetricsData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Initialize from cache for instant render on back-navigation
+  const [agents, setAgents] = useState<Agent[]>(() => getCached<Agent[]>("/api/agentcore/agents") || []);
+  const [metrics, setMetrics] = useState<MetricsData | null>(() => getCached<MetricsData>("/api/agentcore/metrics"));
+  const [loading, setLoading] = useState(!getCached("/api/agentcore/agents"));
   const jira = useJiraMetrics();
 
   useEffect(() => {
-    // Fetch agents and real metrics in parallel
+    // Fetch with cache — returns instantly if cached, revalidates in background
     Promise.all([
-      fetch("/api/agentcore/agents").then((r) => r.json()),
-      fetch("/api/agentcore/metrics").then((r) => r.json()),
+      cachedFetch<Agent[]>("/api/agentcore/agents"),
+      cachedFetch<MetricsData>("/api/agentcore/metrics"),
     ])
       .then(([agentsData, metricsData]) => {
         setAgents(Array.isArray(agentsData) ? agentsData : []);
-        if (metricsData && !metricsData.error) setMetrics(metricsData);
+        if (metricsData && !(metricsData as any).error) setMetrics(metricsData);
       })
       .catch(() => setAgents([]))
       .finally(() => setLoading(false));

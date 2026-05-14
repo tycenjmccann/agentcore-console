@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { streamAgentInvocation, AgentInfo, TraceEvent } from "@/lib/agentcore-stream";
+import { cachedFetch, getCached } from "@/lib/client-cache";
 
 interface AgentDetail {
   id: string;
@@ -48,16 +49,16 @@ interface TraceStep {
 
 export default function AgentDetailPage({ params }: { params: { id: string } }) {
   const agentId = params.id;
-  const [agent, setAgent] = useState<AgentDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = `/api/agentcore/agents?id=${agentId}`;
+  const [agent, setAgent] = useState<AgentDetail | null>(() => getCached<AgentDetail>(cacheKey));
+  const [loading, setLoading] = useState(!getCached(cacheKey));
 
   useEffect(() => {
-    fetch(`/api/agentcore/agents?id=${agentId}`)
-      .then((r) => r.json())
-      .then((data) => setAgent(data.error ? null : data))
+    cachedFetch<AgentDetail>(cacheKey)
+      .then((data) => setAgent((data as any).error ? null : data))
       .catch(() => setAgent(null))
       .finally(() => setLoading(false));
-  }, [agentId]);
+  }, [agentId, cacheKey]);
 
   if (loading) {
     return (
@@ -259,8 +260,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
 
   useEffect(() => {
     setLoadingSessions(true);
-    fetch(`/api/agentcore/memory/sessions?agent_id=${agent.id}`)
-      .then((r) => r.json())
+    cachedFetch<{ sessions: Session[] }>(`/api/agentcore/memory/sessions?agent_id=${agent.id}`)
       .then((data) => setSessions(data.sessions || []))
       .catch(() => setSessions([]))
       .finally(() => setLoadingSessions(false));
