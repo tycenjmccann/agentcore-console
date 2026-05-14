@@ -1,11 +1,26 @@
 // AgentCore streaming client - ported from sample-amazon-bedrock-agentcore-fullstack-webapp
 // Handles SSE streaming for agent invocations
 
+export interface TraceEvent {
+  type: "trace";
+  event: string;
+  name?: string;
+  toolUseId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  timestamp: string;
+}
+
 export interface StreamRequest {
   agentId: string;
+  agentArn?: string;
+  isHarness?: boolean;
   prompt: string;
   sessionId?: string;
+  systemPrompt?: string;
+  history?: Array<{ role: string; content: string }>;
   onChunk: (chunk: string) => void;
+  onTrace?: (trace: TraceEvent) => void;
   onDone?: (fullResponse: string) => void;
   onError?: (error: Error) => void;
 }
@@ -13,8 +28,11 @@ export interface StreamRequest {
 export interface AgentInfo {
   id: string;
   name: string;
+  arn?: string;
   description?: string;
   status?: string;
+  isHarness?: boolean;
+  config?: { system_prompt?: string; model_id?: string; [key: string]: unknown };
 }
 
 export interface BuilderStreamRequest {
@@ -45,9 +63,13 @@ export async function streamAgentInvocation(request: StreamRequest): Promise<str
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      agentRuntimeArn: request.agentArn,
       agentId: request.agentId,
+      isHarness: request.isHarness,
       prompt: request.prompt,
       sessionId: request.sessionId,
+      systemPrompt: request.systemPrompt,
+      history: request.history,
     }),
   });
 
@@ -82,6 +104,8 @@ export async function streamAgentInvocation(request: StreamRequest): Promise<str
           if (parsed.type === "text" && parsed.content) {
             fullResponse += parsed.content;
             request.onChunk(parsed.content);
+          } else if (parsed.type === "trace") {
+            request.onTrace?.(parsed as TraceEvent);
           } else if (parsed.type === "done") {
             request.onDone?.(fullResponse);
             return fullResponse;

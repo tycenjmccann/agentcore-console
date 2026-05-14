@@ -2,26 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard,
-  Bot,
-  Hammer,
-  Rocket,
-  MessageSquare,
-  Activity,
-  Bug,
-  Settings,
-} from "lucide-react";
+import { LayoutDashboard, Bot, Hammer } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/agents", label: "Agents", icon: Bot },
   { href: "/build", label: "Build", icon: Hammer },
-  { href: "/deploy", label: "Deploy", icon: Rocket },
-  { href: "/invoke", label: "Invoke", icon: MessageSquare },
-  { href: "/monitor", label: "Monitor", icon: Activity },
-  { href: "/debug", label: "Debug", icon: Bug },
 ];
 
 export default function Sidebar() {
@@ -35,8 +22,8 @@ export default function Sidebar() {
             <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-white">Agentis</h1>
-            <p className="text-xs text-gray-500">Autonomous Coding Platform</p>
+            <h1 className="text-lg font-bold text-white">AgentCore</h1>
+            <p className="text-xs text-gray-500">Console</p>
           </div>
         </div>
       </div>
@@ -64,16 +51,6 @@ export default function Sidebar() {
           );
         })}
       </nav>
-
-      <div className="p-4 border-t border-surface-4">
-        <Link
-          href="/settings"
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-500 hover:text-gray-300 hover:bg-surface-3 transition-colors"
-        >
-          <Settings className="w-4 h-4" />
-          Settings
-        </Link>
-      </div>
     </aside>
   );
 }

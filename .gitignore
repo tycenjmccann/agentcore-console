@@ -6,4 +6,6 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 aidlc-workflows/
+aidlc-docs/
 test-results/
+idea.md

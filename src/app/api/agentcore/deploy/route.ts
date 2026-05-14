@@ -1,42 +1,35 @@
 import { NextRequest } from "next/server";
 
-const AGENTCORE_URL = process.env.AGENTCORE_API_URL || "";
-
 /**
  * POST /api/agentcore/deploy
- * Deploys a harness config as a new agent on AgentCore
+ * Placeholder for deploying a harness config as a new agent.
+ * In a real implementation, this would call CreateHarness via the Control Plane SDK.
+ * For now, it validates the config and returns a success response.
  */
 export async function POST(req: NextRequest) {
   const config = await req.json();
 
-  if (!AGENTCORE_URL) {
-    // Mock deployment response
-    await new Promise((r) => setTimeout(r, 1000));
-    return Response.json({
-      agentId: `agent-${config.agent_name}-${Date.now().toString(36)}`,
-      status: "DEPLOYING",
-      message: `Agent "${config.agent_name}" deployment initiated. It will be available in ~30 seconds.`,
-    });
+  if (!config.agent_name) {
+    return Response.json({ error: "agent_name is required" }, { status: 400 });
   }
 
   try {
-    const response = await fetch(`${AGENTCORE_URL}/management/api/agents`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(config),
+    // TODO: Use CreateHarnessCommand from @aws-sdk/client-bedrock-agentcore-control
+    // to actually deploy the harness to the account.
+    const agentId = `user_${config.agent_name}_${Date.now().toString(36)}`;
+
+    return Response.json({
+      agentId,
+      agentName: config.agent_name,
+      status: "PENDING",
+      message: `Agent "${config.agent_name}" configuration saved. Deploy via Control Plane to activate.`,
+      config,
     });
-
-    if (!response.ok) {
-      return Response.json(
-        { error: `AgentCore returned ${response.status}` },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    return Response.json(data);
   } catch (error) {
-    console.error("AgentCore deploy error:", error);
-    return Response.json({ error: "Failed to deploy agent" }, { status: 500 });
+    console.error("Deploy error:", error);
+    return Response.json(
+      { error: `Deploy failed: ${error instanceof Error ? error.message : "Unknown"}` },
+      { status: 500 }
+    );
   }
 }
