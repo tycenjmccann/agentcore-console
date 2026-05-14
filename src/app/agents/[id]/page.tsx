@@ -44,6 +44,7 @@ interface TraceStep {
   event: string;
   name?: string;
   timestamp: string;
+  duration?: number; // seconds
   details?: Record<string, unknown>;
 }
 
@@ -344,34 +345,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
       setMessages(history);
 
       const persistedTraces = tracesData.traces || [];
-      if (persistedTraces.length > 0) {
-        setTraceSteps(persistedTraces);
-      } else {
-        const historyTrace: TraceStep[] = [];
-        let turnNum = 0;
-        for (let i = 0; i < history.length; i++) {
-          const msg = history[i];
-          if (msg.role === "user") {
-            turnNum++;
-            historyTrace.push({
-              id: `trace_hist_${i}`,
-              event: "user_input",
-              name: msg.content.slice(0, 50) + (msg.content.length > 50 ? "..." : ""),
-              timestamp: msg.timestamp,
-              details: { turn: turnNum },
-            });
-          } else {
-            historyTrace.push({
-              id: `trace_hist_resp_${i}`,
-              event: "response",
-              name: `Response (${msg.content.length} chars)`,
-              timestamp: msg.timestamp,
-              details: { turn: turnNum, preview: msg.content.slice(0, 80) + (msg.content.length > 80 ? "..." : "") },
-            });
-          }
-        }
-        setTraceSteps(historyTrace);
-      }
+      setTraceSteps(persistedTraces);
     } catch {
       // Failed to load history
     } finally {
@@ -526,6 +500,14 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   }
 
   const traceEventConfig: Record<string, { icon: typeof Terminal; color: string; label: string }> = {
+    // Real OTEL span events from aws/spans
+    agent_invoke: { icon: Bot, color: "text-brand-400", label: "Agent Invoke" },
+    model_call: { icon: Brain, color: "text-purple-400", label: "LLM Call" },
+    tool_call: { icon: Wrench, color: "text-yellow-400", label: "Tool" },
+    cycle: { icon: Activity, color: "text-cyan-400", label: "Cycle" },
+    request: { icon: Zap, color: "text-brand-400", label: "Request" },
+    service_call: { icon: Database, color: "text-gray-400", label: "Service" },
+    // Streaming / real-time events
     user_input: { icon: User, color: "text-blue-400", label: "User Input" },
     message_start: { icon: Brain, color: "text-purple-400", label: "Thinking" },
     tool_start: { icon: Terminal, color: "text-yellow-400", label: "Tool Call" },
@@ -721,26 +703,33 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
               const config = traceEventConfig[step.event] || { icon: Zap, color: "text-gray-400", label: step.event };
               const Icon = config.icon;
               const isExpanded = expandedTrace === step.id;
-              const timeDiff = idx > 0
-                ? Math.round((new Date(step.timestamp).getTime() - new Date(traceSteps[idx - 1].timestamp).getTime()) / 1000)
-                : 0;
+              const dur = step.duration;
+              const tokensIn = step.details?.tokensIn as number | undefined;
+              const tokensOut = step.details?.tokensOut as number | undefined;
 
               return (
                 <div key={step.id} className="rounded-md overflow-hidden bg-surface-2/50 border border-surface-4/50">
                   <button
                     onClick={() => setExpandedTrace(isExpanded ? null : step.id)}
-                    className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-surface-3/50 transition-colors text-left"
+                    className="w-full flex items-start gap-2 px-2 py-1.5 hover:bg-surface-3/50 transition-colors text-left"
                   >
                     {step.details ? (
-                      isExpanded ? <ChevronDown className="w-3 h-3 text-gray-600" /> : <ChevronRight className="w-3 h-3 text-gray-600" />
+                      isExpanded ? <ChevronDown className="w-3 h-3 text-gray-600 mt-0.5" /> : <ChevronRight className="w-3 h-3 text-gray-600 mt-0.5" />
                     ) : (
-                      <span className="w-3 h-3 flex items-center justify-center text-gray-700 text-[9px]">{idx + 1}</span>
+                      <span className="w-3 h-3 flex items-center justify-center text-gray-700 text-[9px] mt-0.5">{idx + 1}</span>
                     )}
-                    <Icon className={`w-3 h-3 flex-shrink-0 ${config.color}`} />
+                    <Icon className={`w-3 h-3 flex-shrink-0 mt-0.5 ${config.color}`} />
                     <div className="flex-1 min-w-0">
                       <span className="text-[11px] text-gray-300 block truncate">{step.name || config.label}</span>
+                      {(dur !== undefined || tokensIn !== undefined) && (
+                        <span className="text-[9px] text-gray-500 block">
+                          {dur !== undefined && dur > 0 ? `${dur.toFixed(1)}s` : ""}
+                          {tokensIn !== undefined && tokensIn > 0 && (
+                            <span className="ml-1 text-purple-400/70">{tokensIn.toLocaleString()}→{(tokensOut || 0).toLocaleString()} tok</span>
+                          )}
+                        </span>
+                      )}
                     </div>
-                    {timeDiff > 0 && <span className="text-[9px] text-gray-600 flex-shrink-0">+{timeDiff}s</span>}
                   </button>
                   {isExpanded && step.details && (
                     <div className="px-2 pb-2 border-t border-surface-4/30">
