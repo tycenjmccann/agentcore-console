@@ -856,13 +856,13 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                 </div>
               ) : (
                 messages.map((msg) => (
-                  <div key={msg.id} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
+                  <div key={msg.id} className={`flex gap-3 min-w-0 ${msg.role === "user" ? "justify-end" : ""}`}>
                     {msg.role === "agent" && (
                       <div className="w-7 h-7 bg-brand-600/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
                         <Bot className="w-3.5 h-3.5 text-brand-400" />
                       </div>
                     )}
-                    <div className={`max-w-[80%] overflow-hidden ${
+                    <div className={`max-w-[80%] min-w-0 overflow-hidden ${
                       msg.role === "user"
                         ? "bg-brand-600/20 border border-brand-600/30 rounded-2xl rounded-tr-sm"
                         : "bg-surface-2 border border-surface-4 rounded-2xl rounded-tl-sm"
@@ -870,7 +870,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                       {msg.role === "agent" && msg.agent_name && (
                         <p className="text-xs text-brand-400 mb-1 font-medium">{msg.agent_name}</p>
                       )}
-                      <div className="text-sm text-gray-200 prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-pre:overflow-x-auto prose-code:text-cyan-300 prose-code:bg-surface-1 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-surface-1 prose-pre:border prose-pre:border-surface-4 prose-a:text-brand-400 break-words">
+                      <div className="text-sm text-gray-200 prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-pre:overflow-x-auto prose-code:text-cyan-300 prose-code:bg-surface-1 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-surface-1 prose-pre:border prose-pre:border-surface-4 prose-a:text-brand-400 break-words [overflow-wrap:anywhere]">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                       </div>
                       {msg.role === "agent" && isStreaming && msg.id === messages[messages.length - 1]?.id && (
