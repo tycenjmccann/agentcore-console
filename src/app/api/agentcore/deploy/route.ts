@@ -1,6 +1,9 @@
 import { NextRequest } from "next/server";
 import { DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
+// Execution role for newly created harnesses — must have Bedrock model access
+const HARNESS_EXECUTION_ROLE = process.env.HARNESS_EXECUTION_ROLE_ARN || "";
+
 /**
  * POST /api/agentcore/deploy
  * Deploys a harness config as a new agent via CreateHarness.
@@ -26,10 +29,20 @@ export async function POST(req: NextRequest) {
 
     const client = new BedrockAgentCoreControlClient({ region });
 
+    // Resolve execution role: from config, env var, or error
+    const executionRoleArn = config.execution_role_arn || HARNESS_EXECUTION_ROLE;
+    if (!executionRoleArn) {
+      return Response.json({
+        error: "No execution role configured. Set HARNESS_EXECUTION_ROLE_ARN in .env.local or provide execution_role_arn in the config.",
+        config,
+      }, { status: 400 });
+    }
+
     // Build the CreateHarness input
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const input: any = {
       harnessName: config.agent_name,
+      executionRoleArn,
       foundation: {
         modelId: config.model_id || "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
         ...(config.system_prompt ? { instruction: config.system_prompt } : {}),

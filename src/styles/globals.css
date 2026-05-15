@@ -52,3 +52,20 @@
     scrollbar-color: theme('colors.surface.4') transparent;
   }
 }
+
+/* Prevent prose code blocks from expanding containers */
+.prose pre {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.prose code {
+  word-break: break-all;
+}
+
+.prose p,
+.prose li,
+.prose td {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}

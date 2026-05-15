@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ArrowLeft, Bot, Brain, Cpu, Server, Wrench, Send, User, Plus, Clock,
   MessageSquare, Loader2, Terminal, Zap, ChevronRight, ChevronDown,
-  Activity, CheckCircle2, Database,
+  Activity, CheckCircle2, Database, Code2, Play,
 } from "lucide-react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
@@ -222,8 +222,17 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   const [sessionStatus, setSessionStatus] = useState<"idle" | "active" | "complete">("idle");
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [invokeMode, setInvokeMode] = useState<"chat" | "playground">("chat");
+  const [playgroundPayload, setPlaygroundPayload] = useState(() => {
+    if (agent.type === "runtime") {
+      return JSON.stringify({ prompt: "Hello" }, null, 2);
+    }
+    return JSON.stringify({ prompt: "", sessionId: "", history: [] }, null, 2);
+  });
+  const [playgroundResponse, setPlaygroundResponse] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const traceEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!sessionId) {
@@ -520,6 +529,131 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
     }
   }, [input, isStreaming, agent, sessionId, storeInMemory, persistTraces, messages, sessionStartTime]);
 
+  // Auto-resize textarea
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    const textarea = e.target;
+    textarea.style.height = "auto";
+    const lineHeight = 20; // approx line height in px
+    const maxHeight = lineHeight * 6; // 6 lines max
+    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+  }, []);
+
+  // Playground: send raw JSON payload
+  const handlePlaygroundSend = useCallback(async () => {
+    if (isStreaming) return;
+    let payload;
+    try {
+      payload = JSON.parse(playgroundPayload);
+    } catch {
+      setPlaygroundResponse("Error: Invalid JSON payload");
+      return;
+    }
+
+    setIsStreaming(true);
+    setPlaygroundResponse("");
+    setSessionStatus("active");
+    if (!sessionStartTime) setSessionStartTime(Date.now());
+
+    // Send the raw payload as-is — the invoke route passes it directly to the agent
+    const body = {
+      agentRuntimeArn: agent.arn,
+      agentId: agent.id,
+      isHarness: agent.type === "harness",
+      sessionId,
+      rawPayload: payload,
+    };
+
+    try {
+      const response = await fetch("/api/agentcore/invoke", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-aws-region": getClientRegion() },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        setPlaygroundResponse(`Error ${response.status}: ${response.statusText}\n${await response.text()}`);
+        setIsStreaming(false);
+        setSessionStatus("complete");
+        return;
+      }
+
+      if (!response.body) {
+        setPlaygroundResponse("Error: No response body");
+        setIsStreaming(false);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data === "[DONE]") break;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === "text" && parsed.content) {
+                fullText += parsed.content;
+                setPlaygroundResponse(fullText);
+              } else if (parsed.type === "trace") {
+                const step: TraceStep = {
+                  id: `trace_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                  event: parsed.event,
+                  name: parsed.name,
+                  timestamp: parsed.timestamp,
+                };
+                setTraceSteps((prev) => [...prev, step]);
+              } else if (parsed.type === "done") {
+                break;
+              }
+            } catch { /* skip unparseable */ }
+          }
+        }
+      }
+
+      setPlaygroundResponse(fullText || "(empty response)");
+    } catch (err) {
+      setPlaygroundResponse(`Error: ${err instanceof Error ? err.message : "Unknown"}`);
+    } finally {
+      setIsStreaming(false);
+      setSessionStatus("complete");
+      // Fetch real OTEL traces from aws/spans after invocation completes
+      fetchOtelTraces(sessionId);
+    }
+  }, [playgroundPayload, isStreaming, agent, sessionId, sessionStartTime]);
+
+  // Poll aws/spans for real OTEL traces (propagation can take 5-30s)
+  const fetchOtelTraces = useCallback(async (sid: string) => {
+    const regionHeaders = { "x-aws-region": getClientRegion() };
+    // Try up to 4 times with increasing delays (5s, 10s, 15s, 20s)
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await new Promise((r) => setTimeout(r, (attempt + 1) * 5000));
+      try {
+        const res = await fetch(
+          `/api/agentcore/traces?session_id=${sid}&agent_id=${agent.id}`,
+          { headers: regionHeaders }
+        );
+        const data = await res.json();
+        if (data.traces && data.traces.length > 0) {
+          setTraceSteps(data.traces);
+          return;
+        }
+      } catch {
+        // Retry
+      }
+    }
+  }, [agent.id]);
+
   function timeAgo(dateStr: string): string {
     if (!dateStr) return "";
     const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -552,7 +686,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   };
 
   return (
-    <div className="flex h-[calc(100vh-16rem)] gap-4">
+    <div className="flex h-[calc(100vh-16rem)] gap-4 overflow-hidden">
       {/* Left — Sessions */}
       <div className="w-52 flex-shrink-0 flex flex-col border-r border-surface-4 pr-3">
         <button
@@ -653,11 +787,38 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
         </div>
       </div>
 
-      {/* Center — Chat */}
+      {/* Center — Chat / Playground */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Chat Header */}
+        {/* Header with mode toggle */}
         <div className="flex items-center justify-between mb-2 pb-2 border-b border-surface-4">
-          <p className="text-[10px] text-gray-500 font-mono">{sessionId ? sessionId.slice(0, 36) : "..."}</p>
+          <div className="flex items-center gap-3">
+            {/* Mode toggle */}
+            <div className="flex items-center gap-0.5 p-0.5 bg-surface-3 rounded-lg">
+              <button
+                onClick={() => setInvokeMode("chat")}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  invokeMode === "chat"
+                    ? "bg-surface-1 text-brand-400 shadow-sm"
+                    : "text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                <MessageSquare className="w-3 h-3" />
+                Chat
+              </button>
+              <button
+                onClick={() => setInvokeMode("playground")}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  invokeMode === "playground"
+                    ? "bg-surface-1 text-brand-400 shadow-sm"
+                    : "text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                <Code2 className="w-3 h-3" />
+                Playground
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-600 font-mono">{sessionId ? sessionId.slice(0, 24) + "..." : "..."}</p>
+          </div>
           <div className="flex items-center gap-2">
             {sessionStatus === "active" && (
               <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-600/10 border border-green-600/30">
@@ -679,77 +840,147 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
           </div>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin space-y-4 pb-4">
-          {loadingHistory ? (
-            <div className="flex flex-col items-center justify-center h-full">
-              <Loader2 className="w-6 h-6 text-brand-400 animate-spin mb-2" />
-              <p className="text-sm text-gray-500">Loading session history...</p>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <Bot className="w-10 h-10 text-gray-600 mb-3" />
-              <p className="text-sm text-gray-500">Send a message to start chatting with {agent.name}.</p>
-            </div>
-          ) : (
-            messages.map((msg) => (
-              <div key={msg.id} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
-                {msg.role === "agent" && (
-                  <div className="w-7 h-7 bg-brand-600/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
-                    <Bot className="w-3.5 h-3.5 text-brand-400" />
-                  </div>
-                )}
-                <div className={`max-w-[80%] ${
-                  msg.role === "user"
-                    ? "bg-brand-600/20 border border-brand-600/30 rounded-2xl rounded-tr-sm"
-                    : "bg-surface-2 border border-surface-4 rounded-2xl rounded-tl-sm"
-                } px-4 py-3`}>
-                  {msg.role === "agent" && msg.agent_name && (
-                    <p className="text-xs text-brand-400 mb-1 font-medium">{msg.agent_name}</p>
-                  )}
-                  <div className="text-sm text-gray-200 prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-code:text-cyan-300 prose-code:bg-surface-1 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-surface-1 prose-pre:border prose-pre:border-surface-4 prose-a:text-brand-400">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                  </div>
-                  {msg.role === "agent" && msg.content === "" && isStreaming && (
-                    <div className="flex gap-1">
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+        {invokeMode === "chat" ? (
+          <>
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto scrollbar-thin space-y-4 pb-4">
+              {loadingHistory ? (
+                <div className="flex flex-col items-center justify-center h-full">
+                  <Loader2 className="w-6 h-6 text-brand-400 animate-spin mb-2" />
+                  <p className="text-sm text-gray-500">Loading session history...</p>
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <Bot className="w-10 h-10 text-gray-600 mb-3" />
+                  <p className="text-sm text-gray-500">Send a message to start chatting with {agent.name}.</p>
+                </div>
+              ) : (
+                messages.map((msg) => (
+                  <div key={msg.id} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
+                    {msg.role === "agent" && (
+                      <div className="w-7 h-7 bg-brand-600/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+                        <Bot className="w-3.5 h-3.5 text-brand-400" />
+                      </div>
+                    )}
+                    <div className={`max-w-[80%] overflow-hidden ${
+                      msg.role === "user"
+                        ? "bg-brand-600/20 border border-brand-600/30 rounded-2xl rounded-tr-sm"
+                        : "bg-surface-2 border border-surface-4 rounded-2xl rounded-tl-sm"
+                    } px-4 py-3`}>
+                      {msg.role === "agent" && msg.agent_name && (
+                        <p className="text-xs text-brand-400 mb-1 font-medium">{msg.agent_name}</p>
+                      )}
+                      <div className="text-sm text-gray-200 prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-pre:overflow-x-auto prose-code:text-cyan-300 prose-code:bg-surface-1 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-surface-1 prose-pre:border prose-pre:border-surface-4 prose-a:text-brand-400 break-words">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                      </div>
+                      {msg.role === "agent" && isStreaming && msg.id === messages[messages.length - 1]?.id && (
+                        <div className="flex items-center gap-1 mt-1.5">
+                          <div className="w-1.5 h-1.5 bg-brand-400/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                          <div className="w-1.5 h-1.5 bg-brand-400/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                          <div className="w-1.5 h-1.5 bg-brand-400/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                        </div>
+                      )}
                     </div>
+                    {msg.role === "user" && (
+                      <div className="w-7 h-7 bg-surface-3 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+                        <User className="w-3.5 h-3.5 text-gray-400" />
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Input — auto-expanding textarea */}
+            <div className="border-t border-surface-4 pt-3">
+              <div className="flex items-end gap-3">
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={handleInputChange}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder={`Message ${agent.name}...`}
+                  rows={1}
+                  className="flex-1 bg-surface-2 border border-surface-4 rounded-xl px-4 py-2.5 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-brand-500/50 resize-none overflow-y-auto"
+                  style={{ maxHeight: "120px" }}
+                  disabled={isStreaming}
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={!input.trim() || isStreaming}
+                  className="btn-primary p-2.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-600 mt-1">Shift+Enter for new line</p>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Playground Mode */}
+            <div className="flex-1 flex flex-col gap-3 min-h-0">
+              {/* Payload editor */}
+              <div className="flex-1 flex flex-col min-h-0">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Request Payload</span>
+                  <span className="text-[10px] text-gray-600">
+                    POST /api/agentcore/invoke • agent: {agent.name}
+                  </span>
+                </div>
+                <textarea
+                  value={playgroundPayload}
+                  onChange={(e) => setPlaygroundPayload(e.target.value)}
+                  className="flex-1 bg-surface-1 border border-surface-4 rounded-lg px-3 py-2.5 text-xs text-gray-300 font-mono focus:outline-none focus:border-brand-500/50 resize-none"
+                  spellCheck={false}
+                  disabled={isStreaming}
+                />
+              </div>
+
+              {/* Response viewer */}
+              <div className="flex-1 flex flex-col min-h-0">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Response</span>
+                  {isStreaming && <Loader2 className="w-3 h-3 text-brand-400 animate-spin" />}
+                </div>
+                <div className="flex-1 bg-surface-1 border border-surface-4 rounded-lg px-3 py-2.5 overflow-y-auto">
+                  {playgroundResponse ? (
+                    <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">{playgroundResponse}</pre>
+                  ) : (
+                    <p className="text-xs text-gray-600 italic">Response will appear here after invoking...</p>
                   )}
                 </div>
-                {msg.role === "user" && (
-                  <div className="w-7 h-7 bg-surface-3 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
-                    <User className="w-3.5 h-3.5 text-gray-400" />
-                  </div>
-                )}
               </div>
-            ))
-          )}
-          <div ref={messagesEndRef} />
-        </div>
 
-        {/* Input */}
-        <div className="border-t border-surface-4 pt-3">
-          <div className="flex items-center gap-3">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-              placeholder={`Message ${agent.name}...`}
-              className="flex-1 bg-surface-2 border border-surface-4 rounded-xl px-4 py-2.5 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-brand-500/50"
-              disabled={isStreaming}
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isStreaming}
-              className="btn-primary p-2.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+              {/* Send button */}
+              <div className="border-t border-surface-4 pt-3">
+                <button
+                  onClick={handlePlaygroundSend}
+                  disabled={isStreaming}
+                  className="w-full btn-primary flex items-center justify-center gap-2 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isStreaming ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Streaming...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4" />
+                      Invoke Agent
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Right — Execution Trace */}

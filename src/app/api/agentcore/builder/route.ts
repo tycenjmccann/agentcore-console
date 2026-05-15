@@ -21,19 +21,9 @@ When a user describes an agent they want to build, you should:
 2. Generate a complete harness configuration
 3. Explain what each part does
 
-IMPORTANT: Generate the configuration as a JSON code block tagged with \`\`\`agent-config:
+IMPORTANT: When you have a complete agent configuration ready, you MUST call the save_agent_config tool to save it. This populates the Deploy panel in the UI so the user can deploy with one click. Always call this tool — do not just output the config as text.
 
-\`\`\`agent-config
-{
-  "agent_name": "snake_case_name",
-  "model_id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
-  "system_prompt": "Detailed system prompt for the agent...",
-  "tools": ["code_editor", "terminal", "file_search", "git"],
-  "mcp_servers": {},
-  "guardrails": { "max_tokens": 4096 },
-  "memory": { "type": "session", "config": { "ttl_hours": 24 } }
-}
-\`\`\`
+You can still explain the config in your text response, but the tool call is what makes it deployable.
 
 AGENT NAMING RULES:
 - Must match: [a-zA-Z][a-zA-Z0-9_]{0,47}
@@ -88,10 +78,9 @@ const BUILDER_INSTRUCTIONS = `IMPORTANT INSTRUCTIONS FOR AGENT CREATION:
 
 1. Use your tools freely to discover available gateways, tools, agents, and memories.
 2. When ready to create an agent, try using your create_harness tool first.
-3. If creation fails (e.g. permissions error), output the complete configuration as a JSON code block tagged with \`\`\`agent-config so the user can deploy it via the Deploy button in the UI.
-4. ALWAYS show the config in an \`\`\`agent-config block regardless of whether creation succeeds — this lets the user see and modify it.
+3. ALWAYS output the complete agent configuration as a JSON code block with the language tag "agent-config". This is CRITICAL — it populates the Deploy panel in the UI so the user can one-click deploy.
 
-Example config format:
+Example — you MUST output the config like this:
 \`\`\`agent-config
 {
   "agent_name": "my_agent",
@@ -101,6 +90,8 @@ Example config format:
   "gateway_id": "gatewayId"
 }
 \`\`\`
+
+This block is parsed by the UI to enable the Deploy button. Without it, the user cannot deploy.
 
 ---
 User request: `;

@@ -456,6 +456,29 @@ export async function findLogGroupForAgent(agentId: string, agentName?: string, 
 /**
  * Stream a builder agent chat using Bedrock Converse API.
  */
+// Tool definition for the builder agent to output structured configs
+const SAVE_CONFIG_TOOL = {
+  toolSpec: {
+    name: "save_agent_config",
+    description: "Save the finalized agent configuration. Call this tool whenever you have a complete agent configuration ready for the user to deploy. This populates the Deploy panel in the UI.",
+    inputSchema: {
+      json: {
+        type: "object",
+        properties: {
+          agent_name: { type: "string", description: "Snake_case agent name matching [a-zA-Z][a-zA-Z0-9_]{0,47}" },
+          model_id: { type: "string", description: "Bedrock model ID (e.g. global.anthropic.claude-sonnet-4-5-20250929-v1:0)" },
+          system_prompt: { type: "string", description: "The full system prompt for the agent" },
+          tools: { type: "array", items: { type: "string" }, description: "List of tool names available to the agent" },
+          gateway_id: { type: "string", description: "Gateway ID for tool access" },
+          memory_arn: { type: "string", description: "Optional memory ARN" },
+          execution_role_arn: { type: "string", description: "Optional execution role ARN" },
+        },
+        required: ["agent_name", "system_prompt"],
+      },
+    },
+  },
+};
+
 export async function streamBuilderConverse(
   messages: Array<{ role: string; content: string }>,
   systemPrompt: string,
@@ -474,6 +497,9 @@ export async function streamBuilderConverse(
     system: [{ text: systemPrompt }],
     messages: converseMessages,
     inferenceConfig: { maxTokens: 4096, temperature: 0.7 },
+    toolConfig: {
+      tools: [SAVE_CONFIG_TOOL],
+    },
   });
 
   const response = await client.send(command);
@@ -481,11 +507,31 @@ export async function streamBuilderConverse(
   return new ReadableStream({
     async start(controller) {
       try {
+        // Track tool use blocks to detect save_agent_config calls
+        let currentToolName = "";
+        let currentToolInput = "";
+
         if (response.stream) {
           for await (const event of response.stream) {
-            if (event.contentBlockDelta?.delta?.text) {
+            if (event.contentBlockStart?.start?.toolUse) {
+              currentToolName = event.contentBlockStart.start.toolUse.name || "";
+              currentToolInput = "";
+            } else if (event.contentBlockDelta?.delta?.toolUse) {
+              // Accumulate tool input JSON
+              currentToolInput += event.contentBlockDelta.delta.toolUse.input || "";
+            } else if (event.contentBlockDelta?.delta?.text) {
               const data = JSON.stringify({ type: "text", content: event.contentBlockDelta.delta.text });
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+            } else if (event.contentBlockStop) {
+              // If the completed block was our config tool, emit the config event
+              if (currentToolName === "save_agent_config" && currentToolInput) {
+                try {
+                  const config = JSON.parse(currentToolInput);
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "config", content: config })}\n\n`));
+                } catch { /* malformed tool input */ }
+              }
+              currentToolName = "";
+              currentToolInput = "";
             } else if (event.messageStop) {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`));
             }
@@ -560,13 +606,37 @@ export async function invokeAgentRuntime(params: {
     accept: "application/json",
   });
 
+  const invokeStart = Date.now();
+
+  // Emit trace: invocation started
+  const traceStart = JSON.stringify({
+    type: "trace",
+    event: "agent_invoke",
+    name: "Agent invocation started",
+    timestamp: new Date().toISOString(),
+  });
+
   const response = await client.send(command);
+
+  const latencyMs = Date.now() - invokeStart;
 
   return new ReadableStream({
     async start(controller) {
+      // Emit start trace
+      controller.enqueue(encoder.encode(`data: ${traceStart}\n\n`));
+
       try {
         if (response.response) {
           const body = await response.response.transformToString();
+
+          // Emit trace: response received
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            type: "trace",
+            event: "model_call",
+            name: `Response received (${latencyMs}ms)`,
+            timestamp: new Date().toISOString(),
+          })}\n\n`));
+
           if (body.includes("data: ")) {
             for (const line of body.split("\n")) {
               if (line.startsWith("data: ")) {
@@ -575,12 +645,22 @@ export async function invokeAgentRuntime(params: {
             }
           } else {
             let text = body;
+            let tokenInfo: { input?: number; output?: number } = {};
             try {
               const parsed = JSON.parse(body);
+              // Extract token usage if present
+              const usage = parsed.metadata?.usage || parsed.usage;
+              if (usage) {
+                tokenInfo = { input: usage.inputTokens, output: usage.outputTokens };
+              }
               // Handle various response structures from different agent frameworks
-              if (parsed.result?.content) {
-                // MCP/A2A style: { result: { content: [{ text: "..." }] } }
+              if (parsed.result?.content && Array.isArray(parsed.result.content)) {
+                // Strands/MCP style: { result: { role, content: [{ text: "..." }], metadata } }
                 text = parsed.result.content.map((b: { text?: string }) => b.text || "").join("");
+                const meta = parsed.result.metadata?.usage;
+                if (meta) tokenInfo = { input: meta.inputTokens, output: meta.outputTokens };
+              } else if (parsed.result && typeof parsed.result === "string") {
+                text = parsed.result;
               } else if (parsed.output?.text) {
                 // Simple output style: { output: { text: "..." } }
                 text = parsed.output.text;
@@ -600,14 +680,40 @@ export async function invokeAgentRuntime(params: {
                 text = parsed;
               }
             } catch { /* use raw body */ }
+
             const data = JSON.stringify({ type: "text", content: text });
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+
+            // Emit token usage trace if available
+            if (tokenInfo.input || tokenInfo.output) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                type: "trace",
+                event: "usage",
+                name: `Tokens: ${tokenInfo.input || 0} in → ${tokenInfo.output || 0} out`,
+                timestamp: new Date().toISOString(),
+              })}\n\n`));
+            }
           }
         }
+
+        // Emit completion trace
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+          type: "trace",
+          event: "response",
+          name: `Complete (${(latencyMs / 1000).toFixed(1)}s)`,
+          timestamp: new Date().toISOString(),
+        })}\n\n`));
+
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`));
         controller.close();
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "Unknown error";
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+          type: "trace",
+          event: "error",
+          name: errMsg,
+          timestamp: new Date().toISOString(),
+        })}\n\n`));
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", content: errMsg })}\n\n`));
         controller.close();
       }
@@ -663,11 +769,14 @@ export async function invokeHarnessAgent(params: {
   return new ReadableStream({
     async start(controller) {
       try {
+        let hasEmittedText = false; // Track if we've sent any text content
+
         if (response.stream) {
           for await (const event of response.stream as AsyncIterable<Record<string, unknown>>) {
             if ("contentBlockDelta" in event) {
               const delta = event.contentBlockDelta as { delta?: { text?: string } };
               if (delta.delta?.text) {
+                hasEmittedText = true;
                 const data = JSON.stringify({ type: "text", content: delta.delta.text });
                 controller.enqueue(encoder.encode(`data: ${data}\n\n`));
               }
@@ -687,6 +796,12 @@ export async function invokeHarnessAgent(params: {
               const trace = JSON.stringify({ type: "trace", event: "block_stop", timestamp: new Date().toISOString() });
               controller.enqueue(encoder.encode(`data: ${trace}\n\n`));
             } else if ("messageStart" in event) {
+              // If we've already sent text and a new message starts (after a tool loop),
+              // inject a line break so the new content doesn't run into the previous text
+              if (hasEmittedText) {
+                const sep = JSON.stringify({ type: "text", content: "\n\n" });
+                controller.enqueue(encoder.encode(`data: ${sep}\n\n`));
+              }
               const trace = JSON.stringify({ type: "trace", event: "message_start", timestamp: new Date().toISOString() });
               controller.enqueue(encoder.encode(`data: ${trace}\n\n`));
             } else if ("messageStop" in event) {

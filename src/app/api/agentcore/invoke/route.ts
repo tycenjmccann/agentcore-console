@@ -14,11 +14,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const { agentRuntimeArn, agentId, prompt, sessionId, isHarness, systemPrompt, history, payloadFormat } = body;
-
-  if (!prompt) {
-    return Response.json({ error: "prompt is required" }, { status: 400 });
-  }
+  const { agentRuntimeArn, agentId, prompt, sessionId, isHarness, systemPrompt, history, payloadFormat, rawPayload } = body;
 
   const sid = sessionId || `sess-${crypto.randomUUID().replace(/-/g, "")}${Date.now()}`;
 
@@ -27,6 +23,9 @@ export async function POST(req: NextRequest) {
 
     if (isHarness) {
       // Harness agents use InvokeHarness API with the full harness ARN
+      if (!prompt) {
+        return Response.json({ error: "prompt is required for harness agents" }, { status: 400 });
+      }
       stream = await invokeHarnessAgent({
         harnessArn: agentRuntimeArn,
         prompt,
@@ -37,12 +36,24 @@ export async function POST(req: NextRequest) {
       });
     } else if (agentRuntimeArn) {
       // Regular runtime agents use InvokeAgentRuntime
-      // Resolve payload format: explicit param > saved config > default "prompt"
       const agentKey = agentId || agentRuntimeArn.split("/").pop() || "";
       const resolvedFormat = payloadFormat || getPayloadFormat(agentKey) || undefined;
+
+      // rawPayload = exact JSON from Playground, sent directly to agent
+      // prompt = text from Chat mode
+      let effectivePrompt: string;
+      if (rawPayload) {
+        // Playground mode: send the exact payload as-is
+        effectivePrompt = JSON.stringify(rawPayload);
+      } else if (prompt) {
+        effectivePrompt = prompt;
+      } else {
+        return Response.json({ error: "prompt or rawPayload required" }, { status: 400 });
+      }
+
       stream = await invokeAgentRuntime({
         agentRuntimeArn,
-        prompt,
+        prompt: effectivePrompt,
         sessionId: sid,
         payloadFormat: resolvedFormat,
         region,

@@ -222,14 +222,37 @@ export async function streamBuilderChat(request: BuilderStreamRequest): Promise<
  * Parse harness config from markdown code blocks in builder response
  */
 export function parseHarnessConfig(text: string): HarnessConfig | null {
-  const configMatch = text.match(/```(?:agent-config|json|yaml)\n([\s\S]*?)```/);
-  if (!configMatch) return null;
-
-  try {
-    return JSON.parse(configMatch[1]) as HarnessConfig;
-  } catch {
-    return null;
+  // Strategy 1: fenced code block with known language tag
+  const fencedMatch = text.match(/```(?:agent-config|json|yaml)\s*\n([\s\S]*?)```/);
+  if (fencedMatch) {
+    try {
+      const parsed = JSON.parse(fencedMatch[1]);
+      if (parsed.agent_name) return parsed as HarnessConfig;
+    } catch { /* try next strategy */ }
   }
+
+  // Strategy 2: any fenced code block containing agent_name
+  const anyFenceMatch = text.match(/```[^\n]*\n([\s\S]*?)```/g);
+  if (anyFenceMatch) {
+    for (const block of anyFenceMatch) {
+      const inner = block.replace(/```[^\n]*\n/, "").replace(/```$/, "");
+      try {
+        const parsed = JSON.parse(inner);
+        if (parsed.agent_name) return parsed as HarnessConfig;
+      } catch { /* try next block */ }
+    }
+  }
+
+  // Strategy 3: find a JSON object with "agent_name" anywhere in the text
+  const jsonMatch = text.match(/\{[^{}]*"agent_name"[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.agent_name) return parsed as HarnessConfig;
+    } catch { /* not valid JSON */ }
+  }
+
+  return null;
 }
 
 /**

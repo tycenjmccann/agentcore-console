@@ -26,12 +26,17 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Configuration
 
-The only env var needed is `AWS_REGION` (defaults to `us-east-1`):
+### Environment Variables
 
 ```bash
 cp .env.example .env.local
-# Edit AWS_REGION if your agents are in a different region
 ```
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AWS_REGION` | No | Defaults to `us-east-1` |
+| `HARNESS_EXECUTION_ROLE_ARN` | **Yes (for Deploy)** | IAM role ARN assigned to newly created harness agents. Must have Bedrock model invoke permissions. Without this, the Deploy button on the Build page won't work. |
+| `BUILDER_AGENT_ID` | No | Harness ID of a deployed builder agent. Enables tool-powered builder chat. Without it, Build page uses direct Converse API (no tools/memory). |
 
 The app uses the standard AWS credential chain — no secrets in env files.
 
@@ -244,6 +249,19 @@ Add to `.env.local` — the Build page will use the real harness agent instead o
      "Resource": "*"
    }
    ```
+6. **`iam:PassRole`** on the harness execution role so the builder can assign it to new agents:
+   ```json
+   {
+     "Effect": "Allow",
+     "Action": "iam:PassRole",
+     "Resource": "arn:aws:iam::ACCOUNT_ID:role/YOUR_HARNESS_EXECUTION_ROLE",
+     "Condition": {
+       "StringEquals": {
+         "iam:PassedToService": "bedrock-agentcore.amazonaws.com"
+       }
+     }
+   }
+   ```
 
 **MCP option (B/C) additionally requires:**
 6. MCP server URL(s) reachable from the harness runtime
@@ -392,6 +410,7 @@ Attach this policy to whichever IAM role your compute uses (Amplify service role
         "bedrock-agentcore:ListMemories",
         "bedrock-agentcore:GetAgentRuntime",
         "bedrock-agentcore:GetHarness",
+        "bedrock-agentcore:CreateHarness",
         "bedrock-agentcore:ListSessions",
         "bedrock-agentcore:ListActors",
         "bedrock-agentcore:ListEvents",
@@ -399,6 +418,17 @@ Attach this policy to whichever IAM role your compute uses (Amplify service role
         "bedrock-agentcore:RetrieveMemoryRecords"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "PassRoleForHarnessCreation",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "bedrock-agentcore.amazonaws.com"
+        }
+      }
     },
     {
       "Sid": "CloudWatchMetrics",
@@ -447,6 +477,7 @@ To restrict to specific agents or regions:
   "arn:aws:bedrock-agentcore:us-east-1:ACCOUNT_ID:memory/*"
   ```
 - The `CloudWatchLogsTraces` statement is already scoped to AgentCore log groups and the `aws/spans` group
+- The `PassRoleForHarnessCreation` statement is only needed if using the Deploy button on the Build page. Scope the `Resource` to your specific harness execution role ARN for tighter security.
 - The `BedrockModelAccess` is only needed if using the Builder feature (agent creation via Converse API)
 
 ### Authentication

@@ -27,8 +27,8 @@ export async function GET(req: NextRequest) {
     if (sessions.length > 0) {
       return NextResponse.json({ sessions, groupedBy: "session.id" });
     }
-  } catch {
-    // aws/spans not available or query failed
+  } catch (err) {
+    console.error("Session query by session.id failed:", (err as Error).message);
   }
 
   // Strategy 2: Fall back to traceId grouping (each trace = one invocation)
@@ -37,8 +37,20 @@ export async function GET(req: NextRequest) {
     if (sessions.length > 0) {
       return NextResponse.json({ sessions, groupedBy: "traceId" });
     }
-  } catch {
-    // Query failed
+  } catch (err) {
+    console.error("Session query by traceId failed:", (err as Error).message);
+  }
+
+  // Strategy 3: Try with full agent ID (some agents emit the full ID including suffix)
+  if (agentIdBase !== agentId) {
+    try {
+      const sessions = await queryByTraceId(agentId, region);
+      if (sessions.length > 0) {
+        return NextResponse.json({ sessions, groupedBy: "traceId" });
+      }
+    } catch {
+      // Query failed
+    }
   }
 
   return NextResponse.json({ sessions: [], groupedBy: "none" });

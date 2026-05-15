@@ -121,9 +121,9 @@ export default function BuildPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-4">
+    <div className="flex h-[calc(100vh-8rem)] gap-4 overflow-hidden">
       {/* Left Panel - Chat with Builder Agent */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 w-0">
         <div className="flex items-center gap-2 mb-3">
           <Bot className="w-4 h-4 text-brand-400" />
           <h2 className="text-sm font-semibold text-gray-300">Agent Builder Chat</h2>
@@ -133,7 +133,7 @@ export default function BuildPage() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto space-y-3 pb-3" data-testid="builder-messages">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-3 pb-3" data-testid="builder-messages">
           {messages.map((msg) => (
             <div key={msg.id} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : ""}`}>
               {msg.role === "agent" && (
@@ -142,18 +142,25 @@ export default function BuildPage() {
                 </div>
               )}
               <div
-                className={`max-w-[85%] ${
+                className={`max-w-[85%] overflow-hidden ${
                   msg.role === "user"
                     ? "bg-brand-600/20 border border-brand-600/30 rounded-2xl rounded-tr-sm"
                     : "bg-surface-2 border border-surface-4 rounded-2xl rounded-tl-sm"
                 } px-3 py-2`}
               >
                 {msg.role === "agent" ? (
-                  <div className="text-sm text-gray-200 prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-code:text-cyan-300 prose-code:bg-surface-1 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-surface-1 prose-pre:border prose-pre:border-surface-4 prose-a:text-brand-400">
+                  <div className="text-sm text-gray-200 prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-pre:overflow-x-auto prose-code:text-cyan-300 prose-code:bg-surface-1 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-surface-1 prose-pre:border prose-pre:border-surface-4 prose-a:text-brand-400 break-words">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                   </div>
                 ) : (
                   <p className="text-sm text-gray-200 whitespace-pre-wrap">{msg.content}</p>
+                )}
+                {msg.role === "agent" && isStreaming && msg.id === messages[messages.length - 1]?.id && (
+                  <div className="flex items-center gap-1 mt-1.5">
+                    <div className="w-1.5 h-1.5 bg-brand-400/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <div className="w-1.5 h-1.5 bg-brand-400/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <div className="w-1.5 h-1.5 bg-brand-400/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
                 )}
               </div>
               {msg.role === "user" && (
@@ -163,46 +170,42 @@ export default function BuildPage() {
               )}
             </div>
           ))}
-
-          {isStreaming && messages[messages.length - 1]?.content === "" && (
-            <div className="flex gap-2">
-              <div className="w-7 h-7 bg-brand-600/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                <Bot className="w-3.5 h-3.5 text-brand-400" />
-              </div>
-              <div className="bg-surface-2 border border-surface-4 rounded-2xl rounded-tl-sm px-3 py-2">
-                <div className="flex gap-1">
-                  <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                  <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                  <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                </div>
-              </div>
-            </div>
-          )}
           <div ref={messagesEndRef} />
         </div>
 
         {/* Input */}
         <div className="border-t border-surface-4 pt-3">
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
+          <div className="flex items-end gap-2">
+            <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
+              onChange={(e) => {
+                setInput(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
               placeholder="Describe the agent you want to build..."
-              className="flex-1 bg-surface-2 border border-surface-4 rounded-xl px-3 py-2.5 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-brand-500/50"
+              rows={1}
+              className="flex-1 bg-surface-2 border border-surface-4 rounded-xl px-3 py-2.5 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-brand-500/50 resize-none overflow-y-auto"
+              style={{ maxHeight: "120px" }}
               data-testid="build-description-input"
               disabled={isStreaming}
             />
             <button
               onClick={handleSend}
               disabled={!input.trim() || isStreaming}
-              className="btn-primary p-2.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn-primary p-2.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
               data-testid="build-submit-btn"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
+          <p className="text-[10px] text-gray-600 mt-1">Shift+Enter for new line</p>
         </div>
       </div>
 
