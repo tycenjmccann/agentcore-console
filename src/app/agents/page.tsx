@@ -6,7 +6,7 @@ import {
   Timer, CheckCircle2, Wrench, Server,
 } from "lucide-react";
 import Link from "next/link";
-import { getClientRegion } from "@/lib/client-cache";
+import { cachedFetch, getCached, getClientRegion } from "@/lib/client-cache";
 
 interface AgentDetail {
   id: string;
@@ -53,19 +53,16 @@ function formatDuration(seconds: number): string {
 }
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState<AgentDetail[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = "/api/agentcore/agents";
+  const [agents, setAgents] = useState<AgentDetail[]>(() => getCached<AgentDetail[]>(cacheKey) || []);
+  const [loading, setLoading] = useState(!getCached(cacheKey));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     // Fetch all agents, then enrich each with detail
-    fetch("/api/agentcore/agents", { headers: { "x-aws-region": getClientRegion() } })
-      .then((r) => {
-        if (!r.ok) throw new Error(`API returned ${r.status}`);
-        return r.json();
-      })
+    cachedFetch<AgentDetail[] | { error: string }>(cacheKey)
       .then(async (data) => {
-        if (data.error) {
+        if (data && typeof data === "object" && "error" in data) {
           setError(data.error);
           setAgents([]);
           return;
@@ -77,11 +74,8 @@ export default function AgentsPage() {
         const enriched = await Promise.all(
           list.map(async (agent: AgentDetail) => {
             try {
-              const res = await fetch(`/api/agentcore/agents?id=${agent.id}`);
-              if (res.ok) {
-                const detail = await res.json();
-                return { ...agent, ...detail };
-              }
+              const detail = await cachedFetch<AgentDetail>(`/api/agentcore/agents?id=${agent.id}`);
+              return { ...agent, ...detail };
             } catch { /* keep basic info */ }
             return agent;
           })
