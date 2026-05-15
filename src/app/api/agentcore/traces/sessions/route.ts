@@ -58,14 +58,17 @@ async function queryOtelSessions(agentId: string, region: string) {
   const startTime = endTime - 14 * 24 * 60 * 60 * 1000; // 14 days
 
   // Query for distinct session IDs associated with this agent
+  // OTEL spans use `resource.attributes.service.name` = "agent_name.DEFAULT"
+  // and `attributes.session.id` for session correlation
   const agentIdBase = agentId.replace(/-[A-Za-z0-9]{6,}$/, "");
   const startRes = await client.send(new StartQueryCommand({
     logGroupName: "aws/spans",
     startTime: Math.floor(startTime / 1000),
     endTime: Math.floor(endTime / 1000),
-    queryString: `fields @timestamp, attributes.session_id
-      | filter resource.attributes.service_name like "${agentIdBase}" or attributes.agent_id = "${agentId}"
-      | stats min(@timestamp) as firstSeen, max(@timestamp) as lastSeen by attributes.session_id
+    queryString: `fields @timestamp, attributes.session.id as sessionId
+      | filter @message like "${agentIdBase}"
+      | filter ispresent(attributes.session.id)
+      | stats min(@timestamp) as firstSeen, max(@timestamp) as lastSeen by sessionId
       | sort lastSeen desc
       | limit 50`,
   }));
@@ -86,7 +89,7 @@ async function queryOtelSessions(agentId: string, region: string) {
           for (const f of row) {
             if (f.field && f.value) fields[f.field] = f.value;
           }
-          const sessionId = fields["attributes.session_id"];
+          const sessionId = fields["sessionId"];
           if (!sessionId) return null;
           return {
             sessionId,
