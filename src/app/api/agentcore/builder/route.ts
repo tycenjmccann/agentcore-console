@@ -83,14 +83,37 @@ export async function POST(req: NextRequest) {
  * Invoke the Builder Agent harness — has access to list_agents, list_gateway_tools,
  * create_harness, list_memories, get_agent_detail tools via gateway.
  */
+// Instructions prepended to the first user message to guide the builder agent
+const BUILDER_INSTRUCTIONS = `IMPORTANT: When you are ready to create an agent, output the complete harness configuration as a JSON code block tagged with \`\`\`agent-config. The UI will detect this and enable a Deploy button for the user. Do NOT attempt to call create_harness directly — just output the config. Example format:
+
+\`\`\`agent-config
+{
+  "agent_name": "my_agent",
+  "model_id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "system_prompt": "You are...",
+  "tools": ["tool1", "tool2"],
+  "gateway_id": "gatewayId"
+}
+\`\`\`
+
+You CAN still use your tools to list available agents, gateways, tools, and memories to inform your recommendations. Just don't try to create the agent yourself.
+
+---
+User request: `;
+
 async function invokeBuilderHarness(prompt: string, sessionId: string | undefined, history: Array<{ role: string; content: string }> | undefined, region: string) {
   const sid = sessionId || `builder-${crypto.randomUUID()}-${Date.now()}`;
 
-  // Build history for the harness
+  // Build history for the harness — prepend instructions to first user message
   const harnessHistory = history?.map((msg) => ({
     role: msg.role as "user" | "assistant",
     content: msg.content,
   }));
+
+  // If this is the first message (no history), prepend builder instructions
+  const effectivePrompt = (!history || history.length === 0)
+    ? BUILDER_INSTRUCTIONS + prompt
+    : prompt;
 
   // Resolve harness ARN — we need the full ARN
   const { STSClient, GetCallerIdentityCommand } = await import("@aws-sdk/client-sts");
@@ -101,7 +124,7 @@ async function invokeBuilderHarness(prompt: string, sessionId: string | undefine
 
   const stream = await invokeHarnessAgent({
     harnessArn,
-    prompt,
+    prompt: effectivePrompt,
     sessionId: sid,
     history: harnessHistory,
     region,

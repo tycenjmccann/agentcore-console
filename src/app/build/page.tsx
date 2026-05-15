@@ -3,7 +3,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Send, Bot, User, Rocket, Copy, Check, RefreshCw, MessageSquare } from "lucide-react";
-import { streamBuilderChat, HarnessConfig, deployHarnessAgent } from "@/lib/agentcore-stream";
+import { streamBuilderChat, HarnessConfig, deployHarnessAgent, parseHarnessConfig } from "@/lib/agentcore-stream";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface ChatMessage {
   id: string;
@@ -74,7 +76,12 @@ export default function BuildPage() {
         onConfig: (newConfig) => {
           setConfig(newConfig);
         },
-        onDone: () => {
+        onDone: (fullResponse) => {
+          // Try to extract config from the agent's text output (harness agent mode)
+          if (!config) {
+            const extracted = parseHarnessConfig(fullResponse);
+            if (extracted) setConfig(extracted);
+          }
           setIsStreaming(false);
         },
         onError: (err) => {
@@ -141,7 +148,13 @@ export default function BuildPage() {
                     : "bg-surface-2 border border-surface-4 rounded-2xl rounded-tl-sm"
                 } px-3 py-2`}
               >
-                <p className="text-sm text-gray-200 whitespace-pre-wrap">{msg.content}</p>
+                {msg.role === "agent" ? (
+                  <div className="text-sm text-gray-200 prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-code:text-cyan-300 prose-code:bg-surface-1 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-surface-1 prose-pre:border prose-pre:border-surface-4 prose-a:text-brand-400">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-200 whitespace-pre-wrap">{msg.content}</p>
+                )}
               </div>
               {msg.role === "user" && (
                 <div className="w-7 h-7 bg-surface-3 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
