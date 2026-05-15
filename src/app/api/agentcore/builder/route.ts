@@ -84,8 +84,14 @@ export async function POST(req: NextRequest) {
  * create_harness, list_memories, get_agent_detail tools via gateway.
  */
 // Instructions prepended to the first user message to guide the builder agent
-const BUILDER_INSTRUCTIONS = `IMPORTANT: When you are ready to create an agent, output the complete harness configuration as a JSON code block tagged with \`\`\`agent-config. The UI will detect this and enable a Deploy button for the user. Do NOT attempt to call create_harness directly — just output the config. Example format:
+const BUILDER_INSTRUCTIONS = `IMPORTANT INSTRUCTIONS FOR AGENT CREATION:
 
+1. Use your tools freely to discover available gateways, tools, agents, and memories.
+2. When ready to create an agent, try using your create_harness tool first.
+3. If creation fails (e.g. permissions error), output the complete configuration as a JSON code block tagged with \`\`\`agent-config so the user can deploy it via the Deploy button in the UI.
+4. ALWAYS show the config in an \`\`\`agent-config block regardless of whether creation succeeds — this lets the user see and modify it.
+
+Example config format:
 \`\`\`agent-config
 {
   "agent_name": "my_agent",
@@ -95,8 +101,6 @@ const BUILDER_INSTRUCTIONS = `IMPORTANT: When you are ready to create an agent, 
   "gateway_id": "gatewayId"
 }
 \`\`\`
-
-You CAN still use your tools to list available agents, gateways, tools, and memories to inform your recommendations. Just don't try to create the agent yourself.
 
 ---
 User request: `;

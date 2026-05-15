@@ -1,12 +1,13 @@
 import { NextRequest } from "next/server";
+import { DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
 /**
  * POST /api/agentcore/deploy
- * Placeholder for deploying a harness config as a new agent.
- * In a real implementation, this would call CreateHarness via the Control Plane SDK.
- * For now, it validates the config and returns a success response.
+ * Deploys a harness config as a new agent via CreateHarness.
+ * Falls back to a "config saved" response if creation fails.
  */
 export async function POST(req: NextRequest) {
+  const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
   let config;
   try {
     config = await req.json();
@@ -19,21 +20,60 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // TODO: Use CreateHarnessCommand from @aws-sdk/client-bedrock-agentcore-control
-    // to actually deploy the harness to the account.
-    const agentId = `user_${config.agent_name}_${Date.now().toString(36)}`;
+    const { BedrockAgentCoreControlClient, CreateHarnessCommand } = await import(
+      "@aws-sdk/client-bedrock-agentcore-control"
+    );
 
+    const client = new BedrockAgentCoreControlClient({ region });
+
+    // Build the CreateHarness input
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const input: any = {
+      harnessName: config.agent_name,
+      foundation: {
+        modelId: config.model_id || "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        ...(config.system_prompt ? { instruction: config.system_prompt } : {}),
+      },
+    };
+
+    // Add gateway tools if specified
+    if (config.gateway_id && config.tools && config.tools.length > 0) {
+      input.foundation.toolUse = {
+        tools: config.tools.map((tool: string) => ({
+          gatewayTool: {
+            gatewayArn: config.gateway_id,
+            toolName: tool,
+          },
+        })),
+      };
+    }
+
+    const command = new CreateHarnessCommand(input);
+    const response = await client.send(command);
+
+    const harness = response.harness;
     return Response.json({
-      agentId,
+      agentId: harness?.harnessId || config.agent_name,
       agentName: config.agent_name,
-      status: "PENDING",
-      message: `Agent "${config.agent_name}" configuration saved. Deploy via Control Plane to activate.`,
-      config,
+      status: harness?.status || "CREATING",
+      arn: harness?.arn,
+      message: `Agent "${config.agent_name}" created successfully.`,
     });
   } catch (error) {
-    console.error("Deploy error:", error);
+    const errMsg = error instanceof Error ? error.message : "Unknown error";
+    console.error("Deploy error:", errMsg);
+
+    // If it's an IAM/permissions issue, return useful info
+    if (errMsg.includes("PassRole") || errMsg.includes("AccessDenied") || errMsg.includes("not authorized")) {
+      return Response.json({
+        error: "IAM permissions error — need iam:PassRole on the execution role",
+        details: errMsg,
+        config,
+      }, { status: 403 });
+    }
+
     return Response.json(
-      { error: `Deploy failed: ${error instanceof Error ? error.message : "Unknown"}` },
+      { error: `Deploy failed: ${errMsg}`, config },
       { status: 500 }
     );
   }
