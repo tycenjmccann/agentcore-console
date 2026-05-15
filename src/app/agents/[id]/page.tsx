@@ -843,7 +843,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
         {invokeMode === "chat" ? (
           <>
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto scrollbar-thin space-y-4 pb-4">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin space-y-4 pb-4">
               {loadingHistory ? (
                 <div className="flex flex-col items-center justify-center h-full">
                   <Loader2 className="w-6 h-6 text-brand-400 animate-spin mb-2" />
@@ -949,9 +949,9 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                   <span className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Response</span>
                   {isStreaming && <Loader2 className="w-3 h-3 text-brand-400 animate-spin" />}
                 </div>
-                <div className="flex-1 bg-surface-1 border border-surface-4 rounded-lg px-3 py-2.5 overflow-y-auto">
+                <div className="flex-1 bg-surface-1 border border-surface-4 rounded-lg px-3 py-2.5 overflow-y-auto overflow-x-hidden">
                   {playgroundResponse ? (
-                    <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">{playgroundResponse}</pre>
+                    <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap break-words">{playgroundResponse}</pre>
                   ) : (
                     <p className="text-xs text-gray-600 italic">Response will appear here after invoking...</p>
                   )}
