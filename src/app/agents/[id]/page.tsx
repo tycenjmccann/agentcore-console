@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ArrowLeft, Bot, Brain, Cpu, Server, Wrench, Send, User, Plus, Clock,
   MessageSquare, Loader2, Terminal, Zap, ChevronRight, ChevronDown,
-  Activity, CheckCircle2, Database, Code2, Play,
+  Activity, CheckCircle2, Database, Code2, Play, AlertTriangle, ExternalLink, RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
@@ -96,6 +96,9 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
       <Link href="/agents" className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300">
         <ArrowLeft className="w-4 h-4" /> Back to Agents
       </Link>
+
+      {/* Account-wide trace pipeline health */}
+      <TraceHealthBanner />
 
       {/* Compact Agent Info Header */}
       <AgentInfoHeader agent={agent} />
@@ -1105,6 +1108,116 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
     <div className="text-center">
       <p className="text-[10px] text-gray-500">{label}</p>
       <p className="text-sm font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+interface TraceHealth {
+  region: string;
+  checkedAt: string;
+  healthy: boolean;
+  transactionSearchEnabled: boolean;
+  recentSpanCount: number | null;
+  recentWindowMinutes: number;
+  lastSpanTimestamp: string | null;
+  issues: Array<{
+    severity: "warning" | "error";
+    code: string;
+    title: string;
+    body: string;
+    actionUrl?: string;
+    actionLabel?: string;
+  }>;
+  cached?: boolean;
+}
+
+function TraceHealthBanner() {
+  const [health, setHealth] = useState<TraceHealth | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [dismissed, setDismissed] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchHealth = useCallback(async (force = false) => {
+    try {
+      const url = force ? "/api/agentcore/traces/health?refresh=1" : "/api/agentcore/traces/health";
+      const res = await fetch(url, { headers: { "x-aws-region": getClientRegion() } });
+      if (!res.ok) return;
+      const data = (await res.json()) as TraceHealth;
+      setHealth(data);
+    } catch {
+      // Silent — banner just doesn't render
+    }
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchHealth().finally(() => setLoading(false));
+  }, [fetchHealth]);
+
+  if (loading || !health || dismissed) return null;
+  // Don't render anything when fully healthy — silent success
+  if (health.healthy && health.issues.length === 0) return null;
+
+  const hasError = health.issues.some((i) => i.severity === "error");
+  const accent = hasError
+    ? "bg-red-600/10 border-red-600/30 text-red-200"
+    : "bg-yellow-600/10 border-yellow-600/30 text-yellow-200";
+  const iconColor = hasError ? "text-red-400" : "text-yellow-400";
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchHealth(true);
+    setRefreshing(false);
+  };
+
+  return (
+    <div className={`rounded-xl border px-4 py-3 ${accent}`}>
+      <div className="flex items-start gap-3">
+        <AlertTriangle className={`w-4 h-4 mt-0.5 flex-shrink-0 ${iconColor}`} />
+        <div className="flex-1 min-w-0 space-y-2">
+          {health.issues.map((issue) => (
+            <div key={issue.code}>
+              <p className="text-xs font-semibold">{issue.title}</p>
+              <p className="text-[11px] mt-0.5 leading-snug opacity-90">{issue.body}</p>
+              {issue.actionUrl && (
+                <a
+                  href={issue.actionUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] mt-1 underline opacity-80 hover:opacity-100"
+                >
+                  {issue.actionLabel || "Learn more"}
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              )}
+            </div>
+          ))}
+          <p className="text-[10px] opacity-60 pt-1">
+            Region {health.region} · checked {new Date(health.checkedAt).toLocaleTimeString()}
+            {health.recentSpanCount !== null && health.recentSpanCount > 0 && (
+              <> · {health.recentSpanCount} spans in last {health.recentWindowMinutes}m</>
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={onRefresh}
+            disabled={refreshing}
+            className="text-[10px] px-2 py-1 rounded-md border border-current opacity-70 hover:opacity-100 disabled:opacity-40 inline-flex items-center gap-1"
+            title="Re-check trace pipeline health"
+          >
+            <RefreshCw className={`w-2.5 h-2.5 ${refreshing ? "animate-spin" : ""}`} />
+            Recheck
+          </button>
+          <button
+            onClick={() => setDismissed(true)}
+            className="text-[10px] px-2 py-1 rounded-md opacity-70 hover:opacity-100"
+            title="Dismiss for this session"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
