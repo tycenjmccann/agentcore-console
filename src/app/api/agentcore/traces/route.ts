@@ -119,8 +119,9 @@ export async function POST(req: NextRequest) {
 
 /**
  * Query the agent's runtime log group for recent execution logs.
- * Uses DescribeLogStreams + GetLogEvents (works without StartQuery/FilterLogEvents permissions).
- * Filters for log lines mentioning the session ID when possible.
+ * Parses structured runtime logs into human-readable trace steps.
+ * Filters out noise (streaming chunks, credential loading) and extracts
+ * meaningful execution events (memory ops, model calls, tool executions).
  */
 async function queryAgentRuntimeLogs(agentId: string, sessionId: string, region: string): Promise<TraceRecord[]> {
   const logGroup = await findLogGroupForAgent(agentId, undefined, region);
@@ -128,27 +129,32 @@ async function queryAgentRuntimeLogs(agentId: string, sessionId: string, region:
 
   const client = getLogsClient(region);
 
+  // Find the log stream for this session (streams are named with session ID)
   const streamsRes = await client.send(
     new DescribeLogStreamsCommand({
       logGroupName: logGroup,
       orderBy: "LastEventTime",
       descending: true,
-      limit: 5,
+      limit: 10,
     })
   );
 
   const streams = (streamsRes.logStreams || []).filter((s) => s.logStreamName);
   if (streams.length === 0) return [];
 
+  // Prefer streams that contain the session ID in their name
+  const sessionStream = streams.find((s) => s.logStreamName!.includes(sessionId));
+  const targetStreams = sessionStream ? [sessionStream] : streams.slice(0, 2);
+
   const allTraces: TraceRecord[] = [];
 
-  for (const stream of streams.slice(0, 3)) {
+  for (const stream of targetStreams) {
     const eventsRes = await client.send(
       new GetLogEventsCommand({
         logGroupName: logGroup,
         logStreamName: stream.logStreamName!,
-        limit: 100,
-        startFromHead: false,
+        limit: 200,
+        startFromHead: true,
       })
     );
 
@@ -156,22 +162,146 @@ async function queryAgentRuntimeLogs(agentId: string, sessionId: string, region:
       const msg = (event.message || "").trim();
       if (!msg) continue;
 
-      // Filter to lines mentioning the session ID if it appears in any line
-      const sessionPresent = allTraces.some((t) => t.name?.includes(sessionId));
-      if (sessionPresent && !msg.includes(sessionId)) continue;
-
-      allTraces.push({
-        id: `log_${event.timestamp}_${Math.random().toString(36).slice(2, 8)}`,
-        event: categorizeLogLine(msg),
-        name: msg.length > 140 ? msg.slice(0, 140) + "\u2026" : msg,
-        timestamp: new Date(event.timestamp || 0).toISOString(),
-      });
+      const parsed = parseRuntimeLogEvent(msg, event.timestamp || 0);
+      if (parsed) {
+        allTraces.push(parsed);
+      }
     }
   }
 
   // Sort chronologically
   allTraces.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   return allTraces;
+}
+
+/**
+ * Parse a single runtime log event into a structured trace record.
+ * Returns null for noise (streaming chunks, credential logs, etc.)
+ */
+function parseRuntimeLogEvent(msg: string, timestamp: number): TraceRecord | null {
+  // Skip streaming text chunks (short lines that aren't timestamps or JSON)
+  if (!msg.startsWith("20") && !msg.startsWith("{") && !msg.startsWith("WARNING")) {
+    return null;
+  }
+
+  // Try structured JSON format: { timestamp, level, message, logger, sessionId }
+  if (msg.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(msg);
+
+      // Skip OTEL log records (they're noise in the runtime stream)
+      if (parsed.resource && parsed.scope) return null;
+
+      if (parsed.message && parsed.logger) {
+        const event = categorizeLogger(parsed.logger, parsed.message);
+        if (!event) return null; // Filtered out
+
+        return {
+          id: `log_${timestamp}_${Math.random().toString(36).slice(2, 8)}`,
+          event: event.type,
+          name: event.name,
+          timestamp: parsed.timestamp || new Date(timestamp).toISOString(),
+          details: {
+            logger: parsed.logger,
+            level: parsed.level,
+            requestId: parsed.requestId,
+            sessionId: parsed.sessionId,
+          },
+        };
+      }
+    } catch {
+      // Not valid JSON — fall through to text parsing
+    }
+  }
+
+  // Parse Python log format: TIMESTAMP LEVEL [logger] [file:line] [trace_id=... span_id=...] - MESSAGE
+  const logMatch = msg.match(
+    /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s+(\w+)\s+\[([^\]]+)\]\s+\[([^\]]+)\]\s+\[([^\]]+)\]\s*-?\s*(.*)/
+  );
+
+  if (logMatch) {
+    const [, ts, level, logger, , , message] = logMatch;
+    const event = categorizeLogger(logger, message);
+    if (!event) return null;
+
+    return {
+      id: `log_${timestamp}_${Math.random().toString(36).slice(2, 8)}`,
+      event: event.type,
+      name: event.name,
+      timestamp: new Date(ts.replace(",", ".") + "Z").toISOString(),
+      details: {
+        logger,
+        level,
+        message: message.trim(),
+      },
+    };
+  }
+
+  // Skip everything else (streaming chunks, warnings without context)
+  return null;
+}
+
+/**
+ * Categorize a log entry by its logger and message.
+ * Returns null for entries that should be filtered out.
+ */
+function categorizeLogger(logger: string, message: string): { type: string; name: string } | null {
+  const l = logger.toLowerCase();
+  const m = message.toLowerCase();
+
+  // Filter out noise
+  if (l.includes("botocore.credentials")) return null;
+  if (l.includes("opentelemetry.instrumentation")) return null;
+  if (m.includes("found credentials")) return null;
+  if (m.includes("skipping install")) return null;
+  if (m.includes("attempting to instrument")) return null;
+
+  // Memory operations
+  if (l.includes("memory")) {
+    if (m.includes("initialized") || m.includes("init")) {
+      return { type: "service_call", name: "Memory initialized" };
+    }
+    if (m.includes("retrieved") || m.includes("retrieve")) {
+      const countMatch = message.match(/(\d+)\s+memor/i);
+      return { type: "service_call", name: countMatch ? `Retrieved ${countMatch[1]} memories` : "Memory retrieval" };
+    }
+    if (m.includes("created event") || m.includes("store") || m.includes("save")) {
+      return { type: "service_call", name: "Stored conversation in memory" };
+    }
+    return { type: "service_call", name: message.length > 80 ? message.slice(0, 77) + "..." : message };
+  }
+
+  // Model/LLM calls
+  if (l.includes("strands.telemetry") || l.includes("metrics")) {
+    return { type: "model_call", name: "Model metrics recorded" };
+  }
+  if (m.includes("model") || m.includes("converse") || m.includes("invoke_model")) {
+    return { type: "model_call", name: message.length > 80 ? message.slice(0, 77) + "..." : message };
+  }
+
+  // Tool execution
+  if (m.includes("tool") && (m.includes("call") || m.includes("execut") || m.includes("invoke"))) {
+    return { type: "tool_call", name: message.length > 80 ? message.slice(0, 77) + "..." : message };
+  }
+
+  // Application lifecycle
+  if (l.includes("bedrock_agentcore.app")) {
+    if (m.includes("streaming response") || m.includes("returning")) {
+      return { type: "request", name: "Streaming response started" };
+    }
+    return { type: "internal", name: message.length > 80 ? message.slice(0, 77) + "..." : message };
+  }
+
+  // Agent event loop
+  if (l.includes("strands") || l.includes("agent")) {
+    if (m.includes("event_loop") || m.includes("iteration")) {
+      return { type: "span", name: message.length > 80 ? message.slice(0, 77) + "..." : message };
+    }
+    return { type: "internal", name: message.length > 80 ? message.slice(0, 77) + "..." : message };
+  }
+
+  // Generic INFO/WARNING that passed noise filter
+  return { type: "internal", name: message.length > 80 ? message.slice(0, 77) + "..." : message };
 }
 
 /**

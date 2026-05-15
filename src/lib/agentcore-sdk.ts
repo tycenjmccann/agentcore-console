@@ -32,8 +32,35 @@ const controlClients = new Map<string, BedrockAgentCoreControlClient>();
 const logsClients = new Map<string, CloudWatchLogsClient>();
 
 // In-memory store — not shared across ECS tasks or durable across restarts. Swap with DynamoDB/Redis for production persistence.
+// Seed from existing JSON files on disk if present (backwards compat with pre-in-memory deployments).
 const memoryMappings = new Map<string, string>();
 const payloadFormats = new Map<string, string>();
+
+// Seed maps from disk at module load time (sync, runs once on cold start)
+(function seedFromDisk() {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require("fs");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require("path");
+    const mmPath = path.join(process.cwd(), ".memory-mappings.json");
+    if (fs.existsSync(mmPath)) {
+      const data = JSON.parse(fs.readFileSync(mmPath, "utf-8"));
+      for (const [k, v] of Object.entries(data)) {
+        memoryMappings.set(k, v as string);
+      }
+    }
+    const pfPath = path.join(process.cwd(), ".payload-formats.json");
+    if (fs.existsSync(pfPath)) {
+      const data = JSON.parse(fs.readFileSync(pfPath, "utf-8"));
+      for (const [k, v] of Object.entries(data)) {
+        payloadFormats.set(k, v as string);
+      }
+    }
+  } catch {
+    // File not found or read-only filesystem — start with empty maps
+  }
+})();
 
 export function setMemoryMapping(agentId: string, memoryId: string) {
   memoryMappings.set(agentId, memoryId);
@@ -395,9 +422,18 @@ export async function findLogGroupForAgent(agentId: string, agentName?: string, 
 
   const baseName = (name || agentId).replace(/-[A-Za-z0-9]{6,}$/, "");
 
-  // Strategy 1: Log group contains the full agent base name
+  // Strategy 0: Exact match — log group contains the full agent ID (with suffix)
   for (const group of groups) {
-    if (group.toLowerCase().includes(baseName.toLowerCase())) return group;
+    if (group.includes(agentId)) return group;
+  }
+
+  // Strategy 1: Log group contains the full agent base name
+  // Prefer groups with more stored data (more likely to be the active one)
+  const baseMatches = groups.filter((g) => g.toLowerCase().includes(baseName.toLowerCase()));
+  if (baseMatches.length === 1) return baseMatches[0];
+  if (baseMatches.length > 1) {
+    // If multiple matches, prefer the one with the agent ID suffix or return last (often most recent)
+    return baseMatches[baseMatches.length - 1];
   }
 
   // Strategy 2: Significant name parts (> 5 chars, non-generic)

@@ -211,6 +211,8 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [traceSessions, setTraceSessions] = useState<Session[]>([]);
+  const [sessionSource, setSessionSource] = useState<"memory" | "traces">(agent.memoryId ? "memory" : "traces");
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [availableMemories, setAvailableMemories] = useState<MemoryOption[]>([]);
@@ -250,6 +252,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
       .catch(() => {});
   }, [agent.id]);
 
+  // Load memory sessions
   useEffect(() => {
     setLoadingSessions(true);
     fetch(`/api/agentcore/memory/sessions?agent_id=${agent.id}`, { headers: { "x-aws-region": getClientRegion() } })
@@ -257,6 +260,14 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
       .then((data) => setSessions(data.sessions || []))
       .catch(() => setSessions([]))
       .finally(() => setLoadingSessions(false));
+  }, [agent.id]);
+
+  // Load trace-based sessions
+  useEffect(() => {
+    fetch(`/api/agentcore/traces/sessions?agent_id=${agent.id}`, { headers: { "x-aws-region": getClientRegion() } })
+      .then((r) => r.json())
+      .then((data) => setTraceSessions(data.sessions || []))
+      .catch(() => setTraceSessions([]));
   }, [agent.id]);
 
   useEffect(() => {
@@ -345,6 +356,30 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
       setLoadingHistory(false);
     }
   }, [agent.id, agent.name]);
+
+  const resumeTraceSession = useCallback(async (session: Session) => {
+    setSessionId(session.sessionId);
+    setLoadingHistory(true);
+    setMessages([]);
+    setTraceSteps([]);
+    setSessionStatus("complete");
+    setSessionStartTime(null);
+    setElapsedTime(0);
+
+    try {
+      const regionHeaders = { "x-aws-region": getClientRegion() };
+      const tracesRes = await fetch(
+        `/api/agentcore/traces?session_id=${session.sessionId}&agent_id=${agent.id}`,
+        { headers: regionHeaders }
+      );
+      const tracesData = await tracesRes.json();
+      setTraceSteps(tracesData.traces || []);
+    } catch {
+      // Failed to load traces
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [agent.id]);
 
   const storeInMemory = useCallback(
     (userMsg: string, assistantMsg: string) => {
@@ -528,19 +563,49 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
           New Session
         </button>
 
+        {/* Source Toggle */}
+        <div className="flex items-center gap-1 mb-2 p-0.5 bg-surface-3 rounded-lg">
+          <button
+            onClick={() => setSessionSource("memory")}
+            className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
+              sessionSource === "memory"
+                ? "bg-surface-1 text-brand-400 shadow-sm"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            <Database className="w-2.5 h-2.5" />
+            Memory
+          </button>
+          <button
+            onClick={() => setSessionSource("traces")}
+            className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
+              sessionSource === "traces"
+                ? "bg-surface-1 text-brand-400 shadow-sm"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            <Terminal className="w-2.5 h-2.5" />
+            Traces
+          </button>
+        </div>
+
         <div className="flex-1 overflow-y-auto space-y-1">
-          <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium mb-1">History</p>
+          <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium mb-1">
+            {sessionSource === "memory" ? "History" : "Trace Sessions"}
+          </p>
           {loadingSessions ? (
             <div className="flex items-center gap-2 text-xs text-gray-500 py-2">
               <Loader2 className="w-3 h-3 animate-spin" /> Loading...
             </div>
-          ) : sessions.length === 0 ? (
-            <p className="text-xs text-gray-600 py-2">No previous sessions</p>
+          ) : (sessionSource === "memory" ? sessions : traceSessions).length === 0 ? (
+            <p className="text-xs text-gray-600 py-2">
+              {sessionSource === "memory" ? "No previous sessions" : "No trace sessions found"}
+            </p>
           ) : (
-            sessions.map((session) => (
+            (sessionSource === "memory" ? sessions : traceSessions).map((session) => (
               <button
                 key={session.sessionId}
-                onClick={() => resumeSession(session)}
+                onClick={() => sessionSource === "memory" ? resumeSession(session) : resumeTraceSession(session)}
                 className={`w-full text-left px-2 py-1.5 rounded-lg text-xs transition-colors ${
                   sessionId === session.sessionId
                     ? "bg-brand-600/20 border border-brand-600/30 text-brand-300"
@@ -548,7 +613,10 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <MessageSquare className="w-2.5 h-2.5 flex-shrink-0" />
+                  {sessionSource === "memory"
+                    ? <MessageSquare className="w-2.5 h-2.5 flex-shrink-0" />
+                    : <Terminal className="w-2.5 h-2.5 flex-shrink-0" />
+                  }
                   <span className="truncate font-mono text-[10px]">
                     {session.sessionId.length > 16 ? session.sessionId.slice(0, 16) + "..." : session.sessionId}
                   </span>
