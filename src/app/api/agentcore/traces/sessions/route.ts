@@ -35,21 +35,23 @@ export async function GET(req: NextRequest) {
   const startTime = endTime - days * 24 * 60 * 60 * 1000;
 
   try {
-    // Build filter clause
-    let filterClause = `| filter ispresent(attributes.\`session.id\`)`;
+    // Build filter clause — use @message text match since CW Logs Insights
+    // can't extract dotted attribute keys like "session.id" via field syntax
+    let filterClause = `| filter @message like "session.id"`;
     if (agentId) {
-      filterClause += ` and resource.\`service.name\` like "${agentId}"`;
+      filterClause += ` and @message like "${agentId}"`;
     }
     if (ticketId) {
-      filterClause += ` and attributes.\`session.id\` like "${ticketId}"`;
+      filterClause += ` and @message like "${ticketId}"`;
     }
 
-    // Query for unique sessions with stats
+    // Use parse to extract session.id and service.name from the JSON message
     const queryString = `
-      fields attributes.\`session.id\` as sessionId,
-             resource.\`service.name\` as agentName,
-             @timestamp
+      fields @message, @timestamp
+      | parse @message '"session.id":"*"' as sessionId
+      | parse @message '"service.name":"*"' as agentName
       ${filterClause}
+      | filter ispresent(sessionId)
       | stats earliest(@timestamp) as startTime,
               latest(@timestamp) as endTime,
               count(*) as spanCount

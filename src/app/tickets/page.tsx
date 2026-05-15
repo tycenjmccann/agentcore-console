@@ -25,10 +25,11 @@ import { getClientRegion } from "@/lib/client-cache";
 
 interface SessionItem {
   sessionId: string;
-  actorId: string;
-  createdAt: string;
-  agentName?: string;
-  duration?: number; // ms
+  agentName: string;
+  startTime: string;
+  endTime: string;
+  spanCount: number;
+  ticketId?: string;
 }
 
 interface TraceSpan {
@@ -49,14 +50,19 @@ function extractTicketId(sessionId: string): string | null {
 }
 
 function fuzzyMatch(text: string, query: string): boolean {
+  if (!text || !query) return false;
   const lower = text.toLowerCase();
-  const q = query.toLowerCase();
+  const q = query.toLowerCase().trim();
+  if (!q) return true;
   return lower.includes(q);
 }
 
 function timeAgo(dateStr: string): string {
   if (!dateStr) return "";
-  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  // Handle unix timestamps (milliseconds) or ISO date strings
+  const ts = /^\d+$/.test(dateStr) ? parseInt(dateStr, 10) : new Date(dateStr).getTime();
+  const seconds = Math.floor((Date.now() - ts) / 1000);
+  if (seconds < 0) return "just now";
   if (seconds < 60) return "just now";
   if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
@@ -136,21 +142,34 @@ export default function TicketHistoryPage() {
       .finally(() => setLoadingSessions(false));
   }, []);
 
-  // Filter and group sessions
-  const filteredSessions = useMemo(() => {
-    if (!searchQuery.trim()) return sessions;
-    return sessions.filter((s) => fuzzyMatch(s.sessionId, searchQuery));
-  }, [sessions, searchQuery]);
+  // Filter sessions — single source of truth for both count and list
+  const q = searchQuery.trim().toLowerCase();
+  const displaySessions: SessionItem[] = (() => {
+    // Step 1: Filter
+    const filtered = q
+      ? sessions.filter((s) => {
+          const text = [
+            s.sessionId,
+            s.agentName,
+            s.ticketId,
+            extractTicketId(s.sessionId),
+            getStageBadge(s.agentName).label,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return text.includes(q);
+        })
+      : sessions;
 
-  // Sort by most recent first, group by ticket
-  const sortedSessions = useMemo(() => {
-    const sorted = [...filteredSessions].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    // Step 2: Sort by most recent
+    const sorted = [...filtered].sort(
+      (a, b) => parseInt(b.startTime || "0", 10) - parseInt(a.startTime || "0", 10)
     );
-    // Group by ticket ID for visual adjacency
+
+    // Step 3: Group by ticket
     const ticketGroups = new Map<string, SessionItem[]>();
     const noTicket: SessionItem[] = [];
-
     for (const session of sorted) {
       const ticket = extractTicketId(session.sessionId);
       if (ticket) {
@@ -160,21 +179,18 @@ export default function TicketHistoryPage() {
         noTicket.push(session);
       }
     }
-
-    // Flatten groups, ordered by the most recent session in each group
     const groupEntries = [...ticketGroups.entries()].sort((a, b) => {
-      const aTime = new Date(a[1][0].createdAt).getTime();
-      const bTime = new Date(b[1][0].createdAt).getTime();
+      const aTime = parseInt(a[1][0].startTime || "0", 10);
+      const bTime = parseInt(b[1][0].startTime || "0", 10);
       return bTime - aTime;
     });
-
     const result: SessionItem[] = [];
     for (const [, group] of groupEntries) {
       result.push(...group);
     }
     result.push(...noTicket);
     return result;
-  }, [filteredSessions]);
+  })();
 
   // Fetch trace detail when a session is selected
   const selectSession = useCallback((sessionId: string) => {
@@ -228,9 +244,14 @@ export default function TicketHistoryPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by ticket ID or session..."
+              placeholder="Filter by ticket, agent, stage..."
               className="w-full bg-surface-2 border border-surface-4 rounded-lg pl-9 pr-4 py-2 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-brand-500/50"
             />
+            {searchQuery.trim() && (
+              <p className="mt-1.5 text-[10px] text-gray-500">
+                {displaySessions.length} of {sessions.length} sessions
+              </p>
+            )}
           </div>
         </div>
 
@@ -241,7 +262,7 @@ export default function TicketHistoryPage() {
               <Loader2 className="w-5 h-5 text-brand-400 animate-spin mb-2" />
               <p className="text-xs text-gray-500">Loading sessions...</p>
             </div>
-          ) : sortedSessions.length === 0 ? (
+          ) : displaySessions.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-center px-4">
               <Clock className="w-8 h-8 text-gray-700 mb-3" />
               <p className="text-sm text-gray-500">
@@ -249,15 +270,15 @@ export default function TicketHistoryPage() {
               </p>
             </div>
           ) : (
-            sortedSessions.map((session, idx) => {
+            displaySessions.map((session, idx) => {
               const ticketId = extractTicketId(session.sessionId);
-              const prevTicketId = idx > 0 ? extractTicketId(sortedSessions[idx - 1].sessionId) : null;
+              const prevTicketId = idx > 0 ? extractTicketId(displaySessions[idx - 1].sessionId) : null;
               const showGroupHeader = ticketId && ticketId !== prevTicketId;
               const stage = getStageBadge(session.agentName);
               const isSelected = selectedSessionId === session.sessionId;
 
               return (
-                <div key={session.sessionId}>
+                <div key={`${session.sessionId}_${session.agentName}_${idx}`}>
                   {showGroupHeader && (
                     <div className="px-2 pt-3 pb-1">
                       <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
@@ -285,7 +306,7 @@ export default function TicketHistoryPage() {
                       </div>
                       <span className="text-[10px] text-gray-500 flex items-center gap-1">
                         <Clock className="w-2.5 h-2.5" />
-                        {timeAgo(session.createdAt)}
+                        {timeAgo(session.startTime)}
                       </span>
                     </div>
 
@@ -300,9 +321,9 @@ export default function TicketHistoryPage() {
                       <span className="text-[10px] text-gray-600 font-mono truncate max-w-[200px]">
                         {session.sessionId}
                       </span>
-                      {session.duration && (
+                      {session.spanCount > 0 && (
                         <span className="text-[10px] text-gray-500">
-                          {formatDurationMs(session.duration)}
+                          {session.spanCount} spans
                         </span>
                       )}
                     </div>
@@ -353,8 +374,8 @@ export default function TicketHistoryPage() {
                   <div>
                     <p className="text-[10px] text-gray-500 mb-0.5">Start Time</p>
                     <p className="text-xs text-gray-300">
-                      {selectedSession?.createdAt
-                        ? new Date(selectedSession.createdAt).toLocaleString()
+                      {selectedSession?.startTime
+                        ? new Date(parseInt(selectedSession.startTime, 10)).toLocaleString()
                         : "—"}
                     </p>
                   </div>
@@ -363,8 +384,6 @@ export default function TicketHistoryPage() {
                     <p className="text-xs text-gray-300">
                       {traceSummary && traceSummary.totalDuration > 0
                         ? `${traceSummary.totalDuration.toFixed(1)}s`
-                        : selectedSession?.duration
-                        ? formatDurationMs(selectedSession.duration)
                         : "—"}
                     </p>
                   </div>

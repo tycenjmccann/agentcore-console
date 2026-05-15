@@ -35,6 +35,7 @@ interface Stage {
 }
 
 interface SampleTicket {
+  ticketId: string;
   title: string;
   description: string;
   designAgent: string;
@@ -49,6 +50,7 @@ const DEFAULT_DEV_AGENT_ID = "routing_developer_v2-2dADo8v01q";
 
 const SAMPLE_TICKETS: SampleTicket[] = [
   {
+    ticketId: "IOS-1042",
     title: "Add push notification support for iOS",
     description:
       "As a user, I want to receive push notifications for new matches and messages so I can stay engaged with the app even when it's not open. Support both foreground and background notifications with rich content (images, action buttons).",
@@ -57,6 +59,7 @@ const SAMPLE_TICKETS: SampleTicket[] = [
     tags: ["ios", "notifications", "engagement"],
   },
   {
+    ticketId: "SEC-1043",
     title: "Implement rate limiting on the API",
     description:
       "We need to protect our API endpoints from abuse. Implement token-bucket rate limiting with per-user and per-IP limits. Include configurable thresholds, proper 429 responses with Retry-After headers, and metrics emission for monitoring.",
@@ -65,6 +68,7 @@ const SAMPLE_TICKETS: SampleTicket[] = [
     tags: ["backend", "security", "infrastructure"],
   },
   {
+    ticketId: "LEGAL-1044",
     title: "Add GDPR data export endpoint",
     description:
       "To comply with GDPR Article 20, implement a data portability endpoint that allows users to request a full export of their personal data in a machine-readable format (JSON). Must include all profile data, messages, preferences, and activity logs.",
@@ -73,6 +77,7 @@ const SAMPLE_TICKETS: SampleTicket[] = [
     tags: ["privacy", "compliance", "backend"],
   },
   {
+    ticketId: "L10N-1045",
     title: "Add Spanish language support",
     description:
       "Internationalize the app to support Spanish (es-ES and es-MX). Extract all user-facing strings into locale files, implement language switching in settings, and ensure proper RTL/pluralization handling. Cover both the mobile app and notification templates.",
@@ -278,6 +283,7 @@ export default function RoutingPage() {
   }
 
   function selectSampleTicket(ticket: SampleTicket) {
+    setTicketNumber(ticket.ticketId);
     setTicketTitle(ticket.title);
     setTicketDescription(ticket.description);
     setSelectedTicket(ticket);
@@ -312,6 +318,9 @@ export default function RoutingPage() {
                 isRunning && "opacity-50 cursor-not-allowed"
               )}
             >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-mono font-semibold text-brand-400">{ticket.ticketId}</span>
+              </div>
               <p className="text-sm font-medium text-white">{ticket.title}</p>
               <div className="flex gap-2 mt-2">
                 {ticket.tags.map((tag) => (
