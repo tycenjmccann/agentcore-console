@@ -48,6 +48,19 @@ interface TraceRecord {
   details?: Record<string, unknown>;
 }
 
+interface TraceDiagnostics {
+  // "anchored": matched on attributes.session.id (high confidence)
+  // "fallback": matched on raw @message substring only — agent isn't propagating session.id into OTEL baggage
+  // "none": no matches in either mode
+  matchMode: "anchored" | "fallback" | "none";
+  // "complete" | "timeout" | "failed" — distinguishes "queried successfully, no data" from "query never returned"
+  queryStatus: "complete" | "timeout" | "failed";
+  // True when aws/spans doesn't exist — almost always means Transaction Search isn't enabled
+  logGroupMissing?: boolean;
+  // True when anchored returned 0 but fallback found rows — agent emitted spans without session.id attribute
+  sessionIdPropagationMissing?: boolean;
+}
+
 /**
  * GET /api/agentcore/traces?session_id=xxx
  * Returns OTEL trace spans for a session from aws/spans.
@@ -69,15 +82,27 @@ export async function GET(req: NextRequest) {
 
   // Query OTEL spans from aws/spans (Transaction Search log group — all spans land here)
   try {
-    const traces = await queryOtelSpans(sessionId, region);
-    if (traces.length > 0) {
-      return NextResponse.json({ traces, source: "otel_spans" });
-    }
+    const { traces, diagnostics } = await queryOtelSpans(sessionId, region);
+    return NextResponse.json({
+      traces,
+      source: traces.length > 0 ? `otel_spans:${diagnostics.matchMode}` : "empty",
+      diagnostics,
+    });
   } catch (err) {
-    console.error("OTEL spans query error:", (err as Error).message);
+    const msg = (err as Error).message;
+    console.error("OTEL spans query error:", msg);
+    // Surface known fatal errors as diagnostics rather than swallowing them
+    const logGroupMissing = /ResourceNotFoundException|log group does not exist/i.test(msg);
+    return NextResponse.json({
+      traces: [],
+      source: "error",
+      diagnostics: {
+        matchMode: "none",
+        queryStatus: "failed",
+        logGroupMissing,
+      } satisfies TraceDiagnostics,
+    });
   }
-
-  return NextResponse.json({ traces: [], source: "empty" });
 }
 
 /**
@@ -99,37 +124,98 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * Query aws/spans OTEL log group for all trace spans matching a session ID.
- * Returns every span — no aggressive filtering. The UI handles presentation.
- * Requires Transaction Search to be enabled in the account.
+ * Query aws/spans OTEL log group for spans matching a session ID.
+ *
+ * Two-phase strategy:
+ *   1. Anchored: filter on attributes.session.id (high confidence, fast — indexed field)
+ *   2. Fallback: substring on @message, only if anchored returned 0 (catches agents
+ *      that didn't propagate session.id into OTEL baggage — diagnostic signal)
+ *
+ * Requires CloudWatch Transaction Search enabled in the account.
  */
-async function queryOtelSpans(sessionId: string, region: string): Promise<TraceRecord[]> {
+async function queryOtelSpans(
+  sessionId: string,
+  region: string
+): Promise<{ traces: TraceRecord[]; diagnostics: TraceDiagnostics }> {
+  // Phase 1: anchored query on the structured attribute
+  const anchored = await runSpansQuery(sessionId, region, "anchored");
+  if (anchored.traces.length > 0 || anchored.queryStatus !== "complete") {
+    return {
+      traces: anchored.traces,
+      diagnostics: {
+        matchMode: anchored.traces.length > 0 ? "anchored" : "none",
+        queryStatus: anchored.queryStatus,
+        logGroupMissing: anchored.logGroupMissing,
+      },
+    };
+  }
+
+  // Phase 2: fallback — anchored returned 0 with status=Complete; agent may not be tagging spans
+  const fallback = await runSpansQuery(sessionId, region, "fallback");
+  return {
+    traces: fallback.traces,
+    diagnostics: {
+      matchMode: fallback.traces.length > 0 ? "fallback" : "none",
+      queryStatus: fallback.queryStatus,
+      logGroupMissing: fallback.logGroupMissing,
+      sessionIdPropagationMissing: fallback.traces.length > 0,
+    },
+  };
+}
+
+interface SpansQueryResult {
+  traces: TraceRecord[];
+  queryStatus: "complete" | "timeout" | "failed";
+  logGroupMissing?: boolean;
+}
+
+async function runSpansQuery(
+  sessionId: string,
+  region: string,
+  mode: "anchored" | "fallback"
+): Promise<SpansQueryResult> {
   const client = getLogsClient(region);
 
   const endTime = Date.now();
   const startTime = endTime - 14 * 24 * 60 * 60 * 1000; // 14 days back
 
-  const startRes = await client.send(new StartQueryCommand({
-    logGroupName: "aws/spans",
-    startTime: Math.floor(startTime / 1000),
-    endTime: Math.floor(endTime / 1000),
-    queryString: `fields @timestamp, name, kind, durationNano,
-        attributes.session.id as sessionId,
-        attributes.gen_ai.tool.name as toolName,
-        attributes.gen_ai.tool.status as toolStatus,
-        attributes.gen_ai.tool.description as toolDescription,
-        attributes.gen_ai.operation.name as operation,
-        status.code as statusCode
-      | filter @message like "${sessionId}"
-      | filter name not like "InternalOperation"
-      | filter name != "GET" and name != "PUT" and name != "POST" and name != "DELETE"
-      | filter name not like "CountTokens"
-      | filter kind != "CLIENT"
-      | sort @timestamp asc
-      | limit 200`,
-  }));
+  // Anchored mode hits the structured field directly. Fallback is the legacy raw-message substring
+  // — kept only as a safety net for agents that emit spans but don't tag session.id correctly.
+  const sessionFilter =
+    mode === "anchored"
+      ? `| filter attributes.session.id = "${sessionId}"`
+      : `| filter @message like "${sessionId}"`;
 
-  if (!startRes.queryId) return [];
+  let startRes;
+  try {
+    startRes = await client.send(
+      new StartQueryCommand({
+        logGroupName: "aws/spans",
+        startTime: Math.floor(startTime / 1000),
+        endTime: Math.floor(endTime / 1000),
+        queryString: `fields @timestamp, name, kind, durationNano,
+          attributes.session.id as sessionId,
+          attributes.gen_ai.tool.name as toolName,
+          attributes.gen_ai.tool.status as toolStatus,
+          attributes.gen_ai.tool.description as toolDescription,
+          attributes.gen_ai.operation.name as operation,
+          status.code as statusCode
+        ${sessionFilter}
+        | filter name not like "InternalOperation"
+        | filter name != "GET" and name != "PUT" and name != "POST" and name != "DELETE"
+        | filter name not like "CountTokens"
+        | filter kind != "CLIENT"
+        | sort @timestamp asc
+        | limit 200`,
+      })
+    );
+  } catch (err) {
+    const msg = (err as Error).message;
+    const logGroupMissing = /ResourceNotFoundException|log group does not exist/i.test(msg);
+    return { traces: [], queryStatus: "failed", logGroupMissing };
+  }
+
+  if (!startRes.queryId) return { traces: [], queryStatus: "failed" };
 
   // Poll for results (max 6s)
   for (let i = 0; i < 12; i++) {
@@ -137,9 +223,12 @@ async function queryOtelSpans(sessionId: string, region: string): Promise<TraceR
     const results = await client.send(new GetQueryResultsCommand({ queryId: startRes.queryId }));
 
     if (results.status === "Complete" || results.status === "Cancelled" || results.status === "Failed") {
-      if (!results.results || results.results.length === 0) return [];
+      const queryStatus = results.status === "Complete" ? "complete" : "failed";
+      if (!results.results || results.results.length === 0) {
+        return { traces: [], queryStatus };
+      }
 
-      return results.results.map((row, idx) => {
+      const traces = results.results.map((row, idx) => {
         const fields: Record<string, string> = {};
         for (const f of row) {
           if (f.field && f.value) fields[f.field] = f.value;
@@ -170,10 +259,13 @@ async function queryOtelSpans(sessionId: string, region: string): Promise<TraceR
           },
         };
       });
+
+      return { traces, queryStatus };
     }
   }
 
-  return [];
+  // Hit poll budget without seeing terminal status — query is still running on CW side
+  return { traces: [], queryStatus: "timeout" };
 }
 
 /**

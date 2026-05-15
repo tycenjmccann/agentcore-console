@@ -50,6 +50,13 @@ interface TraceStep {
   details?: Record<string, unknown>;
 }
 
+interface TraceDiagnostics {
+  matchMode: "anchored" | "fallback" | "none";
+  queryStatus: "complete" | "timeout" | "failed";
+  logGroupMissing?: boolean;
+  sessionIdPropagationMissing?: boolean;
+}
+
 export default function AgentDetailPage({ params }: { params: { id: string } }) {
   const { id: agentId } = params;
   const cacheKey = `/api/agentcore/agents?id=${agentId}`;
@@ -218,10 +225,14 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   const [availableMemories, setAvailableMemories] = useState<MemoryOption[]>([]);
   const [linkedMemory, setLinkedMemory] = useState<string>(agent.memoryId || "");
   const [traceSteps, setTraceSteps] = useState<TraceStep[]>([]);
+  const [traceDiagnostics, setTraceDiagnostics] = useState<TraceDiagnostics | null>(null);
   const [expandedTrace, setExpandedTrace] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<"idle" | "active" | "complete">("idle");
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
+  // AgentCore InvokeAgentRuntime/InvokeHarness require session IDs >= 33 chars.
+  // Sessions with shorter IDs (legacy data, direct-script invocations) can be viewed but not continued.
+  const [isReadOnly, setIsReadOnly] = useState(false);
   const [invokeMode, setInvokeMode] = useState<"chat" | "playground">("chat");
   const [playgroundPayload, setPlaygroundPayload] = useState(() => {
     if (agent.type === "runtime") {
@@ -316,21 +327,23 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
     setSessionId(`sess_${crypto.randomUUID().replace(/-/g, "")}${Date.now()}`);
     setMessages([]);
     setTraceSteps([]);
+    setTraceDiagnostics(null);
     setSessionStatus("idle");
     setSessionStartTime(null);
     setElapsedTime(0);
+    setIsReadOnly(false);
   }, []);
 
   const resumeSession = useCallback(async (session: Session) => {
-    // AgentCore requires session IDs >= 33 chars. If the stored session ID is too short,
-    // generate a new valid one for future messages but still load history from the original.
-    const validSessionId = session.sessionId.length >= 33
-      ? session.sessionId
-      : `sess_${crypto.randomUUID().replace(/-/g, "")}${Date.now()}`;
-    setSessionId(validSessionId);
+    // Keep the original session ID. If it's too short for AgentCore's invoke API (<33 chars),
+    // we still load history but lock the chat — sending would either fail server-side or
+    // silently fork into a new session, orphaning the loaded history.
+    setSessionId(session.sessionId);
+    setIsReadOnly(session.sessionId.length < 33);
     setLoadingHistory(true);
     setMessages([]);
     setTraceSteps([]);
+    setTraceDiagnostics(null);
     setSessionStatus("complete");
     setSessionStartTime(null);
     setElapsedTime(0);
@@ -359,6 +372,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
 
       const persistedTraces = tracesData.traces || [];
       setTraceSteps(persistedTraces);
+      setTraceDiagnostics(tracesData.diagnostics || null);
     } catch {
       // Failed to load history
     } finally {
@@ -368,9 +382,11 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
 
   const resumeTraceSession = useCallback(async (session: Session) => {
     setSessionId(session.sessionId);
+    setIsReadOnly(session.sessionId.length < 33);
     setLoadingHistory(true);
     setMessages([]);
     setTraceSteps([]);
+    setTraceDiagnostics(null);
     setSessionStatus("complete");
     setSessionStartTime(null);
     setElapsedTime(0);
@@ -383,6 +399,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
       );
       const tracesData = await tracesRes.json();
       setTraceSteps(tracesData.traces || []);
+      setTraceDiagnostics(tracesData.diagnostics || null);
     } catch {
       // Failed to load traces
     } finally {
@@ -421,7 +438,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   );
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || isStreaming) return;
+    if (!input.trim() || isStreaming || isReadOnly) return;
 
     const userText = input;
     const userMsg: ChatMessage = {
@@ -527,7 +544,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
     } catch {
       setIsStreaming(false);
     }
-  }, [input, isStreaming, agent, sessionId, storeInMemory, persistTraces, messages, sessionStartTime]);
+  }, [input, isStreaming, isReadOnly, agent, sessionId, storeInMemory, persistTraces, messages, sessionStartTime]);
 
   // Auto-resize textarea
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -541,7 +558,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
 
   // Playground: send raw JSON payload
   const handlePlaygroundSend = useCallback(async () => {
-    if (isStreaming) return;
+    if (isStreaming || isReadOnly) return;
     let payload;
     try {
       payload = JSON.parse(playgroundPayload);
@@ -630,7 +647,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
       // Fetch real OTEL traces from aws/spans after invocation completes
       fetchOtelTraces(sessionId);
     }
-  }, [playgroundPayload, isStreaming, agent, sessionId, sessionStartTime]);
+  }, [playgroundPayload, isStreaming, isReadOnly, agent, sessionId, sessionStartTime]);
 
   // Poll aws/spans for real OTEL traces (propagation can take 5-30s)
   const fetchOtelTraces = useCallback(async (sid: string) => {
@@ -646,7 +663,14 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
         const data = await res.json();
         if (data.traces && data.traces.length > 0) {
           setTraceSteps(data.traces);
+          setTraceDiagnostics(data.diagnostics || null);
           return;
+        }
+        // Surface diagnostics even when traces are empty — e.g. logGroupMissing tells the user
+        // Transaction Search isn't enabled, no point continuing to poll
+        if (data.diagnostics) {
+          setTraceDiagnostics(data.diagnostics);
+          if (data.diagnostics.logGroupMissing) return;
         }
       } catch {
         // Retry
@@ -894,6 +918,19 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
 
             {/* Input — auto-expanding textarea */}
             <div className="border-t border-surface-4 pt-3">
+              {isReadOnly && (
+                <div className="mb-2 flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-yellow-600/10 border border-yellow-600/30">
+                  <p className="text-[11px] text-yellow-300/90 leading-tight">
+                    Read-only — this session ID is too short to continue (AgentCore requires ≥33 chars). Start a new session to chat.
+                  </p>
+                  <button
+                    onClick={startNewSession}
+                    className="text-[10px] px-2 py-1 rounded-md bg-yellow-600/20 border border-yellow-600/40 text-yellow-200 hover:bg-yellow-600/30 flex-shrink-0"
+                  >
+                    New Session
+                  </button>
+                </div>
+              )}
               <div className="flex items-end gap-3">
                 <textarea
                   ref={textareaRef}
@@ -905,15 +942,15 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                       handleSend();
                     }
                   }}
-                  placeholder={`Message ${agent.name}...`}
+                  placeholder={isReadOnly ? "Read-only — start a new session to chat" : `Message ${agent.name}...`}
                   rows={1}
-                  className="flex-1 bg-surface-2 border border-surface-4 rounded-xl px-4 py-2.5 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-brand-500/50 resize-none overflow-y-auto"
+                  className="flex-1 bg-surface-2 border border-surface-4 rounded-xl px-4 py-2.5 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-brand-500/50 resize-none overflow-y-auto disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ maxHeight: "120px" }}
-                  disabled={isStreaming}
+                  disabled={isStreaming || isReadOnly}
                 />
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim() || isStreaming}
+                  disabled={!input.trim() || isStreaming || isReadOnly}
                   className="btn-primary p-2.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                 >
                   <Send className="w-4 h-4" />
@@ -960,9 +997,22 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
 
               {/* Send button */}
               <div className="border-t border-surface-4 pt-3">
+                {isReadOnly && (
+                  <div className="mb-2 flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-yellow-600/10 border border-yellow-600/30">
+                    <p className="text-[11px] text-yellow-300/90 leading-tight">
+                      Read-only — this session ID is too short to continue (AgentCore requires ≥33 chars). Start a new session to invoke.
+                    </p>
+                    <button
+                      onClick={startNewSession}
+                      className="text-[10px] px-2 py-1 rounded-md bg-yellow-600/20 border border-yellow-600/40 text-yellow-200 hover:bg-yellow-600/30 flex-shrink-0"
+                    >
+                      New Session
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={handlePlaygroundSend}
-                  disabled={isStreaming}
+                  disabled={isStreaming || isReadOnly}
                   className="w-full btn-primary flex items-center justify-center gap-2 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isStreaming ? (
@@ -990,6 +1040,8 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Execution Trace</h3>
           {isStreaming && <span className="ml-auto w-2 h-2 bg-green-400 rounded-full animate-pulse" />}
         </div>
+
+        <TraceDiagnosticBanner diagnostics={traceDiagnostics} traceCount={traceSteps.length} />
 
         <div className="flex-1 overflow-y-auto space-y-1">
           {traceSteps.length === 0 ? (
@@ -1053,6 +1105,59 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
     <div className="text-center">
       <p className="text-[10px] text-gray-500">{label}</p>
       <p className="text-sm font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function TraceDiagnosticBanner({
+  diagnostics,
+  traceCount,
+}: {
+  diagnostics: TraceDiagnostics | null;
+  traceCount: number;
+}) {
+  if (!diagnostics) return null;
+
+  // No banner needed when we got high-confidence matches
+  if (diagnostics.matchMode === "anchored" && traceCount > 0) return null;
+
+  let title: string;
+  let body: string;
+  let tone: "warning" | "info" = "info";
+
+  if (diagnostics.logGroupMissing) {
+    tone = "warning";
+    title = "Transaction Search not enabled";
+    body =
+      "The aws/spans log group doesn't exist. Enable CloudWatch Transaction Search to ingest OTEL spans (one-time per account, ~10 min to propagate).";
+  } else if (diagnostics.queryStatus === "timeout") {
+    title = "Trace query timed out";
+    body =
+      "CloudWatch Logs Insights didn't return within the poll budget. Spans may exist — try resuming this session again in a few seconds.";
+  } else if (diagnostics.queryStatus === "failed") {
+    tone = "warning";
+    title = "Trace query failed";
+    body = "CloudWatch returned an error. Check the server logs and IAM permissions on logs:StartQuery / GetQueryResults.";
+  } else if (diagnostics.sessionIdPropagationMissing) {
+    tone = "warning";
+    title = "session.id not propagated";
+    body =
+      "Spans exist in aws/spans but don't carry attributes.session.id, so we can't reliably attribute them to this session. The agent needs ADOT auto-instrumentation and session.id baggage propagation.";
+  } else if (diagnostics.matchMode === "none" && traceCount === 0) {
+    title = "No spans found for this session";
+    body =
+      "Common causes: Transaction Search sampling rate (default 1%), span propagation lag (5–30s after invocation), or the agent isn't instrumented with ADOT.";
+  } else {
+    return null;
+  }
+
+  const bg = tone === "warning" ? "bg-yellow-600/10 border-yellow-600/30" : "bg-surface-3/70 border-surface-4";
+  const text = tone === "warning" ? "text-yellow-300/90" : "text-gray-400";
+
+  return (
+    <div className={`mb-3 px-2.5 py-2 rounded-lg border ${bg}`}>
+      <p className={`text-[10px] font-semibold uppercase tracking-wide ${text}`}>{title}</p>
+      <p className={`text-[10px] mt-1 leading-snug ${text}`}>{body}</p>
     </div>
   );
 }
