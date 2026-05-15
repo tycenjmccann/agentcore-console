@@ -3,7 +3,7 @@ import {
   StartQueryCommand,
   GetQueryResultsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
-import { getLogsClient, findLogGroupForAgent, DEFAULT_REGION } from "@/lib/agentcore-sdk";
+import { getLogsClient, discoverAgents, DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
 interface SessionRecord {
   sessionId: string;
@@ -37,23 +37,19 @@ export async function GET(req: NextRequest) {
   const startTime = endTime - days * 24 * 60 * 60 * 1000;
 
   try {
-    // Determine which log group to query:
-    // 1. Explicit log_group param (highest priority)
-    // 2. Agent's own log group (discovered by agent_id)
-    // 3. Fallback to aws/spans (generic shared log group)
-    let logGroupName = "aws/spans";
-    if (explicitLogGroup) {
-      logGroupName = explicitLogGroup;
-    } else if (agentId) {
-      const agentLogGroup = await findLogGroupForAgent(agentId, undefined, region);
-      if (agentLogGroup) {
-        logGroupName = agentLogGroup;
-      }
-    }
+    // Always query aws/spans — that's where OTEL trace spans (with session.id) live.
+    // Agent-specific log groups only contain application logs, not spans.
+    const logGroupName = explicitLogGroup || "aws/spans";
 
-    // Build filter — when querying an agent-specific log group,
-    // no need to filter by agent name (all spans belong to that agent)
+    // Build filter — filter by agent service name when agent_id is provided
     let filterClause = `| filter @message like "session.id"`;
+    if (agentId) {
+      // Resolve agent name from ID for service.name matching
+      const agents = await discoverAgents(region);
+      const agent = agents.find((a) => a.id === agentId);
+      const agentServiceName = agent?.name || agentId;
+      filterClause += ` and @message like "${agentServiceName}"`;
+    }
     if (ticketId) {
       filterClause += ` and @message like "${ticketId}"`;
     }
