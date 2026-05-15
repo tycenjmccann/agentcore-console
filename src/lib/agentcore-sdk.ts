@@ -690,7 +690,11 @@ export async function invokeHarnessAgent(params: {
               const trace = JSON.stringify({ type: "trace", event: "message_start", timestamp: new Date().toISOString() });
               controller.enqueue(encoder.encode(`data: ${trace}\n\n`));
             } else if ("messageStop" in event) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`));
+              // Don't send "done" here — harness agents have multi-turn tool loops.
+              // The stream continues after messageStop if the agent is calling tools.
+              // "done" is only sent after the full stream iteration completes (below).
+              const trace = JSON.stringify({ type: "trace", event: "message_stop", timestamp: new Date().toISOString() });
+              controller.enqueue(encoder.encode(`data: ${trace}\n\n`));
             } else if ("metadata" in event) {
               const meta = event.metadata as { usage?: { inputTokens?: number; outputTokens?: number } };
               if (meta.usage) {
@@ -706,6 +710,8 @@ export async function invokeHarnessAgent(params: {
             }
           }
         }
+        // Stream fully exhausted — NOW signal done
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`));
         controller.close();
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "Unknown error";
