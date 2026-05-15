@@ -3,7 +3,7 @@ import {
   StartQueryCommand,
   GetQueryResultsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
-import { getLogsClient, DEFAULT_REGION } from "@/lib/agentcore-sdk";
+import { getLogsClient, findLogGroupForAgent, DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
 interface SessionRecord {
   sessionId: string;
@@ -16,9 +16,10 @@ interface SessionRecord {
 
 /**
  * GET /api/agentcore/traces/sessions
- * Returns a lightweight list of recent sessions from aws/spans.
+ * Returns a lightweight list of recent sessions.
  * Query params:
- *   - agent_id: (optional) filter by agent name
+ *   - agent_id: (optional) find and query the agent's own log group
+ *   - log_group: (optional) explicit log group to query
  *   - ticket_id: (optional) filter by ticket ID in session
  *   - limit: (optional, default 50) max sessions to return
  *   - days: (optional, default 7) how far back to look
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
   const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
   const agentId = req.nextUrl.searchParams.get("agent_id") || "";
   const ticketId = req.nextUrl.searchParams.get("ticket_id") || "";
+  const explicitLogGroup = req.nextUrl.searchParams.get("log_group") || "";
   const limit = parseInt(req.nextUrl.searchParams.get("limit") || "50", 10);
   const days = parseInt(req.nextUrl.searchParams.get("days") || "7", 10);
 
@@ -35,12 +37,23 @@ export async function GET(req: NextRequest) {
   const startTime = endTime - days * 24 * 60 * 60 * 1000;
 
   try {
-    // Build filter clause — use @message text match since CW Logs Insights
-    // can't extract dotted attribute keys like "session.id" via field syntax
-    let filterClause = `| filter @message like "session.id"`;
-    if (agentId) {
-      filterClause += ` and @message like "${agentId}"`;
+    // Determine which log group to query:
+    // 1. Explicit log_group param (highest priority)
+    // 2. Agent's own log group (discovered by agent_id)
+    // 3. Fallback to aws/spans (generic shared log group)
+    let logGroupName = "aws/spans";
+    if (explicitLogGroup) {
+      logGroupName = explicitLogGroup;
+    } else if (agentId) {
+      const agentLogGroup = await findLogGroupForAgent(agentId, undefined, region);
+      if (agentLogGroup) {
+        logGroupName = agentLogGroup;
+      }
     }
+
+    // Build filter — when querying an agent-specific log group,
+    // no need to filter by agent name (all spans belong to that agent)
+    let filterClause = `| filter @message like "session.id"`;
     if (ticketId) {
       filterClause += ` and @message like "${ticketId}"`;
     }
@@ -61,7 +74,7 @@ export async function GET(req: NextRequest) {
     `;
 
     const startRes = await client.send(new StartQueryCommand({
-      logGroupName: "aws/spans",
+      logGroupName,
       startTime: Math.floor(startTime / 1000),
       endTime: Math.floor(endTime / 1000),
       queryString,

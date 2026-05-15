@@ -3,7 +3,7 @@ import {
   StartQueryCommand,
   GetQueryResultsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
-import { getLogsClient, DEFAULT_REGION } from "@/lib/agentcore-sdk";
+import { getLogsClient, findLogGroupForAgent, DEFAULT_REGION } from "@/lib/agentcore-sdk";
 
 // In-memory cache for recently captured traces (immediate availability during streaming)
 // Bounded: max 100 entries, 5-minute TTL per entry
@@ -56,6 +56,7 @@ interface TraceRecord {
 export async function GET(req: NextRequest) {
   const region = req.headers.get("x-aws-region") || DEFAULT_REGION;
   const sessionId = req.nextUrl.searchParams.get("session_id");
+  const agentId = req.nextUrl.searchParams.get("agent_id") || "";
 
   if (!sessionId) {
     return NextResponse.json({ error: "session_id required" }, { status: 400 });
@@ -67,9 +68,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ traces: cached, source: "realtime_cache" });
   }
 
-  // Query OTEL spans from aws/spans
+  // Determine log group: agent-specific if possible, else generic aws/spans
+  let logGroupName = "aws/spans";
+  if (agentId) {
+    const agentLogGroup = await findLogGroupForAgent(agentId, undefined, region);
+    if (agentLogGroup) {
+      logGroupName = agentLogGroup;
+    }
+  }
+
+  // Query OTEL spans
   try {
-    const traces = await queryOtelSpans(sessionId, region);
+    const traces = await queryOtelSpans(sessionId, region, logGroupName);
     if (traces.length > 0) {
       return NextResponse.json({ traces, source: "otel_spans" });
     }
@@ -103,14 +113,14 @@ export async function POST(req: NextRequest) {
  * Returns every span — no aggressive filtering. The UI handles presentation.
  * Requires Transaction Search to be enabled in the account.
  */
-async function queryOtelSpans(sessionId: string, region: string): Promise<TraceRecord[]> {
+async function queryOtelSpans(sessionId: string, region: string, logGroupName: string = "aws/spans"): Promise<TraceRecord[]> {
   const client = getLogsClient(region);
 
   const endTime = Date.now();
   const startTime = endTime - 14 * 24 * 60 * 60 * 1000; // 14 days back
 
   const startRes = await client.send(new StartQueryCommand({
-    logGroupName: "aws/spans",
+    logGroupName,
     startTime: Math.floor(startTime / 1000),
     endTime: Math.floor(endTime / 1000),
     queryString: `fields @timestamp, name, kind, durationNano,
