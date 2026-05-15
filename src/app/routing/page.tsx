@@ -14,7 +14,9 @@ import {
   ExternalLink,
   Sparkles,
   ArrowDown,
+  History,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { getClientRegion } from "@/lib/client-cache";
 
@@ -118,10 +120,12 @@ export default function RoutingPage() {
   const [stages, setStages] = useState<Stage[]>(INITIAL_STAGES);
   const [ticketTitle, setTicketTitle] = useState("");
   const [ticketDescription, setTicketDescription] = useState("");
+  const [ticketNumber, setTicketNumber] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<SampleTicket | null>(null);
   const [agentIds, setAgentIds] = useState({ design: DEFAULT_DESIGN_AGENT_ID, dev: DEFAULT_DEV_AGENT_ID });
   const [arnPrefix, setArnPrefix] = useState("arn:aws:bedrock-agentcore:us-east-1:023392223961:harness");
+  const [lastSessionIds, setLastSessionIds] = useState<{ design?: string; dev?: string }>({});
   const abortRef = useRef<AbortController | null>(null);
 
   // Abort any in-flight requests on unmount
@@ -149,8 +153,15 @@ export default function RoutingPage() {
     );
   }
 
-  async function invokeAgent(agentId: string, prompt: string): Promise<string> {
+  async function invokeAgent(agentId: string, prompt: string, stage: string): Promise<string> {
     const harnessArn = `${arnPrefix}/${agentId}`;
+    // Session ID includes ticket number for correlation in Ticket History
+    const ticket = ticketNumber || `PROJ-${Math.floor(1000 + Math.random() * 9000)}`;
+    const sessionId = `${ticket}_${stage}_sess_${crypto.randomUUID().replace(/-/g, "")}${Date.now()}`;
+
+    // Track session IDs for display
+    setLastSessionIds((prev) => ({ ...prev, [stage]: sessionId }));
+
     const res = await fetch("/api/agentcore/invoke", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-aws-region": getClientRegion() },
@@ -158,7 +169,7 @@ export default function RoutingPage() {
         agentRuntimeArn: harnessArn,
         isHarness: true,
         prompt,
-        sessionId: `routing-${crypto.randomUUID()}-${Date.now()}`,
+        sessionId,
       }),
       signal: abortRef.current?.signal,
     });
@@ -209,7 +220,7 @@ export default function RoutingPage() {
       try {
         const designPrompt = `You are a software design agent. Given this Jira ticket, produce a concise technical design document.\n\nTitle: ${ticketTitle}\nDescription: ${ticketDescription}\n\nProduce a design covering: architecture decisions, components involved, data flow, and key interfaces. Be concise but complete.`;
 
-        designOutput = await invokeAgent(agentIds.design, designPrompt);
+        designOutput = await invokeAgent(agentIds.design, designPrompt, "design");
         updateStage("design", {
           status: "complete",
           output: designOutput || "(Design agent returned empty response)",
@@ -234,7 +245,7 @@ export default function RoutingPage() {
       try {
         const devPrompt = `You are a software development agent. Given this design document, produce implementation code with clear file structure and code snippets.\n\nOriginal Ticket: ${ticketTitle}\n\nDesign Document:\n${designOutput}\n\nProduce implementation code covering the key components. Include file paths, imports, and working code.`;
 
-        const devOutput = await invokeAgent(agentIds.dev, devPrompt);
+        const devOutput = await invokeAgent(agentIds.dev, devPrompt, "dev");
         updateStage("dev", {
           status: "complete",
           output: devOutput || "(Dev agent returned empty response)",
@@ -323,14 +334,24 @@ export default function RoutingPage() {
           Ticket Details
         </h2>
         <div className="space-y-3">
-          <input
-            type="text"
-            placeholder="Ticket title..."
-            value={ticketTitle}
-            onChange={(e) => setTicketTitle(e.target.value)}
-            disabled={isRunning}
-            className="w-full bg-surface-1 border border-surface-4 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 disabled:opacity-50"
-          />
+          <div className="flex gap-3">
+            <input
+              type="text"
+              placeholder="Ticket # (e.g. PROJ-1042)"
+              value={ticketNumber}
+              onChange={(e) => setTicketNumber(e.target.value.toUpperCase())}
+              disabled={isRunning}
+              className="w-48 bg-surface-1 border border-surface-4 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 disabled:opacity-50 font-mono"
+            />
+            <input
+              type="text"
+              placeholder="Ticket title..."
+              value={ticketTitle}
+              onChange={(e) => setTicketTitle(e.target.value)}
+              disabled={isRunning}
+              className="flex-1 bg-surface-1 border border-surface-4 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 disabled:opacity-50"
+            />
+          </div>
           <textarea
             placeholder="Ticket description..."
             value={ticketDescription}
@@ -464,23 +485,39 @@ export default function RoutingPage() {
 
                   {/* Complete stage extras */}
                   {stage.id === "complete" && stage.status === "complete" && (
-                    <div className="mt-3 flex gap-3">
-                      <a
-                        href="#"
-                        className="flex items-center gap-1.5 text-xs text-brand-400 hover:text-brand-300 transition-colors"
-                      >
-                        <GitPullRequest className="w-3.5 h-3.5" />
-                        PR #347
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                      <a
-                        href="#"
-                        className="flex items-center gap-1.5 text-xs text-brand-400 hover:text-brand-300 transition-colors"
-                      >
-                        <Ticket className="w-3.5 h-3.5" />
-                        PROJ-1042
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
+                    <div className="mt-3 space-y-2">
+                      <div className="flex gap-3">
+                        <a
+                          href="#"
+                          className="flex items-center gap-1.5 text-xs text-brand-400 hover:text-brand-300 transition-colors"
+                        >
+                          <GitPullRequest className="w-3.5 h-3.5" />
+                          PR #347
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                        <a
+                          href="#"
+                          className="flex items-center gap-1.5 text-xs text-brand-400 hover:text-brand-300 transition-colors"
+                        >
+                          <Ticket className="w-3.5 h-3.5" />
+                          {ticketNumber || "PROJ-1042"}
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                        <Link
+                          href="/tickets"
+                          className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                        >
+                          <History className="w-3.5 h-3.5" />
+                          View in Ticket History
+                          <ExternalLink className="w-3 h-3" />
+                        </Link>
+                      </div>
+                      {(lastSessionIds.design || lastSessionIds.dev) && (
+                        <div className="text-xs text-gray-500 font-mono space-y-0.5">
+                          {lastSessionIds.design && <div>Design: {lastSessionIds.design.slice(0, 50)}...</div>}
+                          {lastSessionIds.dev && <div>Dev: {lastSessionIds.dev.slice(0, 50)}...</div>}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
