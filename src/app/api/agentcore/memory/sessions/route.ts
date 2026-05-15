@@ -47,15 +47,14 @@ export async function GET(req: NextRequest) {
       createdAt: string;
     }> = [];
 
-    for (const actor of actors) {
-      if (!actor.actorId) continue;
-      const sessionsRes = await c.send(
-        new ListSessionsCommand({
-          memoryId,
-          actorId: actor.actorId,
-          maxResults: 20,
-        })
-      );
+    const sessionResults = await Promise.all(
+      actors
+        .filter((actor) => actor.actorId)
+        .map((actor) =>
+          c.send(new ListSessionsCommand({ memoryId, actorId: actor.actorId!, maxResults: 20 }))
+        )
+    );
+    for (const sessionsRes of sessionResults) {
       for (const s of sessionsRes.sessionSummaries || []) {
         allSessions.push({
           sessionId: s.sessionId || "",

@@ -177,7 +177,7 @@ async function runSpansQuery(
   const client = getLogsClient(region);
 
   const endTime = Date.now();
-  const startTime = endTime - 14 * 24 * 60 * 60 * 1000; // 14 days back
+  const startTime = endTime - 1 * 24 * 60 * 60 * 1000; // 1 day back (keep scans cheap/fast)
 
   // Anchored mode hits the structured field directly. Fallback is the legacy raw-message substring
   // — kept only as a safety net for agents that emit spans but don't tag session.id correctly.
@@ -217,8 +217,8 @@ async function runSpansQuery(
 
   if (!startRes.queryId) return { traces: [], queryStatus: "failed" };
 
-  // Poll for results (max 6s)
-  for (let i = 0; i < 12; i++) {
+  // Poll for results (max 15s)
+  for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 500));
     const results = await client.send(new GetQueryResultsCommand({ queryId: startRes.queryId }));
 

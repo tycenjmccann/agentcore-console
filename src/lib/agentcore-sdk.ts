@@ -493,7 +493,7 @@ export async function streamBuilderConverse(
   }));
 
   const command = new ConverseStreamCommand({
-    modelId: "us.anthropic.claude-sonnet-4-20250514-v1:0",
+    modelId: process.env.BUILDER_MODEL_ID || "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     system: [{ text: systemPrompt }],
     messages: converseMessages,
     inferenceConfig: { maxTokens: 4096, temperature: 0.7 },

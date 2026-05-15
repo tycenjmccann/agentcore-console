@@ -1103,15 +1103,6 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   );
 }
 
-function MiniMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="text-center">
-      <p className="text-[10px] text-gray-500">{label}</p>
-      <p className="text-sm font-semibold text-white">{value}</p>
-    </div>
-  );
-}
-
 interface TraceHealth {
   region: string;
   checkedAt: string;

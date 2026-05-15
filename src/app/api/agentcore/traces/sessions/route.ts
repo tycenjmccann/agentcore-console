@@ -41,26 +41,29 @@ export async function GET(req: NextRequest) {
     // Agent-specific log groups only contain application logs, not spans.
     const logGroupName = explicitLogGroup || "aws/spans";
 
-    // Build filter — filter by agent service name when agent_id is provided
-    let filterClause = `| filter @message like "session.id"`;
+    // Build filter using structured OTEL fields (not raw JSON parsing)
+    let filterClause = `| filter ispresent(attributes.session.id)`;
     if (agentId) {
-      // Resolve agent name from ID for service.name matching
+      // Resolve agent name from ID. OTEL service name pattern:
+      //   harness agents: "harness_{name}.DEFAULT"
+      //   runtime agents: "{name}.DEFAULT"
       const agents = await discoverAgents(region);
       const agent = agents.find((a) => a.id === agentId);
-      const agentServiceName = agent?.name || agentId;
-      filterClause += ` and @message like "${agentServiceName}"`;
+      if (agent?.name) {
+        const prefix = agent.type === "harness" ? "harness_" : "";
+        const agentServiceName = `${prefix}${agent.name}.DEFAULT`;
+        filterClause += `\n      | filter resource.attributes.service.name = "${agentServiceName}"`;
+      }
     }
     if (ticketId) {
-      filterClause += ` and @message like "${ticketId}"`;
+      filterClause += `\n      | filter attributes.session.id like "${ticketId}"`;
     }
 
-    // Use parse to extract session.id and service.name from the JSON message
     const queryString = `
-      fields @message, @timestamp
-      | parse @message '"session.id":"*"' as sessionId
-      | parse @message '"service.name":"*"' as agentName
+      fields attributes.session.id as sessionId,
+             resource.attributes.service.name as agentName,
+             @timestamp
       ${filterClause}
-      | filter ispresent(sessionId)
       | stats earliest(@timestamp) as startTime,
               latest(@timestamp) as endTime,
               count(*) as spanCount
