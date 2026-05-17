@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { WorkflowInput, IntakeSource, RepoConfig, RepoLayout } from "@/lib/workflow/types";
+import type { WorkflowInput, IntakeSource, RepoConfig, RepoLayout, ModelConfig } from "@/lib/workflow/types";
+import ModelSelector from "./ModelSelector";
 
 interface IntakeFormProps {
   onSubmit: (input: WorkflowInput) => void;
@@ -16,6 +17,7 @@ export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
   const [repoLayout, setRepoLayout] = useState<RepoLayout>("monorepo");
   const [repoUrl, setRepoUrl] = useState("");
   const [defaultBranch, setDefaultBranch] = useState("main");
+  const [modelOverride, setModelOverride] = useState<ModelConfig | undefined>(undefined);
 
   const addUrlSource = () => {
     if (!newSourceUrl.trim()) return;
@@ -43,6 +45,7 @@ export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
       description: description.trim(),
       repoConfig,
       sources,
+      modelOverride, // Include selected model
     });
   };
 
@@ -180,6 +183,12 @@ export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
           />
         </div>
       </div>
+
+      {/* Model Selector */}
+      <ModelSelector
+        value={modelOverride}
+        onChange={setModelOverride}
+      />
 
       {/* Submit */}
       <button
