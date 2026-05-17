@@ -15,7 +15,7 @@ import type { ModelOverride } from "./types";
  * - openai: OpenAI API (GPT models)
  * - gemini: Google Gemini (future support)
  */
-export type ModelProvider = "bedrock" | "openai" | "gemini";
+export type ModelProvider = "bedrock" | "openai";
 
 // ─── Model Option Types ──────────────────────────────────────────────────────
 
@@ -51,22 +51,12 @@ export interface BedrockModelOption extends ModelOptionBase {
  */
 export interface OpenAIModelOption extends ModelOptionBase {
   provider: "openai";
-  /** ARN for the API key in AWS Secrets Manager (set server-side) */
-  apiKeyArn?: string;
-}
-
-/**
- * Gemini-specific model option (Google AI).
- * Note: Future support - requires extending ModelOverride type.
- */
-export interface GeminiModelOption extends ModelOptionBase {
-  provider: "gemini";
 }
 
 /**
  * Union type for all supported model options.
  */
-export type ModelOption = BedrockModelOption | OpenAIModelOption | GeminiModelOption;
+export type ModelOption = BedrockModelOption | OpenAIModelOption;
 
 // ─── API Response Types ──────────────────────────────────────────────────────
 
@@ -108,54 +98,24 @@ export function modelOptionToOverride(
       };
 
     case "openai": {
-      const openaiOption = option as OpenAIModelOption;
-      // apiKeyArn must be provided server-side for OpenAI models
-      if (!openaiOption.apiKeyArn) {
+      // apiKeyArn is resolved server-side at invocation time
+      const apiKeyArn = process.env.OPENAI_API_KEY_ARN;
+      if (!apiKeyArn) {
         console.warn(
-          `[model-config] OpenAI model "${option.modelId}" selected but no apiKeyArn configured`
+          `[model-config] OpenAI model "${option.modelId}" selected but OPENAI_API_KEY_ARN not set`
         );
         return undefined;
       }
       return {
         openAiModelConfig: {
           modelId: option.modelId,
-          apiKeyArn: openaiOption.apiKeyArn,
+          apiKeyArn,
         },
       };
     }
 
-    case "gemini":
-      // Gemini support requires extending ModelOverride type
-      // For now, fall back to default model
-      console.warn(
-        `[model-config] Gemini models not yet supported, falling back to default`
-      );
-      return undefined;
-
     default:
-      // TypeScript exhaustiveness check
-      const _exhaustive: never = option;
       return undefined;
   }
 }
 
-/**
- * Type guard to check if a ModelOption is a BedrockModelOption.
- */
-export function isBedrockModel(option: ModelOption): option is BedrockModelOption {
-  return option.provider === "bedrock";
-}
-
-/**
- * Type guard to check if a ModelOption is an OpenAIModelOption.
- */
-export function isOpenAIModel(option: ModelOption): option is OpenAIModelOption {
-  return option.provider === "openai";
-}
-
-/**
- * Type guard to check if a ModelOption is a GeminiModelOption.
- */
-export function isGeminiModel(option: ModelOption): option is GeminiModelOption {
-  return option.provider === "gemini";
-}

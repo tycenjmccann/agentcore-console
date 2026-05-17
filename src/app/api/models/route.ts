@@ -49,19 +49,7 @@ export async function GET(): Promise<NextResponse<ModelsApiResponse>> {
       provider: "openai",
       modelId: "gpt-4-turbo-preview",
       description: "OpenAI's most capable model.",
-      apiKeyArn: openaiApiKeyArn,
-    });
-  }
-
-  // Include Gemini models if API key is configured (future support)
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-  if (geminiApiKey) {
-    models.push({
-      id: "gemini-pro",
-      label: "Gemini Pro (Google)",
-      provider: "gemini",
-      modelId: "gemini-pro",
-      description: "Google's multimodal model.",
+      // apiKeyArn resolved server-side at invocation time, not sent to client
     });
   }
 
