@@ -22,8 +22,10 @@ import {
   CloudWatchLogsClient,
   DescribeLogGroupsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
+import { ModelConfig, isBedrockConfig } from "./workflow/types";
 
 export const DEFAULT_REGION = process.env.AWS_REGION || "us-east-1";
+export const DEFAULT_MODEL_ID = "global.anthropic.claude-sonnet-4-5-20250929-v1:0";
 
 // Per-region client cache (avoids recreating clients on every call)
 const bedrockClients = new Map<string, BedrockRuntimeClient>();
@@ -493,7 +495,7 @@ export async function streamBuilderConverse(
   }));
 
   const command = new ConverseStreamCommand({
-    modelId: process.env.BUILDER_MODEL_ID || "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    modelId: process.env.BUILDER_MODEL_ID || DEFAULT_MODEL_ID,
     system: [{ text: systemPrompt }],
     messages: converseMessages,
     inferenceConfig: { maxTokens: 4096, temperature: 0.7 },
@@ -723,6 +725,10 @@ export async function invokeAgentRuntime(params: {
 
 /**
  * Invoke a harness-managed agent using InvokeHarness.
+ * 
+ * @param modelConfig - Optional model configuration to override the harness default.
+ *                      Only Bedrock models are supported for harness agents.
+ *                      If provided, the harness will use this model instead of its configured default.
  */
 export async function invokeHarnessAgent(params: {
   harnessArn: string;
@@ -730,6 +736,7 @@ export async function invokeHarnessAgent(params: {
   sessionId: string;
   systemPrompt?: string;
   history?: Array<{ role: string; content: string }>;
+  modelConfig?: ModelConfig;
   region?: string;
 }): Promise<ReadableStream> {
   const region = params.region || DEFAULT_REGION;
@@ -761,6 +768,25 @@ export async function invokeHarnessAgent(params: {
 
   if (params.systemPrompt) {
     commandInput.system = [{ text: params.systemPrompt }];
+  }
+
+  // Apply model override if provided
+  // InvokeHarness supports model override via the `model` field
+  if (params.modelConfig) {
+    if (isBedrockConfig(params.modelConfig)) {
+      // Bedrock model override
+      commandInput.model = {
+        bedrockModelConfig: {
+          modelId: params.modelConfig.modelId,
+          region: params.modelConfig.region || region,
+        },
+      };
+      console.log(`[ModelOverride] Using Bedrock model: ${params.modelConfig.modelId}`);
+    } else {
+      // OpenAI and Gemini not yet supported for harness invocations
+      // Log a warning but proceed with default model
+      console.warn(`[ModelOverride] Non-Bedrock model providers (${params.modelConfig.provider}) are not yet supported for harness agents. Using harness default model.`);
+    }
   }
 
   const command = new InvokeHarnessCommand(commandInput);
