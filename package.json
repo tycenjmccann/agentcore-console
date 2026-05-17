@@ -16,6 +16,7 @@
     "@aws-sdk/client-cloudwatch": "^3.1046.0",
     "@aws-sdk/client-cloudwatch-logs": "^3.1045.0",
     "@aws-sdk/client-sts": "^3.1046.0",
+    "@radix-ui/react-select": "^2.0.0",
     "clsx": "^2.1.0",
     "lucide-react": "^0.400.0",
     "next": "^14.2.0",
