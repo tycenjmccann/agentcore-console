@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "playwright test",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:model-selection": "playwright test tests/model-selection.spec.ts"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-agent": "^3.1048.0",
