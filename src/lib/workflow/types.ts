@@ -103,6 +103,7 @@ export interface WorkflowState {
   epicId: string;                // root Jira epic ticket ID
   repoConfig: RepoConfig;
   input: WorkflowInput;
+  modelConfig?: ModelConfig;     // Optional: model config for dev agents (from input)
   agentTasks: Record<string, AgentTask>;  // keyed by agent ID
   messages: AgentMessage[];
   humanNotifications: HumanNotification[];
