@@ -2,9 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CSS Custom Properties for Theming */
+:root {
+  /* Dark theme (default) */
+  --color-bg-primary: #0a0a0f;
+  --color-bg-secondary: #12121a;
+  --color-bg-tertiary: #1a1a25;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a0a0a0;
+  --color-text-tertiary: #6b7280;
+  --color-border: #2a2a3a;
+  --color-brand: #38bdf8;
+  --color-brand-hover: #0ea5e9;
+}
+
+:root.light {
+  /* Light theme */
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f9fafb;
+  --color-bg-tertiary: #f3f4f6;
+  --color-text-primary: #0a0a0f;
+  --color-text-secondary: #4b5563;
+  --color-text-tertiary: #9ca3af;
+  --color-border: #e5e7eb;
+  --color-brand: #0284c7;
+  --color-brand-hover: #0369a1;
+}
+
 @layer base {
   body {
     @apply bg-surface-0 text-gray-100 antialiased;
+  }
+  
+  /* Smooth transitions for theme changes */
+  *,
+  *::before,
+  *::after {
+    transition-property: background-color, border-color, color, fill, stroke;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 200ms;
+  }
+  
+  /* Respect user's motion preferences */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition: none !important;
+      animation: none !important;
+    }
   }
 }
 
