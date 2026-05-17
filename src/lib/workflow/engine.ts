@@ -148,6 +148,64 @@ async function processIntakeAndStart(
   // Inject workflow_id so the agent can use it in tool calls
   intakeContext += `\n\n## Workflow Context\nworkflow_id: ${workflowId}\n`;
 
+  // FIX: Inline directory structure and types directly so requirements agent
+  // doesn't need Gateway tools (which fail silently on managed harness)
+  try {
+    const { owner, repo } = parseRepoUrlFromConfig(input.repoConfig);
+    const branch = input.repoConfig.repos[0]?.defaultBranch || "main";
+
+    // Try GitHub first, then local filesystem
+    let dirTree = "";
+    try {
+      const srcListing = await callGitHubLambda("list_files", { owner, repo, path: "src" }) as Array<{ name: string; type: string; path: string }>;
+      if (srcListing?.length > 0) {
+        dirTree = "src/\n";
+        for (const item of srcListing) {
+          dirTree += `  ${item.name}${item.type === "dir" ? "/" : ""}\n`;
+        }
+      }
+    } catch { /* GitHub unavailable */ }
+
+    if (!dirTree) {
+      try {
+        const fs = await import("fs/promises");
+        const path = await import("path");
+        const srcDir = path.join(process.cwd(), "src");
+        const topLevel = await fs.readdir(srcDir, { withFileTypes: true });
+        dirTree = "src/\n";
+        for (const entry of topLevel.filter(e => e.isDirectory())) {
+          dirTree += `  ${entry.name}/\n`;
+          const subEntries = await fs.readdir(path.join(srcDir, entry.name), { withFileTypes: true });
+          for (const sub of subEntries.slice(0, 15)) {
+            dirTree += `    ${sub.name}${sub.isDirectory() ? "/" : ""}\n`;
+          }
+        }
+      } catch { /* fallback failed */ }
+    }
+
+    if (dirTree) {
+      intakeContext += `\n## Existing Codebase Structure\n\`\`\`\n${dirTree}\`\`\`\n`;
+      intakeContext += `This is a Next.js 14 project using \`src/\` layout. All code goes under \`src/\`.\n\n`;
+    }
+
+    // Inline types.ts so requirements agent can reference existing types
+    let typesContent: string | null = null;
+    try {
+      const typesResult = await callGitHubLambda("get_file", { owner, repo, path: "src/lib/workflow/types.ts", ref: branch }) as { content?: string };
+      typesContent = typesResult?.content || null;
+    } catch { /* not on GitHub */ }
+    if (!typesContent) {
+      try {
+        const fs = await import("fs/promises");
+        const path = await import("path");
+        typesContent = await fs.readFile(path.join(process.cwd(), "src/lib/workflow/types.ts"), "utf-8");
+      } catch { /* not found locally */ }
+    }
+    if (typesContent) {
+      intakeContext += `## Existing Types (src/lib/workflow/types.ts)\n\`\`\`typescript\n${typesContent.slice(0, 3000)}\n\`\`\`\n\n`;
+    }
+  } catch { /* non-fatal */ }
+
   // Multimodal: prepend image download instructions for the requirements agent
   const imageInstructions = await getImageStagingInstructions(workflowId);
   if (imageInstructions) {
@@ -296,13 +354,47 @@ export async function processReadyTickets(workflowId: string, epicId: string): P
   });
   if (phases.includes("development") && state.phase === "design") {
     state.phase = "development";
+
+    // Create a single shared feature branch for ALL dev agents
+    if (!state.featureBranch) {
+      try {
+        const { owner, repo } = parseRepoUrlFromConfig(state.repoConfig);
+        const branch = state.repoConfig.repos[0]?.defaultBranch || "main";
+        const slug = state.input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40).replace(/-$/, "");
+        const branchName = `feature/${state.epicId}-${slug}`;
+        await callGitHubLambda("create_branch", { owner, repo, branch_name: branchName, from_branch: branch });
+        state.featureBranch = branchName;
+        console.log(`[engine] Created shared feature branch: ${branchName}`);
+      } catch (err) {
+        // Branch may already exist or GitHub unavailable — agents will create their own
+        console.warn(`[engine] Failed to create shared branch: ${(err as Error).message}`);
+      }
+    }
+
     setWorkflow(state);
     emitEvent(workflowId, { type: "phase_change", phase: "development" });
   }
 
-  // Invoke all ready tickets in parallel
+  // Invoke ready tickets — deduplicate by agent (only one ticket per agent at a time)
+  // If multiple tickets are ready for the same agent, invoke only the first.
+  // The rest will be picked up when that agent's ticket completes (via cascade).
+  const seenAgents = new Set<string>();
   const invocations = readyTickets
     .filter((t) => t.assignee && t.type !== "epic")
+    .filter((t) => {
+      if (seenAgents.has(t.assignee!)) {
+        console.log(`[engine] Deferring ticket ${t.id} — agent ${t.assignee} already has a running ticket`);
+        return false;
+      }
+      // Also skip if agent already has a running task
+      const existingTask = state.agentTasks[t.assignee!];
+      if (existingTask && existingTask.status === "running") {
+        console.log(`[engine] Deferring ticket ${t.id} — agent ${t.assignee} still running ${existingTask.ticketId}`);
+        return false;
+      }
+      seenAgents.add(t.assignee!);
+      return true;
+    })
     .map((ticket) => invokeAgentForTicket(workflowId, epicId, ticket));
 
   await Promise.allSettled(invocations);
@@ -401,8 +493,18 @@ async function invokeAgentBackground(
   if (!task) return;
 
   try {
+    // Determine model override: use workflow-level override for dev agents
+    const modelOverride = (agentDef.phase === "development" && state.input?.modelOverride)
+      ? state.input.modelOverride
+      : undefined;
+
+    if (modelOverride) {
+      const modelId = modelOverride.bedrockModelConfig?.modelId || modelOverride.openAiModelConfig?.modelId || "unknown";
+      console.log(`[engine] Using model override for ${agentDef.id}: ${modelId}`);
+    }
+
     // This awaits the full stream — when it returns, the agent is definitively done
-    const output = await invokeAgentWithRetry(agentDef.harnessName, sessionId, agentContext, workflowId, agentDef.id);
+    const output = await invokeAgentWithRetry(agentDef.harnessName, sessionId, agentContext, workflowId, agentDef.id, modelOverride);
 
     // Check if webhook already completed this (race: agent called report_completion
     // mid-stream, Lambda webhook arrived before stream fully drained)
@@ -655,6 +757,44 @@ async function completeWorkflow(workflowId: string): Promise<void> {
 
   state.phase = "complete";
   state.completedAt = new Date().toISOString();
+
+  // If shared branch exists, create a single unified PR
+  let prUrl = "";
+  if (state.featureBranch) {
+    try {
+      const { owner, repo } = parseRepoUrlFromConfig(state.repoConfig);
+      const baseBranch = state.repoConfig.repos[0]?.defaultBranch || "main";
+
+      // List files on the branch to build PR description
+      let filesOnBranch: string[] = [];
+      try {
+        const branchFiles = await callGitHubLambda("list_files", { owner, repo, path: "src", ref: state.featureBranch }) as Array<{ name: string }>;
+        filesOnBranch = branchFiles?.map(f => f.name) || [];
+      } catch { /* non-fatal */ }
+
+      // Build PR body from all dev agent outputs
+      const devOutputs = Object.values(state.agentTasks)
+        .filter(t => t.status === "complete" && getAgentDef(t.agentId)?.phase === "development")
+        .map(t => `### ${t.agentId}\n${(t.output || "").slice(0, 500)}`)
+        .join("\n\n");
+
+      const prBody = `## Summary\nAutomated implementation by agentic team workflow (${state.epicId}).\n\n## Agent Contributions\n${devOutputs}\n\n## Files Changed\nBranch: \`${state.featureBranch}\``;
+
+      const prResult = await callGitHubLambda("create_pr", {
+        owner,
+        repo,
+        title: `feat: ${state.input.title} (${state.epicId})`,
+        body: prBody.slice(0, 5000),
+        head: state.featureBranch,
+        base: baseBranch,
+      }) as { html_url?: string; number?: number };
+      prUrl = prResult?.html_url || "";
+      console.log(`[engine] Created unified PR: ${prUrl}`);
+    } catch (err) {
+      console.warn(`[engine] Failed to create unified PR: ${(err as Error).message}`);
+    }
+  }
+
   setWorkflow(state);
   persistWorkflow(workflowId);
 
@@ -664,7 +804,9 @@ async function completeWorkflow(workflowId: string): Promise<void> {
     .map((t) => `- ${t.agentId}: \`${t.branch}\` (${t.commitSha?.slice(0, 7) || "N/A"})`)
     .join("\n");
 
-  const summary = `Workflow complete! All tickets resolved.\n\nBranches created:\n${branches || "No code branches (design-only workflow)"}`;
+  const summary = state.featureBranch
+    ? `Workflow complete! All code committed to single branch: \`${state.featureBranch}\`${prUrl ? `\n\nPR: ${prUrl}` : ""}`
+    : `Workflow complete! All tickets resolved.\n\nBranches created:\n${branches || "No code branches (design-only workflow)"}`;
 
   emitEvent(workflowId, { type: "workflow_complete", summary });
   emitEvent(workflowId, {
@@ -701,13 +843,15 @@ async function resolveHarnessArn(harnessName: string): Promise<string | undefine
 /**
  * Invoke a harness agent and collect the full response.
  * Streams chunks as SSE events for real-time UI.
+ * Supports per-invocation model override (e.g., Opus for complex dev tasks).
  */
 async function invokeAgent(
   harnessName: string,
   sessionId: string,
   prompt: string,
   workflowId: string,
-  agentId: string
+  agentId: string,
+  modelOverride?: { bedrockModelConfig?: { modelId: string }; openAiModelConfig?: { modelId: string; apiKeyArn: string } }
 ): Promise<string> {
   const arn = await resolveHarnessArn(harnessName);
   if (!arn) {
@@ -720,6 +864,7 @@ async function invokeAgent(
     prompt,
     sessionId,
     region: DEFAULT_REGION,
+    ...(modelOverride ? { model: modelOverride } : {}),
   });
 
   // Consume the stream, collecting text and forwarding to workflow SSE
@@ -1017,7 +1162,12 @@ async function buildAgentContext(ticket: JiraTicket, state: WorkflowState): Prom
             context += `4. Types and library code go in \`src/lib/\` — NOT in a root \`lib/\` or \`types/\` directory.\n`;
             context += `5. Do NOT create duplicate implementations. Check what exists first using get_file and list_files.\n`;
             context += `6. Do NOT create files outside the \`src/\` directory (except package.json, tsconfig.json).\n`;
-            context += `7. Use the EXISTING type definitions — do NOT redefine interfaces that already exist.\n\n`;
+            context += `7. Use the EXISTING type definitions — do NOT redefine interfaces that already exist.\n`;
+            context += `8. PREFER modifying existing files over creating new parallel modules. If a file is large, you MUST still modify it — use get_file to read it, then commit the full modified version. Do NOT create a wrapper/parallel file to avoid editing a large file.\n`;
+            context += `9. All AWS ARNs, credentials, session IDs, and service identifiers are SERVER-ONLY. NEVER expose them via NEXT_PUBLIC_ environment variables. Client components call server API routes which handle AWS interaction.\n`;
+            context += `10. Before your FINAL commit, review all files you created. If you iterated and created duplicate/abandoned files, DELETE them (commit an empty file or don't include them). Only ONE implementation of each feature should exist.\n`;
+            context += `11. Never use template placeholder syntax like {{...}}. Write final, complete content directly.\n`;
+            context += `12. Every feature must be FULLY WIRED end-to-end. If you create a utility function, it MUST be imported and called somewhere. If you create an API route, the UI MUST call it. No orphaned code.\n\n`;
           }
         }
       } catch { /* fallback failed — non-fatal */ }
@@ -1036,6 +1186,17 @@ async function buildAgentContext(ticket: JiraTicket, state: WorkflowState): Prom
     if (upstreamOutputs.length > 0) {
       context += `## Upstream Agent Outputs\n${upstreamOutputs.join("\n")}\n`;
     }
+  }
+
+  // For dev agents: inject shared feature branch instruction
+  if (agentDef?.phase === "development" && state.featureBranch) {
+    context += `\n## SHARED FEATURE BRANCH\n`;
+    context += `**CRITICAL: Do NOT create a new branch.** A shared feature branch already exists: \`${state.featureBranch}\`\n`;
+    context += `All dev agents commit to this SAME branch so there will be ONE mergeable PR.\n`;
+    context += `- Skip the create_branch step entirely\n`;
+    context += `- Commit all your files directly to branch: \`${state.featureBranch}\`\n`;
+    context += `- When committing, use the branch parameter: branch="${state.featureBranch}"\n`;
+    context += `- Only the LAST dev agent to complete should create the PR (check if a PR already exists first)\n\n`;
   }
 
   // Always include workflow_id for tool calls
@@ -1310,5 +1471,395 @@ interface CIMonitorConfig {
 const CI_CONFIG: CIMonitorConfig = {
   maxRetries: 3,       // Max fix attempts before marking blocked
   pollIntervalMs: 30000, // Poll every 30s
-  maxWa
-// ... truncated for size
+  maxWaitMs: 600000,   // Give up after 10 min
+};
+
+/**
+ * Monitor CI status for a branch after PR creation.
+ * If CI fails, invoke the CI agent to analyze and fix.
+ * Retries up to CI_CONFIG.maxRetries times before marking ticket blocked.
+ */
+async function monitorCIForBranch(
+  workflowId: string,
+  epicId: string,
+  ticketId: string,
+  devAgentId: string,
+  repoConfig: import("./types").RepoConfig,
+  branch: string
+): Promise<void> {
+  const { owner, repo } = parseRepoUrlFromConfig(repoConfig);
+  if (!owner || !repo) return;
+
+  let retryCount = 0;
+  let elapsed = 0;
+
+  emitEvent(workflowId, {
+    type: "notification",
+    notification: {
+      id: `notif_ci_${Date.now()}`,
+      type: "phase_complete",
+      title: `CI Monitoring: ${branch}`,
+      details: `Waiting for GitHub Actions to complete on branch ${branch}...`,
+      timestamp: new Date().toISOString(),
+      acknowledged: false,
+    },
+  });
+
+  while (retryCount < CI_CONFIG.maxRetries && elapsed < CI_CONFIG.maxWaitMs) {
+    // Wait for CI to have time to start and run
+    await sleep(CI_CONFIG.pollIntervalMs);
+    elapsed += CI_CONFIG.pollIntervalMs;
+
+    try {
+      // Get workflow runs for this branch
+      const runs = await callGitHubLambda("get_workflow_runs", { owner, repo, branch }) as {
+        runs: Array<{ id: number; status: string; conclusion: string | null }>;
+      };
+
+      const latestRun = runs.runs?.[0];
+      if (!latestRun) continue; // No run yet, keep waiting
+
+      if (latestRun.status !== "completed") continue; // Still running
+
+      if (latestRun.conclusion === "success") {
+        // CI passed!
+        emitEvent(workflowId, {
+          type: "notification",
+          notification: {
+            id: `notif_ci_pass_${Date.now()}`,
+            type: "pr_ready",
+            title: `CI Passed: ${branch}`,
+            details: `Build and tests passed for ${branch}. PR is ready for review.`,
+            timestamp: new Date().toISOString(),
+            acknowledged: false,
+          },
+        });
+        return; // Done — CI passed
+      }
+
+      if (latestRun.conclusion === "failure") {
+        retryCount++;
+        console.log(`[ci-monitor] CI failed for ${branch} (attempt ${retryCount}/${CI_CONFIG.maxRetries})`);
+
+        // Get detailed failure logs
+        const logs = await callGitHubLambda("get_workflow_logs", {
+          owner, repo, run_id: String(latestRun.id),
+        });
+
+        // Invoke the CI agent to fix the issue
+        const ciFixed = await invokeCIAgent(workflowId, ticketId, branch, logs, repoConfig, retryCount);
+
+        if (!ciFixed) {
+          // CI agent couldn't fix it — mark blocked
+          emitEvent(workflowId, {
+            type: "notification",
+            notification: {
+              id: `notif_ci_blocked_${Date.now()}`,
+              type: "blocker",
+              title: `CI Failed: ${branch}`,
+              details: `Build failed after ${retryCount} fix attempts. Manual intervention needed.`,
+              timestamp: new Date().toISOString(),
+              acknowledged: false,
+            },
+          });
+          return;
+        }
+
+        // CI agent pushed a fix — reset elapsed and wait for new CI run
+        elapsed = 0;
+      }
+    } catch (err) {
+      console.warn(`[ci-monitor] Poll error: ${(err as Error).message}`);
+    }
+  }
+
+  if (retryCount >= CI_CONFIG.maxRetries) {
+    console.log(`[ci-monitor] Max retries reached for ${branch}. Marking ticket for review.`);
+    emitEvent(workflowId, {
+      type: "notification",
+      notification: {
+        id: `notif_ci_max_${Date.now()}`,
+        type: "blocker",
+        title: `CI Fix Limit Reached: ${branch}`,
+        details: `CI agent attempted ${retryCount} fixes but build still fails. Human review needed.`,
+        timestamp: new Date().toISOString(),
+        acknowledged: false,
+      },
+    });
+  }
+}
+
+/**
+ * Invoke the CI agent to analyze a build failure and fix it.
+ * Returns true if the agent was able to push a fix commit.
+ */
+async function invokeCIAgent(
+  workflowId: string,
+  ticketId: string,
+  branch: string,
+  ciLogs: unknown,
+  repoConfig: import("./types").RepoConfig,
+  attempt: number
+): Promise<boolean> {
+  const ciAgentDef = getAgentDef("team-ci-agent");
+  if (!ciAgentDef) {
+    console.warn("[ci-monitor] CI agent not found in roster");
+    return false;
+  }
+
+  const { owner, repo } = parseRepoUrlFromConfig(repoConfig);
+  const sessionId = generateSessionId(ticketId, `ci-fix-${attempt}`);
+
+  const context = `# CI Build Failure — Fix Required (Attempt ${attempt}/${CI_CONFIG.maxRetries})
+
+## Repository
+Owner: ${owner}
+Repo: ${repo}
+Branch: ${branch}
+
+## CI Failure Logs
+\`\`\`json
+${JSON.stringify(ciLogs, null, 2).slice(0, 8000)}
+\`\`\`
+
+## Instructions
+1. Analyze the failure above
+2. Use get_file to read the relevant config/source files
+3. Determine what's wrong (wrong paths, missing files, syntax errors)
+4. Fix the issue by committing corrected files to branch: ${branch}
+5. Report what you fixed
+
+## Workflow Context
+workflow_id: ${workflowId}
+agent_id: team-ci-agent
+`;
+
+  try {
+    emitEvent(workflowId, {
+      type: "agent_status",
+      agentId: "team-ci-agent",
+      status: "running",
+      ticketId,
+    });
+
+    const output = await invokeAgentWithRetry(
+      ciAgentDef.harnessName,
+      sessionId,
+      context,
+      workflowId,
+      "team-ci-agent"
+    );
+
+    emitEvent(workflowId, {
+      type: "agent_complete",
+      agentId: "team-ci-agent",
+      output: output.slice(0, 2000),
+    });
+
+    // Check if the agent committed a fix (look for commit SHA in output)
+    const commitMatch = output.match(/commit[:\s]+`?([a-f0-9]{7,40})`?/i);
+    return !!commitMatch;
+  } catch (err) {
+    console.error(`[ci-monitor] CI agent invocation failed: ${(err as Error).message}`);
+    emitEvent(workflowId, {
+      type: "error",
+      agentId: "team-ci-agent",
+      error: (err as Error).message,
+    });
+    return false;
+  }
+}
+
+function parseRepoUrlFromConfig(repoConfig: import("./types").RepoConfig): { owner: string; repo: string } {
+  const url = repoConfig.repos[0]?.url || "";
+  const match = url.match(/github\.com\/([^/]+)\/([^/.]+)/);
+  return { owner: match?.[1] || "", repo: match?.[2] || "" };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ─── Crash Recovery & Resume ────────────────────────────────────────────────
+
+/**
+ * Resume any stalled workflows after server restart.
+ * A workflow is "stalled" if it's not complete/error and has no running agents.
+ * Called after rehydration.
+ */
+export async function resumeStalledWorkflows(): Promise<void> {
+  const { listWorkflows } = await import("./store");
+  const allWorkflows = listWorkflows();
+
+  for (const wf of allWorkflows) {
+    // Skip completed or errored workflows
+    if (wf.phase === "complete" || wf.phase === "error") continue;
+
+    // Check if any agents are "running" — they were interrupted by the crash
+    const hasRunning = Object.values(wf.agentTasks).some(
+      (t) => t.status === "running"
+    );
+
+    if (hasRunning) {
+      // Mark crashed running tasks as "error" so they can be retried
+      for (const task of Object.values(wf.agentTasks)) {
+        if (task.status === "running") {
+          task.status = "error";
+          task.error = "Server restart — agent interrupted";
+
+          // Reset the ticket to "ready" so it gets picked up again
+          const ticket = getTicket(task.ticketId);
+          if (ticket && ticket.status === "in_progress") {
+            ticket.status = "ready";
+            setTicket(ticket);
+          }
+        }
+      }
+      setWorkflow(wf);
+    }
+
+    // Check for ready tickets that need processing
+    const readyTickets = getReadyTickets(wf.epicId);
+    if (readyTickets.length > 0) {
+      console.log(`[resume] Workflow ${wf.id} has ${readyTickets.length} ready tickets — resuming`);
+      // Resume processing in background
+      processReadyTickets(wf.id, wf.epicId).catch((err) => {
+        console.error(`[resume] Failed to resume workflow ${wf.id}:`, err.message);
+      });
+    }
+  }
+}
+
+// ─── Retry Logic ────────────────────────────────────────────────────────────
+
+const MAX_RETRIES = 1;
+
+/**
+ * Invoke an agent with retry on failure.
+ */
+async function invokeAgentWithRetry(
+  harnessName: string,
+  sessionId: string,
+  prompt: string,
+  workflowId: string,
+  agentId: string,
+  modelOverride?: { bedrockModelConfig?: { modelId: string }; openAiModelConfig?: { modelId: string; apiKeyArn: string } }
+): Promise<string> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const output = await invokeAgent(harnessName, sessionId, prompt, workflowId, agentId, modelOverride);
+      if (!output || output.trim().length === 0) {
+        throw new Error("Agent returned empty response");
+      }
+      return output;
+    } catch (err) {
+      lastError = err as Error;
+      if (attempt < MAX_RETRIES) {
+        console.warn(`[retry] Agent ${agentId} failed (attempt ${attempt + 1}): ${lastError.message}. Retrying...`);
+        // Wait before retry (exponential backoff)
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        // Use a new session ID for retry
+        sessionId = `${sessionId}_retry${attempt + 1}`;
+      }
+    }
+  }
+
+  throw lastError || new Error(`Agent ${agentId} failed after ${MAX_RETRIES + 1} attempts`);
+}
+
+// ─── Post-Agent Completion S3 Check ──────────────────────────────────────────
+
+/**
+ * After a design/dev agent completes, check S3 for their work products.
+ * The agent may have used the WorkflowOutput tools OR shell/file_operations.
+ * Either way, we try to find what they produced.
+ */
+async function checkAgentArtifacts(workflowId: string, agentId: string): Promise<{
+  hasDesignDoc: boolean;
+  hasCompletionReport: boolean;
+}> {
+  const result = { hasDesignDoc: false, hasCompletionReport: false };
+
+  try {
+    const completionReport = await readArtifact({
+      workflowId,
+      agentId,
+      filename: "completion-report.json",
+    });
+    if (completionReport) {
+      result.hasCompletionReport = true;
+    }
+  } catch { /* ignore */ }
+
+  try {
+    // Check shared area for design docs
+    const artifacts = await listArtifacts({ workflowId, agentId });
+    result.hasDesignDoc = artifacts.some(
+      (a) => a.key.endsWith(".md") && !a.key.includes("intake")
+    );
+  } catch { /* ignore */ }
+
+  return result;
+}
+
+// ─── Public API ──────────────────────────────────────────────────────────────
+
+/**
+ * Inject a human message into a workflow (answer a blocker, provide info).
+ */
+export function injectHumanMessage(
+  workflowId: string,
+  targetAgentId: string,
+  content: string
+): void {
+  const state = getWorkflow(workflowId);
+  if (!state) return;
+
+  const message: AgentMessage = {
+    id: `msg_${Date.now()}`,
+    from: "human",
+    to: targetAgentId,
+    type: "answer",
+    content,
+    timestamp: new Date().toISOString(),
+    resolved: true,
+  };
+
+  state.messages.push(message);
+  setWorkflow(state);
+  emitEvent(workflowId, { type: "message", message });
+}
+
+/**
+ * Get current workflow state (for reconnection).
+ */
+export function getWorkflowState(workflowId: string): WorkflowState | undefined {
+  return getWorkflow(workflowId);
+}
+
+/**
+ * Manually retry a failed agent task.
+ */
+export async function retryAgentTask(workflowId: string, agentId: string): Promise<void> {
+  const state = getWorkflow(workflowId);
+  if (!state) return;
+
+  const task = state.agentTasks[agentId];
+  if (!task || task.status !== "error") return;
+
+  // Find the ticket and reset it to ready
+  const ticket = getTicket(task.ticketId);
+  if (!ticket) return;
+
+  ticket.status = "ready";
+  setTicket(ticket);
+
+  // Clear the error state
+  delete state.agentTasks[agentId];
+  setWorkflow(state);
+
+  // Re-invoke
+  await invokeAgentForTicket(workflowId, state.epicId, ticket);
+}
