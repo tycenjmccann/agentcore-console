@@ -1,16 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { ModelSelector } from "./ModelSelector";
 import type { WorkflowInput, IntakeSource, RepoConfig, RepoLayout } from "@/lib/workflow/types";
+import type { ModelConfig } from "@/lib/workflow/model-config";
 
 interface IntakeFormProps {
-  onSubmit: (input: WorkflowInput) => void;
+  onSubmit: (input: WorkflowInput & { modelConfig?: ModelConfig }) => void;
   isLoading?: boolean;
 }
 
 export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [modelConfig, setModelConfig] = useState<ModelConfig | null>(null);
   const [sources, setSources] = useState<IntakeSource[]>([]);
   const [newSourceUrl, setNewSourceUrl] = useState("");
   const [repoLayout, setRepoLayout] = useState<RepoLayout>("monorepo");
@@ -43,6 +46,7 @@ export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
       description: description.trim(),
       repoConfig,
       sources,
+      modelConfig: modelConfig || undefined,
     });
   };
 
@@ -85,6 +89,13 @@ export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
           className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-500 resize-y"
         />
       </div>
+
+      {/* Model Selector */}
+      <ModelSelector
+        value={modelConfig}
+        onChange={setModelConfig}
+        disabled={isLoading}
+      />
 
       {/* Input Sources */}
       <div>
