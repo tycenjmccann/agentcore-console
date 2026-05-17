@@ -8,6 +8,7 @@ A web console for Amazon Bedrock AgentCore that dynamically discovers and intera
 - **Agents** — Card grid of harnesses and runtimes; click for detail + invoke
 - **Agent Detail** — Model, tools, memory, logs + live chat with sessions and full OTEL execution trace
 - **Builder** — Chat-based agent creation via Bedrock Converse API
+- **Theme Toggle** — Light/dark mode with smooth transitions, system preference detection, and persistence
 
 ## Prerequisites
 
@@ -54,6 +55,73 @@ The app uses the standard AWS credential chain — no secrets in env files.
 - TypeScript
 - Tailwind CSS
 - AWS SDKs: `@aws-sdk/client-bedrock-agentcore`, `@aws-sdk/client-bedrock-agentcore-control`, `@aws-sdk/client-bedrock-runtime`, `@aws-sdk/client-cloudwatch`, `@aws-sdk/client-cloudwatch-logs`
+
+---
+
+## Theme System (Light/Dark Mode)
+
+The console includes a light/dark theme toggle with smooth transitions and persistence.
+
+### Features
+
+- **Theme Toggle Button** — Located in the header next to region selector
+- **Smart Defaults** — Respects system preference (`prefers-color-scheme`), defaults to dark mode
+- **Persistent** — Saves preference to localStorage, persists across sessions
+- **Smooth Transitions** — 0.2s transitions on background, text, and border colors
+- **No FOUC** — Anti-flash-of-unstyled-content via inline script
+- **Accessible** — WCAG 2.1 AA contrast ratios, keyboard navigation, ARIA labels
+
+### User Experience
+
+**First Visit:**
+- If system is in light mode → loads light theme
+- If system is in dark mode OR no preference → loads dark theme (default)
+
+**Theme Switch:**
+- Click sun icon (☀️) in header → switches to light mode
+- Click moon icon (🌙) in header → switches to dark mode
+- Preference saved automatically
+
+**Returning User:**
+- Theme loads instantly from localStorage
+- No flash or layout shift
+
+### Technical Details
+
+**Architecture:**
+- CSS variables for all colors (`:root` for light, `[data-theme="dark"]` for dark)
+- React Context (`ThemeProvider`) manages state
+- `useTheme()` hook for accessing theme in components
+- Inline script in `<head>` prevents FOUC
+
+**Files:**
+- `src/lib/theme.ts` — Theme context and utilities
+- `src/components/theme-provider.tsx` — Theme provider component
+- `src/components/layout/ThemeToggle.tsx` — Toggle button
+- `src/styles/globals.css` — CSS variables and theme styles
+- `src/app/layout.tsx` — Root integration
+- `tests/theme.spec.ts` — E2E tests
+- `docs/THEME_IMPLEMENTATION.md` — Full implementation docs
+
+**Testing:**
+```bash
+npm run test:e2e -- tests/theme.spec.ts
+```
+
+**Adding Theme Support to New Components:**
+```tsx
+// Use CSS variables in custom styles
+<div style={{ backgroundColor: 'var(--color-surface-2)' }}>
+
+// Or use Tailwind classes (automatically adapt)
+<div className="bg-surface-2 text-gray-100">
+
+// Access theme in code
+import { useTheme } from '@/lib/theme';
+const { theme, toggleTheme } = useTheme();
+```
+
+See `docs/THEME_IMPLEMENTATION.md` for detailed documentation.
 
 ---
 
