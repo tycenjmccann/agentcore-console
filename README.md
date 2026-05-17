@@ -1,5 +1,7 @@
 # Agentis Hub
 
+> **⚠️ SETUP REQUIRED:** The `package-lock.json` file was removed due to dependency sync issues. Please run `npm install` locally to regenerate it before committing or running CI. See [Package Lock Status](#package-lock-status) below for details.
+
 A web console for Amazon Bedrock AgentCore that dynamically discovers and interacts with your deployed agents. Clone, configure your AWS credentials, and it works — no hardcoded ARNs, memory IDs, or account numbers.
 
 ## Features
@@ -18,11 +20,42 @@ A web console for Amazon Bedrock AgentCore that dynamically discovers and intera
 ## Quick Start
 
 ```bash
-npm install
+npm install  # This will regenerate package-lock.json
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+## Package Lock Status
+
+**The `package-lock.json` file is currently out of sync and needs regeneration.**
+
+### What happened?
+New AWS SDK dependencies were added to `package.json` but the lock file wasn't updated, causing CI failures with `npm ci`.
+
+### New packages requiring resolution:
+- `@aws-sdk/client-bedrock-agent@^3.1048.0`
+- `@aws-sdk/client-s3@^3.1048.0`
+- `@aws-sdk/client-s3vectors@^3.1048.0`
+- `@aws-sdk/s3-request-presigner@^3.1048.0`
+
+### Updated packages:
+- `@aws-sdk/client-bedrock-agent-runtime` (3.1045.0 → 3.1048.0)
+
+### How to fix:
+```bash
+# Delete the placeholder file if it exists
+rm package-lock.json
+
+# Regenerate with correct dependencies
+npm install
+
+# Commit the regenerated file
+git add package-lock.json
+git commit -m \"chore: Regenerate package-lock.json with updated AWS SDK dependencies\"
+```
+
+This will resolve all dependency conflicts and allow CI to pass with `npm ci`.
 
 ## Configuration
 
@@ -65,31 +98,31 @@ Different agents expect different payload structures. The console auto-handles t
 
 | Format | Payload Sent | Use Case |
 |--------|---|---|
-| `prompt` (default) | `{"prompt": "..."}` | Most custom agents |
-| `messages` | `{"messages": [{"role":"user","content":[{"text":"..."}]}]}` | Converse-style agents |
-| `input_text` | `{"input": {"text": "..."}}` | Simple input agents |
-| `query` | `{"query": "..."}` | RAG agents |
+| `prompt` (default) | `{\"prompt\": \"...\"}` | Most custom agents |
+| `messages` | `{\"messages\": [{\"role\":\"user\",\"content\":[{\"text\":\"...\"}]}]}` | Converse-style agents |
+| `input_text` | `{\"input\": {\"text\": \"...\"}}` | Simple input agents |
+| `query` | `{\"query\": \"...\"}` | RAG agents |
 | `custom` | Raw user input as JSON | Agents expecting custom JSON structs |
 
 ### Supported Response Formats (auto-detected)
 
 The console parses agent responses in any of these shapes:
 - SSE streams (`data: ...` lines)
-- `{ result: { content: [{ text: "..." }] } }` — MCP/A2A style
-- `{ output: { message: { content: [{ text: "..." }] } } }` — Converse output
-- `{ output: { text: "..." } }` — Simple output
-- `{ completion: "..." }` — Completion style
-- `{ response: "..." }` — Generic response
-- `{ answer: "..." }` — Q&A style
+- `{ result: { content: [{ text: \"...\" }] } }` — MCP/A2A style
+- `{ output: { message: { content: [{ text: \"...\" }] } } }` — Converse output
+- `{ output: { text: \"...\" } }` — Simple output
+- `{ completion: \"...\" }` — Completion style
+- `{ response: \"...\" }` — Generic response
+- `{ answer: \"...\" }` — Q&A style
 - Raw text fallback
 
 ### Configuring Per-Agent Format
 
 ```bash
 # Set format for a specific agent
-curl -X POST http://localhost:3000/api/agentcore/payload-format \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id": "my-agent-id", "format": "messages"}'
+curl -X POST http://localhost:3000/api/agentcore/payload-format \\
+  -H \"Content-Type: application/json\" \\
+  -d '{\"agent_id\": \"my-agent-id\", \"format\": \"messages\"}'
 
 # Check current format
 curl http://localhost:3000/api/agentcore/payload-format?agent_id=my-agent-id
@@ -107,7 +140,7 @@ If your agent uses a payload structure not listed above, add it in two places:
 // In src/lib/agentcore-sdk.ts, find the PAYLOAD_BUILDERS constant:
 const PAYLOAD_BUILDERS: Record<string, (prompt: string, sessionId: string) => object> = {
   prompt: (prompt) => ({ prompt }),
-  messages: (prompt) => ({ messages: [{ role: "user", content: [{ text: prompt }] }] }),
+  messages: (prompt) => ({ messages: [{ role: \"user\", content: [{ text: prompt }] }] }),
   input_text: (prompt) => ({ input: { text: prompt } }),
   query: (prompt) => ({ query: prompt }),
   // ADD YOUR FORMAT HERE:
@@ -127,15 +160,15 @@ const PAYLOAD_BUILDERS: Record<string, (prompt: string, sessionId: string) => ob
 **3. Register the format name** — `src/app/api/agentcore/payload-format/route.ts`, add your format name to the `valid` array:
 
 ```typescript
-const valid = ["prompt", "messages", "input_text", "query", "custom", "my_format"];
+const valid = [\"prompt\", \"messages\", \"input_text\", \"query\", \"custom\", \"my_format\"];
 ```
 
 **4. Configure your agent to use it:**
 
 ```bash
-curl -X POST http://localhost:3000/api/agentcore/payload-format \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id": "your-agent-id", "format": "my_format"}'
+curl -X POST http://localhost:3000/api/agentcore/payload-format \\
+  -H \"Content-Type: application/json\" \\
+  -d '{\"agent_id\": \"your-agent-id\", \"format\": \"my_format\"}'
 ```
 
 That's it — the console will now use your custom format for that agent on every invocation.
@@ -162,9 +195,9 @@ The builder agent needs visibility into your tools/skills infrastructure. Choose
 Best if you already have an AgentCore IAM gateway. Deploys a Lambda with 5 management tools and registers them as gateway targets.
 
 ```bash
-node deploy/setup-builder-agent.mjs \
-  --gateway-id <your-iam-gateway-id> \
-  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \
+node deploy/setup-builder-agent.mjs \\
+  --gateway-id <your-iam-gateway-id> \\
+  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \\
   --memory-id <your-memory-id>
 ```
 
@@ -183,10 +216,10 @@ node deploy/setup-builder-agent.mjs \
 Best if you expose your tool catalog via MCP servers (e.g., a centralized tool registry, custom MCP endpoint, or third-party MCP service). No Lambda needed.
 
 ```bash
-node deploy/setup-builder-agent.mjs \
-  --mcp-url https://your-mcp-server.example.com/sse \
-  --mcp-url https://another-mcp.example.com/sse \
-  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \
+node deploy/setup-builder-agent.mjs \\
+  --mcp-url https://your-mcp-server.example.com/sse \\
+  --mcp-url https://another-mcp.example.com/sse \\
+  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \\
   --memory-id <your-memory-id>
 ```
 
@@ -203,10 +236,10 @@ node deploy/setup-builder-agent.mjs \
 Combine gateway tools (for AgentCore management) with MCP servers (for additional tool catalogs):
 
 ```bash
-node deploy/setup-builder-agent.mjs \
-  --gateway-id <your-iam-gateway-id> \
-  --mcp-url https://your-tool-registry.example.com/sse \
-  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \
+node deploy/setup-builder-agent.mjs \\
+  --gateway-id <your-iam-gateway-id> \\
+  --mcp-url https://your-tool-registry.example.com/sse \\
+  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \\
   --memory-id <your-memory-id>
 ```
 
@@ -227,7 +260,7 @@ Add to `.env.local` — the Build page will use the real harness agent instead o
 3. **(Optional) AgentCore Memory** — for persistent context across sessions:
    ```bash
    # Via AgentCore MCP tools or SDK:
-   # memory_create({ name: "my_builder_memory" })
+   # memory_create({ name: \"my_builder_memory\" })
    ```
 
 **Gateway option (A/C) additionally requires:**
@@ -235,29 +268,29 @@ Add to `.env.local` — the Build page will use the real harness agent instead o
 5. **Lambda execution role** (auto-created) with control plane permissions:
    ```json
    {
-     "Effect": "Allow",
-     "Action": [
-       "bedrock-agentcore:ListHarnesses",
-       "bedrock-agentcore:ListAgentRuntimes",
-       "bedrock-agentcore:ListMemories",
-       "bedrock-agentcore:ListGateways",
-       "bedrock-agentcore:ListGatewayTargets",
-       "bedrock-agentcore:GetHarness",
-       "bedrock-agentcore:GetAgentRuntime",
-       "bedrock-agentcore:CreateHarness"
+     \"Effect\": \"Allow\",
+     \"Action\": [
+       \"bedrock-agentcore:ListHarnesses\",
+       \"bedrock-agentcore:ListAgentRuntimes\",
+       \"bedrock-agentcore:ListMemories\",
+       \"bedrock-agentcore:ListGateways\",
+       \"bedrock-agentcore:ListGatewayTargets\",
+       \"bedrock-agentcore:GetHarness\",
+       \"bedrock-agentcore:GetAgentRuntime\",
+       \"bedrock-agentcore:CreateHarness\"
      ],
-     "Resource": "*"
+     \"Resource\": \"*\"
    }
    ```
 6. **`iam:PassRole`** on the harness execution role so the builder can assign it to new agents:
    ```json
    {
-     "Effect": "Allow",
-     "Action": "iam:PassRole",
-     "Resource": "arn:aws:iam::ACCOUNT_ID:role/YOUR_HARNESS_EXECUTION_ROLE",
-     "Condition": {
-       "StringEquals": {
-         "iam:PassedToService": "bedrock-agentcore.amazonaws.com"
+     \"Effect\": \"Allow\",
+     \"Action\": \"iam:PassRole\",
+     \"Resource\": \"arn:aws:iam::ACCOUNT_ID:role/YOUR_HARNESS_EXECUTION_ROLE\",
+     \"Condition\": {
+       \"StringEquals\": {
+         \"iam:PassedToService\": \"bedrock-agentcore.amazonaws.com\"
        }
      }
    }
@@ -320,8 +353,8 @@ Each agent calls `load_skill` at runtime to get detailed instructions before pro
 ### One-Command Setup
 
 ```bash
-node deploy/setup-routing-agents.mjs \
-  --gateway-id <your-gateway-id> \
+node deploy/setup-routing-agents.mjs \\
+  --gateway-id <your-gateway-id> \\
   --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole
 ```
 
@@ -397,70 +430,70 @@ Attach this policy to whichever IAM role your compute uses (Amplify service role
 
 ```json
 {
-  "Version": "2012-10-17",
-  "Statement": [
+  \"Version\": \"2012-10-17\",
+  \"Statement\": [
     {
-      "Sid": "AgentCoreFullAccess",
-      "Effect": "Allow",
-      "Action": [
-        "bedrock-agentcore:InvokeAgentRuntime",
-        "bedrock-agentcore:InvokeHarness",
-        "bedrock-agentcore:ListAgentRuntimes",
-        "bedrock-agentcore:ListHarnesses",
-        "bedrock-agentcore:ListMemories",
-        "bedrock-agentcore:GetAgentRuntime",
-        "bedrock-agentcore:GetHarness",
-        "bedrock-agentcore:CreateHarness",
-        "bedrock-agentcore:ListSessions",
-        "bedrock-agentcore:ListActors",
-        "bedrock-agentcore:ListEvents",
-        "bedrock-agentcore:CreateEvent",
-        "bedrock-agentcore:RetrieveMemoryRecords"
+      \"Sid\": \"AgentCoreFullAccess\",
+      \"Effect\": \"Allow\",
+      \"Action\": [
+        \"bedrock-agentcore:InvokeAgentRuntime\",
+        \"bedrock-agentcore:InvokeHarness\",
+        \"bedrock-agentcore:ListAgentRuntimes\",
+        \"bedrock-agentcore:ListHarnesses\",
+        \"bedrock-agentcore:ListMemories\",
+        \"bedrock-agentcore:GetAgentRuntime\",
+        \"bedrock-agentcore:GetHarness\",
+        \"bedrock-agentcore:CreateHarness\",
+        \"bedrock-agentcore:ListSessions\",
+        \"bedrock-agentcore:ListActors\",
+        \"bedrock-agentcore:ListEvents\",
+        \"bedrock-agentcore:CreateEvent\",
+        \"bedrock-agentcore:RetrieveMemoryRecords\"
       ],
-      "Resource": "*"
+      \"Resource\": \"*\"
     },
     {
-      "Sid": "PassRoleForHarnessCreation",
-      "Effect": "Allow",
-      "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::*:role/*",
-      "Condition": {
-        "StringEquals": {
-          "iam:PassedToService": "bedrock-agentcore.amazonaws.com"
+      \"Sid\": \"PassRoleForHarnessCreation\",
+      \"Effect\": \"Allow\",
+      \"Action\": \"iam:PassRole\",
+      \"Resource\": \"arn:aws:iam::*:role/*\",
+      \"Condition\": {
+        \"StringEquals\": {
+          \"iam:PassedToService\": \"bedrock-agentcore.amazonaws.com\"
         }
       }
     },
     {
-      "Sid": "CloudWatchMetrics",
-      "Effect": "Allow",
-      "Action": [
-        "cloudwatch:GetMetricStatistics",
-        "cloudwatch:ListMetrics"
+      \"Sid\": \"CloudWatchMetrics\",
+      \"Effect\": \"Allow\",
+      \"Action\": [
+        \"cloudwatch:GetMetricStatistics\",
+        \"cloudwatch:ListMetrics\"
       ],
-      "Resource": "*"
+      \"Resource\": \"*\"
     },
     {
-      "Sid": "CloudWatchLogsTraces",
-      "Effect": "Allow",
-      "Action": [
-        "logs:StartQuery",
-        "logs:GetQueryResults",
-        "logs:DescribeLogGroups",
-        "logs:DescribeLogStreams"
+      \"Sid\": \"CloudWatchLogsTraces\",
+      \"Effect\": \"Allow\",
+      \"Action\": [
+        \"logs:StartQuery\",
+        \"logs:GetQueryResults\",
+        \"logs:DescribeLogGroups\",
+        \"logs:DescribeLogStreams\"
       ],
-      "Resource": [
-        "arn:aws:logs:*:*:log-group:aws/spans:*",
-        "arn:aws:logs:*:*:log-group:/aws/bedrock-agentcore/runtimes/*"
+      \"Resource\": [
+        \"arn:aws:logs:*:*:log-group:aws/spans:*\",
+        \"arn:aws:logs:*:*:log-group:/aws/bedrock-agentcore/runtimes/*\"
       ]
     },
     {
-      "Sid": "BedrockModelAccess",
-      "Effect": "Allow",
-      "Action": [
-        "bedrock:InvokeModel",
-        "bedrock:InvokeModelWithResponseStream"
+      \"Sid\": \"BedrockModelAccess\",
+      \"Effect\": \"Allow\",
+      \"Action\": [
+        \"bedrock:InvokeModel\",
+        \"bedrock:InvokeModelWithResponseStream\"
       ],
-      "Resource": "arn:aws:bedrock:*:*:inference-profile/*"
+      \"Resource\": \"arn:aws:bedrock:*:*:inference-profile/*\"
     }
   ]
 }
@@ -470,11 +503,11 @@ Attach this policy to whichever IAM role your compute uses (Amplify service role
 
 To restrict to specific agents or regions:
 
-- Replace `"Resource": "*"` in `AgentCoreFullAccess` with specific agent ARNs:
+- Replace `\"Resource\": \"*\"` in `AgentCoreFullAccess` with specific agent ARNs:
   ```
-  "arn:aws:bedrock-agentcore:us-east-1:ACCOUNT_ID:runtime/*"
-  "arn:aws:bedrock-agentcore:us-east-1:ACCOUNT_ID:harness/*"
-  "arn:aws:bedrock-agentcore:us-east-1:ACCOUNT_ID:memory/*"
+  \"arn:aws:bedrock-agentcore:us-east-1:ACCOUNT_ID:runtime/*\"
+  \"arn:aws:bedrock-agentcore:us-east-1:ACCOUNT_ID:harness/*\"
+  \"arn:aws:bedrock-agentcore:us-east-1:ACCOUNT_ID:memory/*\"
   ```
 - The `CloudWatchLogsTraces` statement is already scoped to AgentCore log groups and the `aws/spans` group
 - The `PassRoleForHarnessCreation` statement is only needed if using the Deploy button on the Build page. Scope the `Resource` to your specific harness execution role ARN for tighter security.
