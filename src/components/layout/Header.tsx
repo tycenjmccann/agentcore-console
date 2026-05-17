@@ -8,14 +8,30 @@ import { invalidateCachePrefix } from "@/lib/client-cache";
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
   "/agents": "Agents",
+  "/workflows": "Workflows",
   "/build": "Build",
+  "/routing": "Routing",
+  "/tickets": "Ticket History",
 };
 
 export default function Header() {
   const pathname = usePathname();
-  const title = pathname.startsWith("/agents/") && pathname !== "/agents"
-    ? "Agent Detail"
-    : pageTitles[pathname] || "AgentCore Console";
+  
+  // Determine page title based on route
+  const getTitle = () => {
+    if (pathname.startsWith("/agents/") && pathname !== "/agents") {
+      return "Agent Detail";
+    }
+    if (pathname.startsWith("/workflows/new")) {
+      return "New Workflow";
+    }
+    if (pathname.startsWith("/workflows/") && pathname !== "/workflows") {
+      return "Workflow Detail";
+    }
+    return pageTitles[pathname] || "AgentCore Console";
+  };
+  
+  const title = getTitle();
 
   const [region, setRegion] = useState(() => {
     if (typeof window !== "undefined") {
