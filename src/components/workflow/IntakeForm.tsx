@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { WorkflowInput, IntakeSource, RepoConfig, RepoLayout } from "@/lib/workflow/types";
+import type { ModelOption, ModelsApiResponse } from "@/lib/workflow/model-config";
+import { modelOptionToOverride } from "@/lib/workflow/model-config";
 
 interface IntakeFormProps {
   onSubmit: (input: WorkflowInput) => void;
@@ -16,6 +18,46 @@ export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
   const [repoLayout, setRepoLayout] = useState<RepoLayout>("monorepo");
   const [repoUrl, setRepoUrl] = useState("");
   const [defaultBranch, setDefaultBranch] = useState("main");
+
+  // Model selection state
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string>("");
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+
+  // Fetch available models on mount
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        setModelsLoading(true);
+        setModelsError(null);
+        
+        const response = await fetch("/api/models");
+        if (!response.ok) {
+          throw new Error(`Failed to fetch models: ${response.status}`);
+        }
+        
+        const data: ModelsApiResponse = await response.json();
+        setModels(data.models);
+        
+        // Pre-select the default model
+        const defaultModel = data.models.find((m) => m.isDefault);
+        if (defaultModel) {
+          setSelectedModelId(defaultModel.id);
+        } else if (data.models.length > 0) {
+          setSelectedModelId(data.models[0].id);
+        }
+      } catch (err) {
+        console.error("[IntakeForm] Failed to load models:", err);
+        setModelsError(err instanceof Error ? err.message : "Failed to load models");
+        // Graceful degradation: hide dropdown, use default model
+      } finally {
+        setModelsLoading(false);
+      }
+    };
+
+    fetchModels();
+  }, []);
 
   const addUrlSource = () => {
     if (!newSourceUrl.trim()) return;
@@ -38,13 +80,22 @@ export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
         : [],
     };
 
+    // Get selected model and convert to override format
+    const selectedModel = models.find((m) => m.id === selectedModelId);
+    const modelOverride = modelOptionToOverride(selectedModel);
+
     onSubmit({
       title: title.trim(),
       description: description.trim(),
       repoConfig,
       sources,
+      // Only include modelOverride if a non-default model is selected
+      ...(modelOverride && { modelOverride }),
     });
   };
+
+  // Get the currently selected model for description display
+  const selectedModel = models.find((m) => m.id === selectedModelId);
 
   return (
     <form onSubmit={handleSubmit} className="max-w-2xl mx-auto space-y-6">
@@ -180,6 +231,65 @@ export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
           />
         </div>
       </div>
+
+      {/* Model Selection - only show if models loaded successfully */}
+      {!modelsError && (
+        <div>
+          <label
+            htmlFor="model-select"
+            className="block text-sm font-medium text-zinc-300 mb-1"
+          >
+            Model Selection (Optional)
+          </label>
+          <p className="text-xs text-zinc-500 mb-2">
+            Select AI model for development agents. Defaults to Claude Sonnet 4.5.
+          </p>
+
+          {modelsLoading ? (
+            <div className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-500 text-sm">
+              Loading models...
+            </div>
+          ) : (
+            <>
+              <select
+                id="model-select"
+                value={selectedModelId}
+                onChange={(e) => setSelectedModelId(e.target.value)}
+                aria-label="Select AI model for development agents"
+                aria-describedby="model-description"
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 focus:outline-none focus:border-zinc-500 cursor-pointer appearance-none"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23a1a1aa'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "right 0.75rem center",
+                  backgroundSize: "1.25rem",
+                  paddingRight: "2.5rem",
+                }}
+              >
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.isDefault ? `⭐ ${model.label}` : model.label}
+                  </option>
+                ))}
+              </select>
+
+              {/* Description / helper text for selected model */}
+              {selectedModel?.description && (
+                <p
+                  id="model-description"
+                  className="mt-1.5 text-xs text-zinc-500 flex items-center gap-1"
+                >
+                  <span className="text-zinc-600">ℹ️</span>
+                  {selectedModel.description}
+                  {selectedModel.isDefault && (
+                    <span className="ml-1 text-green-500">(Recommended)</span>
+                  )}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Submit */}
       <button
