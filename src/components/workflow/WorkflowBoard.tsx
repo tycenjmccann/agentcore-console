@@ -9,48 +9,15 @@ import type {
   AgentTask,
   AgentTaskStatus,
   WorkflowPhase,
-  ModelConfig,
 } from "@/lib/workflow/types";
+import { getModelDisplayName, isDefaultModel } from "@/lib/workflow/model-utils";
 import PhaseColumn from "./PhaseColumn";
 import TicketPanel from "./TicketPanel";
 import MessageFeed from "./MessageFeed";
 import AgentOutput from "./AgentOutput";
-import { Cpu } from "lucide-react";
 
 interface WorkflowBoardProps {
   workflowId: string;
-}
-
-// Map model IDs to display names
-function getModelDisplayName(modelConfig: ModelConfig | undefined): string | null {
-  if (!modelConfig) return null;
-  
-  const { provider, modelId } = modelConfig;
-  
-  // Check if it's the default Bedrock Sonnet 4.5
-  if (
-    provider === "bedrock" &&
-    modelId === "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
-  ) {
-    return null; // Don't show for default
-  }
-  
-  // Map known model IDs to friendly names
-  const modelNames: Record<string, string> = {
-    // Bedrock models
-    "global.anthropic.claude-opus-4-20250514-v1:0": "Claude Opus 4",
-    "global.anthropic.claude-sonnet-4-5-20250929-v1:0": "Claude Sonnet 4.5",
-    "global.anthropic.claude-sonnet-3-5-v2:0": "Claude Sonnet 3.5",
-    // OpenAI models
-    "gpt-4-turbo-preview": "GPT-4 Turbo",
-    "gpt-4": "GPT-4",
-    "gpt-3.5-turbo": "GPT-3.5 Turbo",
-    // Gemini models
-    "gemini-pro": "Gemini Pro",
-    "gemini-ultra": "Gemini Ultra",
-  };
-  
-  return modelNames[modelId] || modelId;
 }
 
 export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
@@ -219,19 +186,19 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     );
   }
 
-  // Get model display name if non-default model is selected
-  const modelDisplayName = getModelDisplayName(state.input.modelConfig);
-
   // Build activeTickets map (agentId → ticketId)
   const activeTickets: Record<string, string> = {};
   for (const task of Object.values(state.agentTasks)) {
     activeTickets[task.agentId] = task.ticketId;
   }
 
+  // Check if a custom model is being used
+  const showModelBadge = state.modelConfig && !isDefaultModel(state.modelConfig);
+
   return (
     <div className="space-y-6">
-      {/* Phase indicator and model badge */}
-      <div className="space-y-3">
+      {/* Workflow header with phase indicator and model badge */}
+      <div className="space-y-2">
         <div className="flex items-center gap-2">
           <PhaseIndicator phase={state.phase} />
           {state.phase === "complete" && (
@@ -239,12 +206,24 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           )}
         </div>
         
-        {/* Model selection badge - only show if non-default */}
-        {modelDisplayName && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-blue-900/20 border border-blue-700/30 rounded-lg w-fit">
-            <Cpu className="w-4 h-4 text-blue-400" />
-            <span className="text-sm text-blue-300">
-              Using <span className="font-semibold">{modelDisplayName}</span> for development agents
+        {/* Model selection badge - only shown if non-default model */}
+        {showModelBadge && state.modelConfig && (
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-900/20 border border-blue-700/30 rounded-md">
+            <svg
+              className="w-3.5 h-3.5 text-blue-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+              />
+            </svg>
+            <span className="text-xs text-blue-300">
+              Using <span className="font-semibold">{getModelDisplayName(state.modelConfig)}</span> for development agents
             </span>
           </div>
         )}
