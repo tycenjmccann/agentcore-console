@@ -247,6 +247,13 @@ export interface WorkflowState {
   epicId: string;                // root Jira epic ticket ID
   repoConfig: RepoConfig;
   input: WorkflowInput;
+  /**
+   * The effective model configuration for this workflow run.
+   * @description Stored for audit trail and easy access during agent invocations.
+   * Defaults to DEFAULT_MODEL if not provided in the input.
+   * Only applies to development phase agents (design/requirements use default).
+   */
+  modelConfig: ModelConfig;
   agentTasks: Record<string, AgentTask>;  // keyed by agent ID
   messages: AgentMessage[];
   humanNotifications: HumanNotification[];
