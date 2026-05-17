@@ -65,6 +65,150 @@ export interface AgentDefinition {
   canQueryAgents: string[];      // agent IDs this agent can A2A invoke
 }
 
+// ─── Model Configuration ────────────────────────────────────────────────────
+
+/**
+ * Supported AI model providers.
+ * @description Discriminator type for the ModelConfig union.
+ */
+export type ModelProvider = "bedrock" | "openai" | "gemini";
+
+/**
+ * Configuration for AWS Bedrock models.
+ * @description Used for Claude Sonnet, Claude Opus, and other Bedrock-hosted models.
+ * @example
+ * const config: BedrockModelConfig = {
+ *   provider: "bedrock",
+ *   modelId: "anthropic.claude-sonnet-4-5-v1"
+ * };
+ */
+export interface BedrockModelConfig {
+  /** Discriminator: always "bedrock" for Bedrock models */
+  provider: "bedrock";
+  /** 
+   * The Bedrock model identifier.
+   * @example "anthropic.claude-sonnet-4-5-v1", "anthropic.claude-opus-4"
+   */
+  modelId: string;
+}
+
+/**
+ * Configuration for OpenAI models.
+ * @description Used for GPT-4, GPT-4 Turbo, and other OpenAI models.
+ * @example
+ * const config: OpenAIModelConfig = {
+ *   provider: "openai",
+ *   modelId: "gpt-4-turbo"
+ * };
+ */
+export interface OpenAIModelConfig {
+  /** Discriminator: always "openai" for OpenAI models */
+  provider: "openai";
+  /** 
+   * The OpenAI model identifier.
+   * @example "gpt-4", "gpt-4-turbo"
+   */
+  modelId: string;
+  /** 
+   * Optional API key override. 
+   * If not provided, uses the server-configured default.
+   * @remarks This should be handled server-side only, never exposed to client.
+   */
+  apiKey?: string;
+}
+
+/**
+ * Configuration for Google Gemini models.
+ * @description Used for Gemini Pro, Gemini Ultra, and other Google AI models.
+ * @example
+ * const config: GeminiModelConfig = {
+ *   provider: "gemini",
+ *   modelId: "gemini-pro"
+ * };
+ */
+export interface GeminiModelConfig {
+  /** Discriminator: always "gemini" for Gemini models */
+  provider: "gemini";
+  /** 
+   * The Gemini model identifier.
+   * @example "gemini-pro", "gemini-ultra"
+   */
+  modelId: string;
+  /** 
+   * Optional API key override.
+   * If not provided, uses the server-configured default.
+   * @remarks This should be handled server-side only, never exposed to client.
+   */
+  apiKey?: string;
+}
+
+/**
+ * Discriminated union of all supported model configurations.
+ * @description Use the `provider` field as the discriminator to narrow the type.
+ * @example
+ * function getModelName(config: ModelConfig): string {
+ *   switch (config.provider) {
+ *     case "bedrock": return config.modelId;
+ *     case "openai": return `OpenAI ${config.modelId}`;
+ *     case "gemini": return `Gemini ${config.modelId}`;
+ *   }
+ * }
+ */
+export type ModelConfig = BedrockModelConfig | OpenAIModelConfig | GeminiModelConfig;
+
+/**
+ * Default model configuration used when no model is specified.
+ * @description Points to Claude Sonnet 4.5 on Bedrock as the default model.
+ */
+export const DEFAULT_MODEL: BedrockModelConfig = {
+  provider: "bedrock",
+  modelId: "anthropic.claude-sonnet-4-5-v1"
+} as const;
+
+// ─── Model Type Guards ──────────────────────────────────────────────────────
+
+/**
+ * Type guard to check if a ModelConfig is a BedrockModelConfig.
+ * @param config - The model configuration to check
+ * @returns True if the config is for a Bedrock model
+ * @example
+ * if (isBedrockModel(config)) {
+ *   // config.provider is narrowed to "bedrock"
+ *   console.log(config.modelId);
+ * }
+ */
+export function isBedrockModel(config: ModelConfig): config is BedrockModelConfig {
+  return config.provider === "bedrock";
+}
+
+/**
+ * Type guard to check if a ModelConfig is an OpenAIModelConfig.
+ * @param config - The model configuration to check
+ * @returns True if the config is for an OpenAI model
+ * @example
+ * if (isOpenAIModel(config)) {
+ *   // config.provider is narrowed to "openai"
+ *   console.log(config.apiKey); // optional field available
+ * }
+ */
+export function isOpenAIModel(config: ModelConfig): config is OpenAIModelConfig {
+  return config.provider === "openai";
+}
+
+/**
+ * Type guard to check if a ModelConfig is a GeminiModelConfig.
+ * @param config - The model configuration to check
+ * @returns True if the config is for a Gemini model
+ * @example
+ * if (isGeminiModel(config)) {
+ *   // config.provider is narrowed to "gemini"
+ *   console.log(config.apiKey); // optional field available
+ * }
+ */
+export function isGeminiModel(config: ModelConfig): config is GeminiModelConfig {
+  return config.provider === "gemini";
+}
+
 // ─── Workflow State ──────────────────────────────────────────────────────────
 
 export type WorkflowPhase =
@@ -161,11 +305,27 @@ export interface IntakeSource {
   label?: string;                // user-provided label
 }
 
+/**
+ * Input data for starting a new workflow.
+ * @description Contains all information needed to initialize a workflow run.
+ */
 export interface WorkflowInput {
+  /** Title of the feature/project being worked on */
   title: string;
+  /** Detailed description of the requirements */
   description: string;
+  /** Repository configuration for code changes */
   repoConfig: RepoConfig;
+  /** Source materials (URLs, uploads, S3 files) for requirements analysis */
   sources: IntakeSource[];
+  /**
+   * Optional model configuration for dev agents.
+   * @description When specified, dev agents will use this model instead of the default.
+   * If not provided, defaults to Claude Sonnet 4.5 (DEFAULT_MODEL).
+   * @remarks Only applies to development phase agents; requirements and design 
+   * agents always use the default model for consistency.
+   */
+  modelConfig?: ModelConfig;
 }
 
 // ─── Human Notifications ─────────────────────────────────────────────────────
