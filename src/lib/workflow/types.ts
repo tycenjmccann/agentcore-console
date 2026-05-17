@@ -109,6 +109,8 @@ export interface WorkflowState {
   startedAt: string;
   completedAt?: string;
   error?: string;
+  /** Shared feature branch — all dev agents commit to this single branch */
+  featureBranch?: string;
 }
 
 // ─── Repo Configuration ──────────────────────────────────────────────────────
@@ -161,11 +163,18 @@ export interface IntakeSource {
   label?: string;                // user-provided label
 }
 
+export interface ModelOverride {
+  bedrockModelConfig?: { modelId: string };
+  openAiModelConfig?: { modelId: string; apiKeyArn: string };
+}
+
 export interface WorkflowInput {
   title: string;
   description: string;
   repoConfig: RepoConfig;
   sources: IntakeSource[];
+  /** Per-invocation model override for dev agents (e.g., Opus for complex tasks) */
+  modelOverride?: ModelOverride;
 }
 
 // ─── Human Notifications ─────────────────────────────────────────────────────
