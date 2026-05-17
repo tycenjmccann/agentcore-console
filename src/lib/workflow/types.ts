@@ -150,6 +150,38 @@ export interface AgentMessage {
   resolved: boolean;
 }
 
+// ─── Model Configuration ─────────────────────────────────────────────────────
+
+/**
+ * Model configuration for AWS Bedrock models.
+ */
+export interface BedrockModelConfig {
+  provider: "bedrock";
+  modelId: string;
+}
+
+/**
+ * Model configuration for OpenAI models.
+ */
+export interface OpenAiModelConfig {
+  provider: "openai";
+  modelId: string;
+}
+
+/**
+ * Model configuration for Google Gemini models.
+ */
+export interface GeminiModelConfig {
+  provider: "gemini";
+  modelId: string;
+}
+
+/**
+ * Union type representing all supported model configurations.
+ * Uses discriminated union pattern with 'provider' as the discriminator.
+ */
+export type ModelConfig = BedrockModelConfig | OpenAiModelConfig | GeminiModelConfig;
+
 // ─── Intake ──────────────────────────────────────────────────────────────────
 
 export type IntakeSourceType = "url" | "upload" | "s3";
@@ -166,6 +198,7 @@ export interface WorkflowInput {
   description: string;
   repoConfig: RepoConfig;
   sources: IntakeSource[];
+  modelConfig?: ModelConfig;     // Optional: if omitted, uses default Bedrock Sonnet 4.5
 }
 
 // ─── Human Notifications ─────────────────────────────────────────────────────
