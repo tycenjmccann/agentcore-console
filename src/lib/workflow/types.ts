@@ -150,6 +150,69 @@ export interface AgentMessage {
   resolved: boolean;
 }
 
+// ─── Model Configuration ─────────────────────────────────────────────────────
+
+/**
+ * Supported AI model providers for workflow dev agents
+ */
+export type ModelProvider = "bedrock" | "openai" | "gemini";
+
+/**
+ * AWS Bedrock configuration
+ * Default provider for the system
+ */
+export interface BedrockConfig {
+  provider: "bedrock";
+  modelId: string; // e.g., "anthropic.claude-sonnet-4-5-v1:0", "anthropic.claude-opus-v1:0"
+  region?: string; // AWS region, defaults to process.env.AWS_REGION
+}
+
+/**
+ * OpenAI configuration
+ */
+export interface OpenAIConfig {
+  provider: "openai";
+  modelId: string; // e.g., "gpt-4-turbo", "gpt-4o"
+}
+
+/**
+ * Google Gemini configuration
+ */
+export interface GeminiConfig {
+  provider: "gemini";
+  modelId: string; // e.g., "gemini-pro", "gemini-1.5-pro"
+}
+
+/**
+ * Discriminated union for model configuration
+ * Discriminator: provider field
+ */
+export type ModelConfig = BedrockConfig | OpenAIConfig | GeminiConfig;
+
+/**
+ * Model metadata for UI display
+ */
+export interface AvailableModel {
+  provider: ModelProvider;
+  modelId: string;
+  displayName: string;
+  isDefault: boolean;
+  description?: string;
+}
+
+/**
+ * Type guard for ModelConfig
+ */
+export function isModelConfig(value: unknown): value is ModelConfig {
+  if (!value || typeof value !== "object") return false;
+  const config = value as Record<string, unknown>;
+  
+  if (!config.provider || typeof config.provider !== "string") return false;
+  if (!config.modelId || typeof config.modelId !== "string") return false;
+  
+  return ["bedrock", "openai", "gemini"].includes(config.provider as string);
+}
+
 // ─── Intake ──────────────────────────────────────────────────────────────────
 
 export type IntakeSourceType = "url" | "upload" | "s3";
@@ -166,6 +229,13 @@ export interface WorkflowInput {
   description: string;
   repoConfig: RepoConfig;
   sources: IntakeSource[];
+  /**
+   * Optional model override for dev agents
+   * If not provided, defaults to Claude Sonnet 4.5 on Bedrock
+   * Only applies to design and development agents
+   * Requirements agent always uses default
+   */
+  modelOverride?: ModelConfig;
 }
 
 // ─── Human Notifications ─────────────────────────────────────────────────────
