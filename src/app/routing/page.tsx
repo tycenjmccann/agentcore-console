@@ -129,7 +129,7 @@ export default function RoutingPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<SampleTicket | null>(null);
   const [agentIds, setAgentIds] = useState({ design: DEFAULT_DESIGN_AGENT_ID, dev: DEFAULT_DEV_AGENT_ID });
-  const [arnPrefix, setArnPrefix] = useState("arn:aws:bedrock-agentcore:us-east-1:023392223961:harness");
+  const [arnPrefix, setArnPrefix] = useState(process.env.NEXT_PUBLIC_AGENTCORE_ARN_PREFIX || "");
   const [lastSessionIds, setLastSessionIds] = useState<{ design?: string; dev?: string }>({});
   const abortRef = useRef<AbortController | null>(null);
 

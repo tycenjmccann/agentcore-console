@@ -40,7 +40,7 @@ import { provisionWorkspace, startCodeInterpreterSession, stopCodeInterpreterSes
 import { getCodeSearchProvider } from "./code-search-provider";
 
 const DEFAULT_REGION = process.env.AWS_REGION || "us-east-1";
-const ARTIFACT_BUCKET = process.env.TEAM_WORKFLOW_S3_BUCKET || "agentcore-artifacts-023392223961-us-east-1";
+const ARTIFACT_BUCKET = process.env.TEAM_WORKFLOW_S3_BUCKET || "";
 
 /**
  * Read the ticket plan from S3 (written by the requirements agent via WorkflowOutput tool).

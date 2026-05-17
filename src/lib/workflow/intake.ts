@@ -264,7 +264,7 @@ export async function processIntakeSources(
         // S3 source image — copy directly instead of re-encoding
         const { CopyObjectCommand } = await import("@aws-sdk/client-s3");
         const client = new S3Client({ region: DEFAULT_REGION });
-        const bucket = process.env.TEAM_WORKFLOW_S3_BUCKET || "agentcore-artifacts-023392223961-us-east-1";
+        const bucket = process.env.TEAM_WORKFLOW_S3_BUCKET || "";
         await client.send(new CopyObjectCommand({
           Bucket: bucket,
           Key: destKey,
