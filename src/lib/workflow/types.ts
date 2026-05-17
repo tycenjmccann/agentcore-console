@@ -65,6 +65,37 @@ export interface AgentDefinition {
   canQueryAgents: string[];      // agent IDs this agent can A2A invoke
 }
 
+// ─── Model Configuration (Per-Invocation Model Selection) ───────────────────
+
+/**
+ * Model configuration for AWS Bedrock models.
+ */
+export type BedrockModelConfig = {
+  provider: "bedrock";
+  modelId: string;
+};
+
+/**
+ * Model configuration for OpenAI models.
+ */
+export type OpenAiModelConfig = {
+  provider: "openai";
+  modelId: string;
+};
+
+/**
+ * Model configuration for Google Gemini models.
+ */
+export type GeminiModelConfig = {
+  provider: "gemini";
+  modelId: string;
+};
+
+/**
+ * Discriminated union of all supported model configurations.
+ */
+export type ModelConfig = BedrockModelConfig | OpenAiModelConfig | GeminiModelConfig;
+
 // ─── Workflow State ──────────────────────────────────────────────────────────
 
 export type WorkflowPhase =
@@ -166,6 +197,7 @@ export interface WorkflowInput {
   description: string;
   repoConfig: RepoConfig;
   sources: IntakeSource[];
+  modelConfig?: ModelConfig;     // Optional: model to use for dev agents
 }
 
 // ─── Human Notifications ─────────────────────────────────────────────────────
