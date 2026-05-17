@@ -4,10 +4,12 @@ import { useState, useEffect } from "react";
 import {
   Bot, Brain, Cpu, Activity, ArrowRight, MessageSquare,
   Zap, Clock, Ticket, Layers, CheckCircle2,
-  TrendingUp, Timer,
+  TrendingUp, Timer, GitBranch, Plus,
 } from "lucide-react";
 import Link from "next/link";
-import { cachedFetch, getCached } from "@/lib/client-cache";
+import { cachedFetch, getCached, getClientRegion } from "@/lib/client-cache";
+import type { WorkflowState } from "@/lib/workflow/types";
+import { WorkflowMiniList } from "@/components/workflow";
 
 interface Agent {
   id: string;
@@ -73,6 +75,7 @@ export default function DashboardPage() {
   // Initialize from cache for instant render on back-navigation
   const [agents, setAgents] = useState<Agent[]>(() => getCached<Agent[]>("/api/agentcore/agents") || []);
   const [metrics, setMetrics] = useState<MetricsData | null>(() => getCached<MetricsData>("/api/agentcore/metrics"));
+  const [workflows, setWorkflows] = useState<WorkflowState[]>([]);
   const [loading, setLoading] = useState(!getCached("/api/agentcore/agents"));
   const jira = useJiraMetrics();
 
@@ -88,7 +91,19 @@ export default function DashboardPage() {
       })
       .catch(() => setAgents([]))
       .finally(() => setLoading(false));
+
+    // Fetch workflows
+    const region = getClientRegion();
+    fetch("/api/workflows", { headers: { "x-aws-region": region } })
+      .then((r) => r.json())
+      .then((data) => setWorkflows(data.workflows || []))
+      .catch(() => setWorkflows([]));
   }, []);
+
+  // Count active workflows (not complete or error)
+  const activeWorkflows = workflows.filter(
+    (wf) => wf.phase !== "complete" && wf.phase !== "error"
+  );
 
   return (
     <div className="space-y-6">
@@ -132,6 +147,34 @@ export default function DashboardPage() {
             color="text-brand-400"
           />
         </div>
+      </div>
+
+      {/* Active Workflows Section */}
+      <div className="card">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+            <GitBranch className="w-4 h-4" />
+            Active Workflows
+            {activeWorkflows.length > 0 && (
+              <span className="text-green-400 font-normal">
+                ({activeWorkflows.length} running)
+              </span>
+            )}
+          </h3>
+          <div className="flex items-center gap-3">
+            <Link href="/workflows" className="text-xs text-brand-400 hover:text-brand-300 flex items-center gap-1">
+              View all <ArrowRight className="w-3 h-3" />
+            </Link>
+            <Link
+              href="/workflows/new"
+              className="text-xs bg-brand-600/20 text-brand-400 hover:bg-brand-600/30 px-2 py-1 rounded flex items-center gap-1 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              New
+            </Link>
+          </div>
+        </div>
+        <WorkflowMiniList workflows={workflows} maxItems={3} />
       </div>
 
       {/* Jira Section */}
