@@ -17,15 +17,31 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-64 bg-surface-1 border-r border-surface-4 flex flex-col z-50">
-      <div className="p-6 border-b border-surface-4">
+    <aside 
+      className="fixed left-0 top-0 h-screen w-64 border-r flex flex-col z-50"
+      style={{
+        backgroundColor: "rgb(var(--color-bg-secondary))",
+        borderColor: "rgb(var(--color-border-primary))"
+      }}
+    >
+      <div 
+        className="p-6 border-b"
+        style={{ borderColor: "rgb(var(--color-border-primary))" }}
+      >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-            <Bot className="w-5 h-5 text-white" />
+          <div 
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ backgroundColor: "rgb(var(--color-brand-600))" }}
+          >
+            <Bot className="w-5 h-5" style={{ color: "rgb(var(--color-text-inverse))" }} />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-white">Agentis</h1>
-            <p className="text-xs text-gray-500">Hub</p>
+            <h1 className="text-lg font-bold" style={{ color: "rgb(var(--color-text-primary))" }}>
+              Agentis
+            </h1>
+            <p className="text-xs" style={{ color: "rgb(var(--color-text-tertiary))" }}>
+              Hub
+            </p>
           </div>
         </div>
       </div>
@@ -43,9 +59,33 @@ export default function Sidebar() {
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-brand-600/20 text-brand-400 border border-brand-600/30"
-                  : "text-gray-400 hover:text-gray-200 hover:bg-surface-3"
+                  ? "border"
+                  : ""
               )}
+              style={
+                isActive
+                  ? {
+                      backgroundColor: "rgb(var(--color-brand-600) / 0.2)",
+                      color: "rgb(var(--color-brand-400))",
+                      borderColor: "rgb(var(--color-brand-600) / 0.3)"
+                    }
+                  : {
+                      color: "rgb(var(--color-text-tertiary))",
+                      backgroundColor: "transparent"
+                    }
+              }
+              onMouseEnter={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.backgroundColor = "rgb(var(--color-bg-elevated))";
+                  e.currentTarget.style.color = "rgb(var(--color-text-secondary))";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.backgroundColor = "transparent";
+                  e.currentTarget.style.color = "rgb(var(--color-text-tertiary))";
+                }
+              }}
             >
               <item.icon className="w-4 h-4" />
               {item.label}
