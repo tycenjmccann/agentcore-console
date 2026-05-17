@@ -2,27 +2,132 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Theme System: CSS Custom Properties ──────────────────────────────────── */
+
+/* Light theme (default for :root) */
+:root {
+  /* Backgrounds */
+  --color-bg-primary: 255 255 255; /* #ffffff */
+  --color-bg-secondary: 249 250 251; /* #f9fafb */
+  --color-bg-tertiary: 243 244 246; /* #f3f4f6 */
+  --color-bg-elevated: 255 255 255; /* #ffffff */
+  
+  /* Text colors */
+  --color-text-primary: 17 24 39; /* #111827 */
+  --color-text-secondary: 75 85 99; /* #4b5563 */
+  --color-text-tertiary: 107 114 128; /* #6b7280 */
+  --color-text-inverse: 255 255 255; /* #ffffff */
+  
+  /* Borders */
+  --color-border-primary: 229 231 235; /* #e5e7eb */
+  --color-border-secondary: 243 244 246; /* #f3f4f6 */
+  
+  /* Brand colors (consistent across themes) */
+  --color-brand-50: 240 249 255;
+  --color-brand-100: 224 242 254;
+  --color-brand-200: 186 230 253;
+  --color-brand-300: 125 211 252;
+  --color-brand-400: 56 189 248;
+  --color-brand-500: 14 165 233;
+  --color-brand-600: 2 132 199;
+  --color-brand-700: 3 105 161;
+  --color-brand-800: 7 89 133;
+  --color-brand-900: 12 74 110;
+  
+  /* State colors */
+  --color-success: 34 197 94; /* #22c55e */
+  --color-error: 239 68 68; /* #ef4444 */
+  --color-warning: 251 191 36; /* #fbbf24 */
+}
+
+/* Dark theme */
+[data-theme="dark"] {
+  /* Backgrounds */
+  --color-bg-primary: 10 10 15; /* #0a0a0f */
+  --color-bg-secondary: 18 18 26; /* #12121a */
+  --color-bg-tertiary: 26 26 37; /* #1a1a25 */
+  --color-bg-elevated: 34 34 48; /* #222230 */
+  
+  /* Text colors */
+  --color-text-primary: 243 244 246; /* #f3f4f6 */
+  --color-text-secondary: 209 213 219; /* #d1d5db */
+  --color-text-tertiary: 156 163 175; /* #9ca3af */
+  --color-text-inverse: 17 24 39; /* #111827 */
+  
+  /* Borders */
+  --color-border-primary: 42 42 58; /* #2a2a3a */
+  --color-border-secondary: 34 34 48; /* #222230 */
+}
+
+/* ─── Smooth Transitions ───────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  transition-property: background-color, color, border-color;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
+
+/* Disable transitions on elements that shouldn't animate */
+input,
+textarea,
+select,
+button,
+[role="button"],
+a {
+  transition-property: none;
+}
+
+/* Re-enable specific transitions where needed */
+button,
+[role="button"],
+a {
+  transition-property: background-color, color, border-color, opacity, transform;
+}
+
 @layer base {
   body {
-    @apply bg-surface-0 text-gray-100 antialiased;
+    background-color: rgb(var(--color-bg-primary));
+    color: rgb(var(--color-text-primary));
+    @apply antialiased;
   }
 }
 
 @layer components {
   .card {
-    @apply bg-surface-2 border border-surface-4 rounded-xl p-6;
+    background-color: rgb(var(--color-bg-tertiary));
+    border: 1px solid rgb(var(--color-border-primary));
+    @apply rounded-xl p-6;
   }
 
   .card-hover {
-    @apply card hover:border-brand-500/50 transition-colors cursor-pointer;
+    @apply card cursor-pointer;
+  }
+  
+  .card-hover:hover {
+    border-color: rgb(var(--color-brand-500) / 0.5);
   }
 
   .btn-primary {
-    @apply bg-brand-600 hover:bg-brand-500 text-white px-4 py-2 rounded-lg font-medium transition-colors;
+    background-color: rgb(var(--color-brand-600));
+    color: rgb(var(--color-text-inverse));
+    @apply px-4 py-2 rounded-lg font-medium;
+  }
+  
+  .btn-primary:hover {
+    background-color: rgb(var(--color-brand-500));
   }
 
   .btn-secondary {
-    @apply bg-surface-3 hover:bg-surface-4 text-gray-200 px-4 py-2 rounded-lg font-medium transition-colors border border-surface-4;
+    background-color: rgb(var(--color-bg-elevated));
+    border: 1px solid rgb(var(--color-border-primary));
+    color: rgb(var(--color-text-secondary));
+    @apply px-4 py-2 rounded-lg font-medium;
+  }
+  
+  .btn-secondary:hover {
+    background-color: rgb(var(--color-bg-tertiary));
   }
 
   .status-dot {
@@ -49,7 +154,14 @@
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: theme('colors.surface.4') transparent;
+  }
+  
+  [data-theme="light"] .scrollbar-thin {
+    scrollbar-color: rgb(var(--color-border-primary)) transparent;
+  }
+  
+  [data-theme="dark"] .scrollbar-thin {
+    scrollbar-color: rgb(var(--color-border-primary)) transparent;
   }
 }
 
