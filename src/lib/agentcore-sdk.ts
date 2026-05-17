@@ -731,6 +731,7 @@ export async function invokeHarnessAgent(params: {
   systemPrompt?: string;
   history?: Array<{ role: string; content: string }>;
   region?: string;
+  model?: { bedrockModelConfig?: { modelId: string }; openAiModelConfig?: { modelId: string; apiKeyArn: string } };
 }): Promise<ReadableStream> {
   const region = params.region || DEFAULT_REGION;
   const client = getAgentCoreClient(region);
@@ -761,6 +762,11 @@ export async function invokeHarnessAgent(params: {
 
   if (params.systemPrompt) {
     commandInput.system = [{ text: params.systemPrompt }];
+  }
+
+  // Per-invocation model override (e.g., use Opus for complex dev tasks)
+  if (params.model) {
+    commandInput.model = params.model;
   }
 
   const command = new InvokeHarnessCommand(commandInput);
