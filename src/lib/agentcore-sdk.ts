@@ -723,6 +723,12 @@ export async function invokeAgentRuntime(params: {
 
 /**
  * Invoke a harness-managed agent using InvokeHarness.
+ * 
+ * @param params.modelOverride - Optional model ID to override the harness default.
+ *   For Bedrock: pass the model ID directly (e.g., "anthropic.claude-opus-4")
+ *   For OpenAI: pass "openai:{modelId}" (e.g., "openai:gpt-4-turbo")
+ *   For Gemini: pass "gemini:{modelId}" (e.g., "gemini:gemini-pro")
+ *   Only applies to dev agents (team-backend-dev, team-api-dev, team-frontend-dev).
  */
 export async function invokeHarnessAgent(params: {
   harnessArn: string;
@@ -730,6 +736,7 @@ export async function invokeHarnessAgent(params: {
   sessionId: string;
   systemPrompt?: string;
   history?: Array<{ role: string; content: string }>;
+  modelOverride?: string;  // NEW: Model ID override for per-invocation model selection
   region?: string;
 }): Promise<ReadableStream> {
   const region = params.region || DEFAULT_REGION;
@@ -737,6 +744,11 @@ export async function invokeHarnessAgent(params: {
   const encoder = new TextEncoder();
 
   const { InvokeHarnessCommand } = await import("@aws-sdk/client-bedrock-agentcore");
+
+  // Log model override if provided
+  if (params.modelOverride) {
+    console.log(`[agentcore-sdk] Invoking harness with model override: ${params.modelOverride}`);
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [];
@@ -761,6 +773,12 @@ export async function invokeHarnessAgent(params: {
 
   if (params.systemPrompt) {
     commandInput.system = [{ text: params.systemPrompt }];
+  }
+
+  // Add model override if provided
+  // The AgentCore InvokeHarnessCommand accepts modelId to override the harness default
+  if (params.modelOverride) {
+    commandInput.modelId = params.modelOverride;
   }
 
   const command = new InvokeHarnessCommand(commandInput);
