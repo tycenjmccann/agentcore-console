@@ -150,6 +150,41 @@ export interface AgentMessage {
   resolved: boolean;
 }
 
+// ─── Model Configuration ─────────────────────────────────────────────────────
+
+export type ModelProvider = "bedrock" | "openai" | "gemini";
+
+export interface BedrockConfig {
+  provider: "bedrock";
+  modelId: string;               // e.g., "anthropic.claude-sonnet-4-5-v1:0"
+  region?: string;               // AWS region override (defaults to process.env.AWS_REGION)
+}
+
+export interface OpenAIConfig {
+  provider: "openai";
+  modelId: string;               // e.g., "gpt-4-turbo"
+}
+
+export interface GeminiConfig {
+  provider: "gemini";
+  modelId: string;               // e.g., "gemini-pro"
+}
+
+export type ModelConfig = BedrockConfig | OpenAIConfig | GeminiConfig;
+
+// Type guards for ModelConfig discrimination
+export function isBedrockConfig(config: ModelConfig): config is BedrockConfig {
+  return config.provider === "bedrock";
+}
+
+export function isOpenAIConfig(config: ModelConfig): config is OpenAIConfig {
+  return config.provider === "openai";
+}
+
+export function isGeminiConfig(config: ModelConfig): config is GeminiConfig {
+  return config.provider === "gemini";
+}
+
 // ─── Intake ──────────────────────────────────────────────────────────────────
 
 export type IntakeSourceType = "url" | "upload" | "s3";
@@ -166,6 +201,7 @@ export interface WorkflowInput {
   description: string;
   repoConfig: RepoConfig;
   sources: IntakeSource[];
+  modelOverride?: ModelConfig;   // optional model selection for dev agents
 }
 
 // ─── Human Notifications ─────────────────────────────────────────────────────
