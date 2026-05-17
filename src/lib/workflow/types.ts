@@ -65,6 +65,111 @@ export interface AgentDefinition {
   canQueryAgents: string[];      // agent IDs this agent can A2A invoke
 }
 
+// ─── Model Configuration ─────────────────────────────────────────────────────
+
+/**
+ * Model configuration for Bedrock provider
+ * Uses IAM authentication, no API key required
+ */
+export interface BedrockModelConfig {
+  modelId: string; // Full Bedrock ARN format
+}
+
+/**
+ * Model configuration for OpenAI provider
+ * Requires API key from Token Vault
+ */
+export interface OpenAIModelConfig {
+  modelId: string; // OpenAI model identifier (e.g., "gpt-4", "o3")
+  apiKeyArn: string; // ARN of the API key in Token Vault
+}
+
+/**
+ * Model configuration for Google Gemini provider
+ * Requires API key from Token Vault
+ */
+export interface GeminiModelConfig {
+  modelId: string; // Gemini model identifier (e.g., "gemini-2.5-pro")
+  apiKeyArn: string; // ARN of the API key in Token Vault
+}
+
+/**
+ * Discriminated union for model configuration
+ * Ensures type safety across different providers
+ */
+export type ModelConfig = 
+  | { type: 'bedrock'; config: BedrockModelConfig }
+  | { type: 'openai'; config: OpenAIModelConfig }
+  | { type: 'gemini'; config: GeminiModelConfig };
+
+/**
+ * Format compatible with InvokeHarnessCommand model parameter
+ * Maps to the actual API payload structure
+ */
+export type ModelConfigPayload =
+  | { bedrockModelConfig: BedrockModelConfig }
+  | { openAiModelConfig: OpenAIModelConfig }
+  | { geminiModelConfig: GeminiModelConfig };
+
+/**
+ * Model provider availability status
+ * Used by frontend to determine which models to enable
+ */
+export interface ProviderAvailability {
+  bedrock: boolean; // Always true (IAM auth)
+  openai: boolean; // True if OPENAI_API_KEY_ARN is configured
+  gemini: boolean; // True if GEMINI_API_KEY_ARN is configured
+}
+
+/**
+ * Model definition for UI display
+ */
+export interface ModelDefinition {
+  id: string;
+  name: string;
+  provider: 'bedrock' | 'openai' | 'gemini';
+  displayName: string;
+  description?: string;
+}
+
+/**
+ * Bedrock Model IDs (Full ARN format)
+ */
+export const BEDROCK_MODELS = {
+  CLAUDE_SONNET_4_5: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+  CLAUDE_OPUS_4_5: 'global.anthropic.claude-opus-4-5-20250201-v1:0',
+  CLAUDE_HAIKU_4_5: 'global.anthropic.claude-haiku-4-5-20250201-v1:0',
+  NOVA_PRO: 'global.amazon.nova-pro-v1:0',
+  NOVA_LITE: 'global.amazon.nova-lite-v1:0',
+} as const;
+
+/**
+ * OpenAI Model IDs
+ */
+export const OPENAI_MODELS = {
+  GPT_5_5: 'gpt-5.5',
+  O3: 'o3',
+  O4_MINI: 'o4-mini',
+} as const;
+
+/**
+ * Google Gemini Model IDs
+ */
+export const GEMINI_MODELS = {
+  GEMINI_2_5_PRO: 'gemini-2.5-pro',
+  GEMINI_2_5_FLASH: 'gemini-2.5-flash',
+} as const;
+
+/**
+ * Default model configuration (Claude Sonnet 4.5)
+ */
+export const DEFAULT_MODEL_CONFIG: ModelConfig = {
+  type: 'bedrock',
+  config: {
+    modelId: BEDROCK_MODELS.CLAUDE_SONNET_4_5,
+  },
+};
+
 // ─── Workflow State ──────────────────────────────────────────────────────────
 
 export type WorkflowPhase =
@@ -109,6 +214,7 @@ export interface WorkflowState {
   startedAt: string;
   completedAt?: string;
   error?: string;
+  modelConfig?: ModelConfig;     // Optional model configuration for workflow agents
 }
 
 // ─── Repo Configuration ──────────────────────────────────────────────────────
