@@ -166,6 +166,8 @@ export interface WorkflowInput {
   description: string;
   repoConfig: RepoConfig;
   sources: IntakeSource[];
+  /** Optional model configuration for development agents. Defaults to Bedrock Sonnet 4.5 if not specified. */
+  modelConfig?: ModelConfig;
 }
 
 // ─── Human Notifications ─────────────────────────────────────────────────────
@@ -185,6 +187,110 @@ export interface HumanNotification {
   timestamp: string;
   acknowledged: boolean;
 }
+
+
+// ─── Model Configuration ─────────────────────────────────────────────────────
+
+/**
+ * Model configuration for AWS Bedrock models.
+ * Bedrock provides access to Anthropic Claude models and other foundation models.
+ * 
+ * @example
+ * {
+ *   provider: 'bedrock',
+ *   modelId: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0'
+ * }
+ */
+export type BedrockModelConfig = {
+  /** Discriminator for Bedrock provider */
+  provider: 'bedrock';
+  /** 
+   * Full Bedrock model identifier.
+   * Format: global.{vendor}.{model-name}-{version}
+   * Example: global.anthropic.claude-sonnet-4-5-20250929-v1:0
+   */
+  modelId: string;
+};
+
+/**
+ * Model configuration for OpenAI models.
+ * Supports GPT-4, GPT-3.5, and other OpenAI models.
+ * 
+ * @example
+ * {
+ *   provider: 'openai',
+ *   modelId: 'gpt-4-turbo-preview'
+ * }
+ */
+export type OpenAiModelConfig = {
+  /** Discriminator for OpenAI provider */
+  provider: 'openai';
+  /** 
+   * OpenAI model identifier.
+   * Example: gpt-4-turbo-preview, gpt-3.5-turbo
+   */
+  modelId: string;
+};
+
+/**
+ * Model configuration for Google Gemini models.
+ * Supports Gemini Pro, Ultra, and other Google AI models.
+ * 
+ * @example
+ * {
+ *   provider: 'gemini',
+ *   modelId: 'gemini-pro'
+ * }
+ */
+export type GeminiModelConfig = {
+  /** Discriminator for Gemini provider */
+  provider: 'gemini';
+  /** 
+   * Gemini model identifier.
+   * Example: gemini-pro, gemini-ultra
+   */
+  modelId: string;
+};
+
+/**
+ * Union type representing all supported model configurations.
+ * Uses discriminated union pattern with 'provider' as the discriminator field.
+ * 
+ * This type enables:
+ * - Compile-time validation of provider-specific configurations
+ * - Exhaustive pattern matching in switch statements
+ * - Type narrowing based on provider field
+ * 
+ * @example
+ * function processModel(config: ModelConfig) {
+ *   switch (config.provider) {
+ *     case 'bedrock':
+ *       // TypeScript knows config.modelId is a Bedrock model ID
+ *       invokeBedrock(config.modelId);
+ *       break;
+ *     case 'openai':
+ *       invokeOpenAI(config.modelId);
+ *       break;
+ *     case 'gemini':
+ *       invokeGemini(config.modelId);
+ *       break;
+ *     default:
+ *       // Exhaustiveness check - TypeScript error if new provider added
+ *       const _exhaustive: never = config;
+ *       throw new Error(`Unsupported provider: ${_exhaustive}`);
+ *   }
+ * }
+ */
+export type ModelConfig = BedrockModelConfig | OpenAiModelConfig | GeminiModelConfig;
+
+/**
+ * Default Bedrock model configuration (Claude Sonnet 4.5).
+ * Used as fallback when no model is specified.
+ */
+export const DEFAULT_MODEL_CONFIG: BedrockModelConfig = {
+  provider: 'bedrock',
+  modelId: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+};
 
 // ─── SSE Events ──────────────────────────────────────────────────────────────
 
