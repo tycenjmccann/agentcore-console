@@ -1453,7 +1453,7 @@ const lambdaClient = new LambdaClient({ region: DEFAULT_REGION });
 
 async function callGitHubLambda(toolName: string, args: Record<string, unknown>): Promise<unknown> {
   const res = await lambdaClient.send(new InvokeCommand({
-    FunctionName: "agentis-github-mcp",
+    FunctionName: process.env.GITHUB_LAMBDA_NAME || "github-mcp",
     Payload: Buffer.from(JSON.stringify({ name: toolName, arguments: args })),
   }));
   const result = JSON.parse(new TextDecoder().decode(res.Payload!));

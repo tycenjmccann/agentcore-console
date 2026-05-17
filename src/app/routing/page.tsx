@@ -43,10 +43,10 @@ interface SampleTicket {
   tags: string[];
 }
 
-// --- Constants (fallback IDs; overridden by env vars via /api/agentcore/routing-config) ---
+// --- Constants (overridden by env vars via /api/agentcore/routing-config) ---
 
-const DEFAULT_DESIGN_AGENT_ID = "routing_designer_v2-wKqGGelvr8";
-const DEFAULT_DEV_AGENT_ID = "routing_developer_v2-2dADo8v01q";
+const DEFAULT_DESIGN_AGENT_ID = "";
+const DEFAULT_DEV_AGENT_ID = "";
 
 const SAMPLE_TICKETS: SampleTicket[] = [
   {
