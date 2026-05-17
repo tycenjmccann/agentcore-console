@@ -22,6 +22,7 @@ import {
   CloudWatchLogsClient,
   DescribeLogGroupsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
+import type { ModelConfig } from "./workflow/types";
 
 export const DEFAULT_REGION = process.env.AWS_REGION || "us-east-1";
 
@@ -722,6 +723,47 @@ export async function invokeAgentRuntime(params: {
 }
 
 /**
+ * Convert ModelConfig to AgentCore API format for InvokeHarnessCommand.
+ * 
+ * AgentCore expects model overrides in provider-specific format:
+ * - Bedrock: { bedrockModelConfig: { modelId: "..." } }
+ * - OpenAI: { openAiModelConfig: { modelId: "..." } }
+ * - Gemini: { geminiModelConfig: { modelId: "..." } }
+ * 
+ * @param config Optional model configuration from workflow
+ * @returns Model override object for AgentCore API, or undefined if no config provided
+ */
+export function modelConfigToAgentCoreFormat(config?: ModelConfig): object | undefined {
+  if (!config) return undefined;
+
+  switch (config.provider) {
+    case "bedrock":
+      return {
+        bedrockModelConfig: {
+          modelId: config.modelId,
+        },
+      };
+    case "openai":
+      return {
+        openAiModelConfig: {
+          modelId: config.modelId,
+        },
+      };
+    case "gemini":
+      return {
+        geminiModelConfig: {
+          modelId: config.modelId,
+        },
+      };
+    default:
+      // TypeScript exhaustiveness check — should never reach here
+      const _exhaustive: never = config;
+      console.warn("[agentcore-sdk] Unknown model provider:", _exhaustive);
+      return undefined;
+  }
+}
+
+/**
  * Invoke a harness-managed agent using InvokeHarness.
  */
 export async function invokeHarnessAgent(params: {
@@ -731,6 +773,7 @@ export async function invokeHarnessAgent(params: {
   systemPrompt?: string;
   history?: Array<{ role: string; content: string }>;
   region?: string;
+  modelConfig?: ModelConfig;
 }): Promise<ReadableStream> {
   const region = params.region || DEFAULT_REGION;
   const client = getAgentCoreClient(region);
@@ -761,6 +804,19 @@ export async function invokeHarnessAgent(params: {
 
   if (params.systemPrompt) {
     commandInput.system = [{ text: params.systemPrompt }];
+  }
+
+  // Apply model override if provided (TEAM-66)
+  if (params.modelConfig) {
+    const modelOverride = modelConfigToAgentCoreFormat(params.modelConfig);
+    if (modelOverride) {
+      commandInput.modelOverride = modelOverride;
+      console.log(
+        `[agentcore-sdk] Model override:`,
+        params.modelConfig.provider,
+        params.modelConfig.modelId
+      );
+    }
   }
 
   const command = new InvokeHarnessCommand(commandInput);
