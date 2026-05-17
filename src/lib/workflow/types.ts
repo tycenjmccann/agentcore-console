@@ -150,6 +150,15 @@ export interface AgentMessage {
   resolved: boolean;
 }
 
+// ─── Model Configuration ─────────────────────────────────────────────────────
+
+export type ModelProvider = "bedrock" | "openai" | "gemini";
+
+export type ModelConfig =
+  | { provider: "bedrock"; modelId: string }
+  | { provider: "openai"; modelId: string }
+  | { provider: "gemini"; modelId: string };
+
 // ─── Intake ──────────────────────────────────────────────────────────────────
 
 export type IntakeSourceType = "url" | "upload" | "s3";
@@ -166,6 +175,7 @@ export interface WorkflowInput {
   description: string;
   repoConfig: RepoConfig;
   sources: IntakeSource[];
+  modelConfig?: ModelConfig;     // NEW: Optional model override for dev agents
 }
 
 // ─── Human Notifications ─────────────────────────────────────────────────────
