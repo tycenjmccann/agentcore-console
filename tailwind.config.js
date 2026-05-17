@@ -5,6 +5,7 @@ module.exports = {
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  darkMode: "class", // Enable dark mode via class
   theme: {
     extend: {
       colors: {
@@ -20,13 +21,28 @@ module.exports = {
           800: "#075985",
           900: "#0c4a6e",
         },
+        // Map surface colors to CSS custom properties
         surface: {
-          0: "#0a0a0f",
-          1: "#12121a",
-          2: "#1a1a25",
-          3: "#222230",
-          4: "#2a2a3a",
+          0: "rgb(var(--color-bg-primary))",
+          1: "rgb(var(--color-bg-secondary))",
+          2: "rgb(var(--color-bg-tertiary))",
+          3: "rgb(var(--color-bg-elevated))",
+          4: "rgb(var(--color-border-primary))",
         },
+      },
+      backgroundColor: {
+        "surface-0": "rgb(var(--color-bg-primary))",
+        "surface-1": "rgb(var(--color-bg-secondary))",
+        "surface-2": "rgb(var(--color-bg-tertiary))",
+        "surface-3": "rgb(var(--color-bg-elevated))",
+      },
+      borderColor: {
+        "surface-4": "rgb(var(--color-border-primary))",
+      },
+      textColor: {
+        primary: "rgb(var(--color-text-primary))",
+        secondary: "rgb(var(--color-text-secondary))",
+        tertiary: "rgb(var(--color-text-tertiary))",
       },
     },
   },
