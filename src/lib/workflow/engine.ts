@@ -21,6 +21,7 @@ import {
   getTicket,
   setTicket,
   getReadyTickets,
+  getTicketsForWorkflow,
   emitEvent,
   persistWorkflow,
   findWorkflowByTicket,
@@ -340,9 +341,11 @@ export async function processReadyTickets(workflowId: string, epicId: string): P
 
   const readyTickets = getReadyTickets(epicId);
   if (readyTickets.length === 0) {
-    // Check if workflow is complete
+    // Before completing, check if QA verification is needed
     if (await tickets().isWorkflowComplete(epicId)) {
       await completeWorkflow(workflowId);
+    } else if (shouldCreateQaTicket(workflowId, epicId)) {
+      await createQaVerificationTicket(workflowId, epicId);
     }
     return;
   }
@@ -693,11 +696,21 @@ export async function handleAgentCompletion(
 
   console.log(`[engine] Agent ${agentId} completed (source: ${payload.source || "unknown"}). Newly ready: [${newlyReady.join(", ")}]`);
 
+  // Special case: fix ticket completed → re-run QA verification
+  const ticket = getTicket(task.ticketId);
+  if (ticket && isFixTicket(ticket)) {
+    console.log(`[engine] Fix ticket ${task.ticketId} completed. Re-triggering QA verification...`);
+    await createQaVerificationTicket(workflowId, state.epicId);
+    return { success: true };
+  }
+
   // If new tickets became ready, process them
   if (newlyReady.length > 0) {
     await processReadyTickets(workflowId, state.epicId);
   } else if (await tickets().isWorkflowComplete(state.epicId)) {
     await completeWorkflow(workflowId);
+  } else if (shouldCreateQaTicket(workflowId, state.epicId)) {
+    await createQaVerificationTicket(workflowId, state.epicId);
   }
 
   return { success: true };
@@ -747,6 +760,219 @@ export async function handleJiraWebhook(
   } catch { /* no completion report, that's ok */ }
 
   return handleAgentCompletion(state.id, ticket.assignee, payload);
+}
+
+// ─── QA Verification Gate ────────────────────────────────────────────────────
+
+/**
+ * Determine if a QA verification ticket should be created.
+ * Returns true if:
+ * 1. All dev tickets are done
+ * 2. No QA ticket already exists for this workflow
+ * 3. Workflow has visual input (mockups) worth comparing against
+ */
+function shouldCreateQaTicket(workflowId: string, epicId: string): boolean {
+  const allTickets = getTicketsForWorkflow(epicId);
+
+  // Check if an active (non-blocked, non-done) QA ticket already exists
+  const hasActiveQaTicket = allTickets.some(
+    (t) => t.assignee === "team-qa-verifier" && t.status !== "blocked" && t.status !== "done"
+  );
+  if (hasActiveQaTicket) return false;
+
+  // Check if all dev tickets are done
+  const devTickets = allTickets.filter(
+    (t) => t.assignee && (
+      t.assignee.includes("-dev") || t.assignee.includes("-frontend")
+    )
+  );
+  if (devTickets.length === 0) return false;
+  const allDevsDone = devTickets.every((t) => t.status === "done");
+  if (!allDevsDone) return false;
+
+  // Check if design tickets are done too (QA needs design context)
+  const designTickets = allTickets.filter(
+    (t) => t.assignee && t.assignee.includes("-designer")
+  );
+  const allDesignDone = designTickets.every((t) => t.status === "done");
+
+  return allDevsDone && allDesignDone;
+}
+
+/**
+ * Create a QA verification ticket that will trigger the team-qa-verifier agent.
+ * The QA agent gets: mockup URLs, feature branch, acceptance criteria.
+ * If QA fails, it creates a fix ticket back to the dev agent (max 3 retries).
+ */
+async function createQaVerificationTicket(
+  workflowId: string,
+  epicId: string
+): Promise<void> {
+  const state = getWorkflow(workflowId);
+  if (!state) return;
+
+  console.log(`[engine] All dev agents complete. Creating QA verification ticket...`);
+
+  // Transition workflow phase
+  state.phase = "verification";
+  emitEvent(workflowId, {
+    type: "phase_change",
+    phase: "verification",
+  });
+
+  // Build QA context from workflow state
+  const allTickets = getTicketsForWorkflow(epicId);
+  const devTickets = allTickets.filter(
+    (t) => t.assignee && t.assignee.includes("-dev")
+  );
+
+  // Gather what was built
+  const devSummaries = devTickets
+    .map((t) => `- ${t.title} (${t.assignee}): ${t.status}`)
+    .join("\n");
+
+  // Get mockup/input URLs from original workflow input
+  const inputSources = state.input.sources
+    .map((s) => `- ${s.type}: ${s.value}`)
+    .join("\n");
+
+  const qaDescription = `## QA Verification: ${state.input.title}
+
+### What was built:
+${devSummaries}
+
+### Feature branch: \`${state.featureBranch || "unknown"}\`
+
+### Original input/mockups:
+${inputSources}
+
+### Acceptance criteria (from requirements):
+Check the requirements artifact on the epic ticket for full acceptance criteria.
+
+### Your job:
+1. Build and run the app on the feature branch
+2. Visually compare EVERY affected page against the original mockups
+3. Run functional tests (does the feature actually work?)
+4. Run regression tests (is anything else broken?)
+5. If all passes → report_completion
+6. If anything fails → request_fix back to the dev agent with evidence`;
+
+  // Create the QA ticket
+  const qaTicket = await tickets().createTicket({
+    parentId: epicId,
+    title: `QA: Visual & functional verification`,
+    description: qaDescription,
+    assignee: "team-qa-verifier",
+    blockedBy: [], // No blockers — devs are already done
+  }, workflowId);
+
+  console.log(`[engine] Created QA ticket ${qaTicket.id}, processing...`);
+
+  // Process ready tickets (QA ticket is immediately ready since no blockers)
+  await processReadyTickets(workflowId, epicId);
+}
+
+// ─── QA Fix Request Handler ─────────────────────────────────────────────────
+
+const MAX_QA_RETRIES = 3;
+
+/**
+ * Handle a QA fix request — the QA agent found issues and is sending work
+ * back to the dev agent. Creates a fix ticket assigned to the target dev agent,
+ * then re-invokes the dev agent. After the fix, QA runs again.
+ *
+ * Called from webhook when event_type = "request_fix".
+ */
+export async function handleQaFixRequest(
+  workflowId: string,
+  payload: {
+    targetAgent: string;       // dev agent to fix: "team-frontend-dev"
+    findings: string;          // what failed (screenshots, diffs, error logs)
+    severity: "blocking" | "cosmetic";
+    qaTicketId: string;        // the QA ticket that found the issue
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const state = getWorkflow(workflowId);
+  if (!state) {
+    return { success: false, error: `Workflow ${workflowId} not found` };
+  }
+
+  // Track retry count
+  state.qaRetryCount = (state.qaRetryCount || 0) + 1;
+
+  if (state.qaRetryCount > MAX_QA_RETRIES) {
+    // Escalate to human — too many fix cycles
+    console.warn(`[engine] QA retry limit (${MAX_QA_RETRIES}) exceeded for workflow ${workflowId}. Escalating.`);
+
+    const notification = {
+      id: `notif-qa-escalation-${Date.now()}`,
+      type: "blocker" as const,
+      title: `QA verification failed after ${MAX_QA_RETRIES} fix cycles`,
+      details: `The QA agent could not verify the output after ${MAX_QA_RETRIES} attempts. Latest findings:\n\n${payload.findings}`,
+      timestamp: new Date().toISOString(),
+      acknowledged: false,
+    };
+    state.humanNotifications.push(notification);
+    emitEvent(workflowId, { type: "notification", notification });
+    setWorkflow(state);
+    persistWorkflow(workflowId);
+    return { success: true };
+  }
+
+  console.log(`[engine] QA fix request #${state.qaRetryCount} → ${payload.targetAgent}`);
+
+  // Transition back to development phase
+  state.phase = "development";
+  emitEvent(workflowId, { type: "phase_change", phase: "development" });
+
+  // Create a fix ticket assigned to the target dev agent
+  const fixDescription = `## Fix Required (QA Cycle #${state.qaRetryCount})
+
+### QA Findings:
+${payload.findings}
+
+### Severity: ${payload.severity}
+
+### Instructions:
+1. Read the QA findings above carefully
+2. Fix the issues on the feature branch: \`${state.featureBranch}\`
+3. After fixing, run the app and visually verify against the original mockup
+4. Take a screenshot and compare before reporting completion
+5. Push the fix commit to the same branch
+
+### Context:
+- This is fix cycle #${state.qaRetryCount} of max ${MAX_QA_RETRIES}
+- If you cannot fix the issue, add a comment explaining why and report_completion anyway
+- The QA agent will re-verify after you complete`;
+
+  const fixTicket = await tickets().createTicket({
+    parentId: state.epicId,
+    title: `Fix: QA findings (cycle #${state.qaRetryCount})`,
+    description: fixDescription,
+    assignee: payload.targetAgent,
+    blockedBy: [], // Immediately ready
+  }, workflowId);
+
+  console.log(`[engine] Created fix ticket ${fixTicket.id} for ${payload.targetAgent}`);
+
+  // Mark the QA ticket as "blocked" (waiting for fix) rather than done
+  await tickets().markBlocked(payload.qaTicketId, `Waiting for fix from ${payload.targetAgent}`, workflowId);
+
+  setWorkflow(state);
+  persistWorkflow(workflowId);
+
+  // Process the ready fix ticket (invoke the dev agent)
+  await processReadyTickets(workflowId, state.epicId);
+
+  return { success: true };
+}
+
+/**
+ * After a dev agent completes a FIX ticket (qa retry), re-create the QA ticket
+ * so the QA agent runs again to verify the fix.
+ */
+function isFixTicket(ticket: JiraTicket): boolean {
+  return ticket.title.startsWith("Fix: QA findings");
 }
 
 // ─── Workflow Completion ─────────────────────────────────────────────────────

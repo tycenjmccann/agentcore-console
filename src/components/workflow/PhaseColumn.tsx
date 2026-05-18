@@ -16,6 +16,7 @@ const PHASE_LABELS: Record<AgentPhase, string> = {
   requirements: "Requirements",
   design: "Design",
   development: "Development",
+  verification: "QA Verification",
   review: "Review",
 };
 
@@ -23,6 +24,7 @@ const PHASE_COLORS: Record<AgentPhase, string> = {
   requirements: "border-yellow-500/50",
   design: "border-blue-500/50",
   development: "border-green-500/50",
+  verification: "border-orange-500/50",
   review: "border-purple-500/50",
 };
 

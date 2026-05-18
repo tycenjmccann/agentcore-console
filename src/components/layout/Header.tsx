@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Globe, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { invalidateCachePrefix } from "@/lib/client-cache";
+import ThemeToggle from "./ThemeToggle";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -58,9 +59,12 @@ export default function Header() {
 
   return (
     <header className="h-14 bg-surface-1 border-b border-surface-4 flex items-center justify-between px-6">
-      <h2 className="text-lg font-semibold text-white">{title}</h2>
+      <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">{title}</h2>
 
       <div className="flex items-center gap-4">
+        {/* Theme Toggle */}
+        <ThemeToggle />
+
         {/* Region Selector */}
         <div className="relative">
           <button
@@ -68,10 +72,10 @@ export default function Header() {
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-2 border border-surface-4 hover:border-brand-500/50 transition-colors text-xs"
           >
             <Globe className="w-3.5 h-3.5 text-brand-400" />
-            <span className="text-gray-300 font-mono">
+            <span className="text-[var(--color-text-secondary)] font-mono">
               {region || "loading..."}
             </span>
-            <ChevronDown className="w-3 h-3 text-gray-500" />
+            <ChevronDown className="w-3 h-3 text-[var(--color-text-muted)]" />
           </button>
 
           {showDropdown && (
@@ -81,7 +85,7 @@ export default function Header() {
                   key={r}
                   onClick={() => switchRegion(r)}
                   className={`w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-surface-3 transition-colors ${
-                    r === region ? "text-brand-400" : "text-gray-400"
+                    r === region ? "text-brand-400" : "text-[var(--color-text-secondary)]"
                   }`}
                 >
                   {r}

@@ -52,7 +52,7 @@ export interface Artifact {
 
 // ─── Agent Definitions ───────────────────────────────────────────────────────
 
-export type AgentPhase = "requirements" | "design" | "development" | "review";
+export type AgentPhase = "requirements" | "design" | "development" | "verification" | "review";
 
 export interface AgentDefinition {
   id: string;                    // e.g., "team-ios-designer"
@@ -72,6 +72,7 @@ export type WorkflowPhase =
   | "requirements"
   | "design"
   | "development"
+  | "verification"
   | "review"
   | "complete"
   | "error";
@@ -111,6 +112,8 @@ export interface WorkflowState {
   error?: string;
   /** Shared feature branch — all dev agents commit to this single branch */
   featureBranch?: string;
+  /** QA verification retry counter (max 3 fix cycles before human escalation) */
+  qaRetryCount?: number;
 }
 
 // ─── Repo Configuration ──────────────────────────────────────────────────────

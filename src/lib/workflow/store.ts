@@ -22,17 +22,39 @@ const S3_STATE_PREFIX = "workflow-state/";
 const s3 = new S3Client({ region: process.env.AWS_REGION || "us-east-1" });
 
 // ─── Stores ──────────────────────────────────────────────────────────────────
+// Use globalThis to survive Next.js dev mode hot module replacement.
+// Without this, each route compilation gets its own Map instance.
 
-const workflows = new Map<string, WorkflowState>();
-const tickets = new Map<string, JiraTicket>();
-
-// SSE subscribers per workflow
 type SSEController = ReadableStreamDefaultController<Uint8Array>;
-const subscribers = new Map<string, Set<SSEController>>();
 
-// Track whether we've rehydrated from S3
-let rehydrated = false;
-let rehydratePromise: Promise<void> | null = null;
+interface GlobalWorkflowStore {
+  workflows: Map<string, WorkflowState>;
+  tickets: Map<string, JiraTicket>;
+  subscribers: Map<string, Set<SSEController>>;
+  rehydrated: boolean;
+  rehydratePromise: Promise<void> | null;
+}
+
+const g = globalThis as typeof globalThis & { __wfStore?: GlobalWorkflowStore };
+if (!g.__wfStore) {
+  g.__wfStore = {
+    workflows: new Map(),
+    tickets: new Map(),
+    subscribers: new Map(),
+    rehydrated: false,
+    rehydratePromise: null,
+  };
+}
+
+const workflows = g.__wfStore.workflows;
+const tickets = g.__wfStore.tickets;
+const subscribers = g.__wfStore.subscribers;
+
+// Proxied getters/setters for rehydration state
+function getRehydrated() { return g.__wfStore!.rehydrated; }
+function setRehydrated(v: boolean) { g.__wfStore!.rehydrated = v; }
+function getRehydratePromise() { return g.__wfStore!.rehydratePromise; }
+function setRehydratePromise(v: Promise<void> | null) { g.__wfStore!.rehydratePromise = v; }
 
 // ─── Workflow CRUD ───────────────────────────────────────────────────────────
 
@@ -285,10 +307,10 @@ export function persistWorkflow(workflowId: string): void {
  * Rehydrate all workflows from S3. Called once on first access after restart.
  */
 async function rehydrateFromS3(): Promise<void> {
-  if (rehydrated) return;
-  if (rehydratePromise) return rehydratePromise;
+  if (getRehydrated()) return;
+  if (getRehydratePromise()) return getRehydratePromise()!;
 
-  rehydratePromise = (async () => {
+  const promise = (async () => {
     try {
       const listRes = await s3.send(new ListObjectsV2Command({
         Bucket: S3_BUCKET,
@@ -336,19 +358,20 @@ async function rehydrateFromS3(): Promise<void> {
     } catch (err) {
       console.warn("[store] Rehydration from S3 failed:", (err as Error).message);
     } finally {
-      rehydrated = true;
-      rehydratePromise = null;
+      setRehydrated(true);
+      setRehydratePromise(null);
     }
   })();
 
-  return rehydratePromise;
+  setRehydratePromise(promise);
+  return promise;
 }
 
 /**
  * Ensure store is rehydrated before reading. Call before list operations.
  */
 export async function ensureRehydrated(): Promise<void> {
-  if (!rehydrated) {
+  if (!getRehydrated()) {
     await rehydrateFromS3();
   }
 }

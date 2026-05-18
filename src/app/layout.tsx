@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "@/styles/globals.css";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -17,15 +18,36 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var theme = localStorage.getItem('theme');
+                  if (!theme) {
+                    theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+                  }
+                  document.documentElement.setAttribute('data-theme', theme);
+                } catch (e) {
+                  document.documentElement.setAttribute('data-theme', 'dark');
+                }
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className={inter.className}>
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <div className="flex-1 ml-64">
-            <Header />
-            <main className="p-6">{children}</main>
+        <ThemeProvider>
+          <div className="flex min-h-screen">
+            <Sidebar />
+            <div className="flex-1 ml-64">
+              <Header />
+              <main className="p-6">{children}</main>
+            </div>
           </div>
-        </div>
+        </ThemeProvider>
       </body>
     </html>
   );

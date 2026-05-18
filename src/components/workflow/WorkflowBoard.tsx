@@ -27,18 +27,29 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  // Fetch initial state
+  // Fetch initial state + poll every 3s for state updates (reliable fallback for SSE)
   useEffect(() => {
-    fetch(`/api/workflow/${workflowId}/state`)
-      .then((r) => r.json())
-      .then((data) => {
-        setState(data);
-        setMessages(data.messages || []);
-      });
+    const fetchState = () => {
+      const ts = Date.now();
+      fetch(`/api/workflow/${workflowId}/state?t=${ts}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data && data.id) {
+            setState(data);
+            setMessages(data.messages || []);
+          }
+        })
+        .catch(() => {});
 
-    fetch(`/api/workflow/${workflowId}/tickets`)
-      .then((r) => r.json())
-      .then((data) => setTickets(data.tickets || []));
+      fetch(`/api/workflow/${workflowId}/tickets?t=${ts}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((data) => setTickets(data.tickets || []))
+        .catch(() => {});
+    };
+
+    fetchState();
+    const interval = setInterval(fetchState, 3000);
+    return () => clearInterval(interval);
   }, [workflowId]);
 
   // SSE connection with auto-reconnect

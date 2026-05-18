@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { startWorkflow } from "@/lib/workflow/engine";
+import { DEMO_MODE, startDemoWorkflow } from "@/lib/workflow/demo-mode";
 import { ensureRehydrated } from "@/lib/workflow/store";
 import type { WorkflowInput } from "@/lib/workflow/types";
 
@@ -26,7 +27,9 @@ export async function POST(req: NextRequest) {
     // Ensure rehydration so ticket counter is synced
     await ensureRehydrated();
 
-    const workflowId = await startWorkflow(body);
+    const workflowId = DEMO_MODE
+      ? await startDemoWorkflow(body)
+      : await startWorkflow(body);
 
     return NextResponse.json({ workflowId });
   } catch (err) {

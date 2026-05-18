@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { handleAgentCompletion, handleJiraWebhook } from "@/lib/workflow/engine";
+import { handleAgentCompletion, handleJiraWebhook, handleQaFixRequest } from "@/lib/workflow/engine";
 import { ensureRehydrated } from "@/lib/workflow/store";
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "dev-secret";
@@ -62,6 +62,37 @@ export async function POST(req: NextRequest) {
         }
 
         console.log(`[webhook] Agent ${agentId} completion processed for workflow ${workflowId}`);
+        return NextResponse.json({ received: true, processed: true });
+      }
+
+      // ─── QA Fix Request (QA agent found issues) ───────────────────────
+      case "request_fix": {
+        const workflowId = body.workflow_id as string;
+        const targetAgent = body.target_agent as string;
+        const findings = body.findings as string;
+        const severity = (body.severity as string) || "blocking";
+        const qaTicketId = body.qa_ticket_id as string;
+
+        if (!workflowId || !targetAgent || !findings || !qaTicketId) {
+          return NextResponse.json(
+            { error: "workflow_id, target_agent, findings, and qa_ticket_id are required" },
+            { status: 400 }
+          );
+        }
+
+        const result = await handleQaFixRequest(workflowId, {
+          targetAgent,
+          findings,
+          severity: severity as "blocking" | "cosmetic",
+          qaTicketId,
+        });
+
+        if (!result.success) {
+          console.warn(`[webhook] QA fix request failed: ${result.error}`);
+          return NextResponse.json({ received: true, warning: result.error });
+        }
+
+        console.log(`[webhook] QA fix request processed: ${targetAgent} for workflow ${workflowId}`);
         return NextResponse.json({ received: true, processed: true });
       }
 

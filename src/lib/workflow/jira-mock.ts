@@ -17,19 +17,23 @@ import type {
 } from "./types";
 import { getTicket, setTicket, emitEvent, getTicketsForWorkflow } from "./store";
 
-// Auto-increment counter for ticket IDs
-let ticketCounter = 0;
+// Auto-increment counter for ticket IDs (survives HMR via globalThis)
+const gm = globalThis as typeof globalThis & { __ticketCounter?: number };
+if (gm.__ticketCounter === undefined) gm.__ticketCounter = 0;
 
 function nextTicketId(): string {
-  ticketCounter++;
-  return `TEAM-${ticketCounter}`;
+  gm.__ticketCounter = (gm.__ticketCounter || 0) + 1;
+  return `TEAM-${gm.__ticketCounter}`;
 }
+
+// Expose for external reads
+function getTicketCounter(): number { return gm.__ticketCounter || 0; }
 
 /**
  * Reset counter (useful for tests).
  */
 export function resetTicketCounter(): void {
-  ticketCounter = 0;
+  gm.__ticketCounter = 0;
 }
 
 /**
@@ -37,7 +41,7 @@ export function resetTicketCounter(): void {
  * Called after rehydration to prevent ID collisions.
  */
 export function syncTicketCounter(existingIds: string[]): void {
-  let max = ticketCounter;
+  let max = gm.__ticketCounter || 0;
   for (const id of existingIds) {
     const match = id.match(/^TEAM-(\d+)$/);
     if (match) {
@@ -45,7 +49,7 @@ export function syncTicketCounter(existingIds: string[]): void {
       if (num > max) max = num;
     }
   }
-  ticketCounter = max;
+  gm.__ticketCounter = max;
 }
 
 // ─── Ticket Creation ─────────────────────────────────────────────────────────

@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bot, Hammer, Workflow, History } from "lucide-react";
+import { LayoutDashboard, Bot, Hammer, Workflow, History, GitPullRequest } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/agents", label: "Agents", icon: Bot },
   { href: "/build", label: "Build", icon: Hammer },
+  { href: "/workflow", label: "Workflow", icon: GitPullRequest },
   { href: "/routing", label: "Routing", icon: Workflow },
   { href: "/tickets", label: "Ticket History", icon: History },
 ];
@@ -24,8 +25,8 @@ export default function Sidebar() {
             <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-white">Agentis</h1>
-            <p className="text-xs text-gray-500">Hub</p>
+            <h1 className="text-lg font-bold text-[var(--color-text-primary)]">Agentis</h1>
+            <p className="text-xs text-[var(--color-text-muted)]">Hub</p>
           </div>
         </div>
       </div>
@@ -44,7 +45,7 @@ export default function Sidebar() {
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 isActive
                   ? "bg-brand-600/20 text-brand-400 border border-brand-600/30"
-                  : "text-gray-400 hover:text-gray-200 hover:bg-surface-3"
+                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-surface-3"
               )}
             >
               <item.icon className="w-4 h-4" />
