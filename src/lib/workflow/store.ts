@@ -6,6 +6,7 @@
 
 import type {
   WorkflowState,
+  WorkflowSummary,
   JiraTicket,
   WorkflowEvent,
 } from "./types";
@@ -90,6 +91,23 @@ export function listWorkflows(): WorkflowState[] {
   return Array.from(workflows.values()).sort(
     (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
   );
+}
+
+/**
+ * Get lightweight workflow summaries for the sidebar list.
+ * Avoids serializing full agentTasks/messages/notifications.
+ */
+export function listWorkflowSummaries(): WorkflowSummary[] {
+  return Array.from(workflows.values())
+    .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+    .map((wf) => ({
+      id: wf.id,
+      title: wf.input.title,
+      phase: wf.phase,
+      epicId: wf.epicId,
+      startedAt: wf.startedAt,
+      completedAt: wf.completedAt,
+    }));
 }
 
 export function deleteWorkflow(id: string): boolean {
