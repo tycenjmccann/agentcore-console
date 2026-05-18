@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bot, Hammer, Workflow, History } from "lucide-react";
+import { LayoutDashboard, Bot, Hammer, Workflow, History, GitBranch } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/agents", label: "Agents", icon: Bot },
   { href: "/build", label: "Build", icon: Hammer },
+  { href: "/workflow", label: "Pipeline", icon: GitBranch },
   { href: "/routing", label: "Routing", icon: Workflow },
   { href: "/tickets", label: "Ticket History", icon: History },
 ];
@@ -39,7 +40,7 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              data-testid={`nav-${item.label.toLowerCase()}`}
+              data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 isActive
