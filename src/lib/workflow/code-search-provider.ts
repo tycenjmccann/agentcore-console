@@ -8,13 +8,22 @@
 
 interface CodeSearchResult {
   file: string;
+  filePath: string;
   snippet: string;
+  content: string;
+  language: string;
   score: number;
+}
+
+interface ArchitectureInfo {
+  buildSystem: string;
+  targetPaths: { name: string; path: string; type: string }[];
+  configFiles: { path: string; content: string }[];
 }
 
 interface CodeSearchProvider {
   isIndexed(repoUrl: string): Promise<boolean>;
-  getArchitecture(repoUrl: string, branch?: string): Promise<string>;
+  getArchitecture(repoUrl: string, branch?: string): Promise<ArchitectureInfo>;
   searchCode(params: { query: string; repo: string; maxResults?: number }): Promise<CodeSearchResult[]>;
 }
 
@@ -23,7 +32,7 @@ const noopProvider: CodeSearchProvider = {
     return false;
   },
   async getArchitecture() {
-    return "";
+    return { buildSystem: "", targetPaths: [], configFiles: [] };
   },
   async searchCode() {
     return [];

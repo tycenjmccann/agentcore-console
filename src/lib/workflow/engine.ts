@@ -28,7 +28,47 @@ import {
 } from "./store";
 import { getTicketProvider } from "./ticket-provider";
 import type { TicketProvider } from "./ticket-provider";
-import { getAgentDef, AGENT_ROSTER } from "./agents";
+import { getAgentDef, AGENT_ROSTER, getAgentsForPhase } from "./agents";
+
+// ─── Config-Driven Phase & Agent Helpers ─────────────────────────────────────
+
+/** Ordered list of workflow phases — drives transitions without hardcoding. */
+const PHASE_ORDER: WorkflowPhase[] = [
+  "intake",
+  "requirements",
+  "design",
+  "development",
+  "verification",
+  "review",
+  "complete",
+];
+
+/** Get the next phase in the workflow sequence. Returns current if already terminal. */
+function nextPhase(current: WorkflowPhase): WorkflowPhase {
+  const idx = PHASE_ORDER.indexOf(current);
+  return idx >= 0 && idx < PHASE_ORDER.length - 1 ? PHASE_ORDER[idx + 1] : current;
+}
+
+/** Get the intake/requirements agent — the first agent whose phase is "requirements". */
+function getIntakeAgent() {
+  const agents = getAgentsForPhase("requirements");
+  if (agents.length === 0) throw new Error("No agent configured for 'requirements' phase");
+  return agents[0];
+}
+
+/** Get a default development agent — first agent in the "development" phase. */
+function getDefaultDevAgent() {
+  const agents = getAgentsForPhase("development");
+  if (agents.length === 0) throw new Error("No agent configured for 'development' phase");
+  return agents[0];
+}
+
+/** Get a default design agent — first agent in the "design" phase. */
+function getDefaultDesignAgent() {
+  const agents = getAgentsForPhase("design");
+  if (agents.length === 0) throw new Error("No agent configured for 'design' phase");
+  return agents[0];
+}
 
 // Convenience: get the ticket provider (lazy singleton)
 function tickets(): TicketProvider {
@@ -62,7 +102,7 @@ async function readTicketPlanFromS3(workflowId: string): Promise<TicketPlan | nu
         tickets: parsed.tickets.map((t: Record<string, unknown>) => ({
           title: t.title || "Untitled",
           description: t.description || "",
-          assignee: t.assignee || "team-frontend-dev",
+          assignee: t.assignee || getDefaultDevAgent().id,
           blockedBy: Array.isArray(t.blockedBy) ? t.blockedBy : [],
         })),
       };
@@ -233,8 +273,8 @@ async function processIntakeAndStart(
     intakeContext = imageInstructions + intakeContext;
   }
 
-  // Invoke requirements agent (fire-and-forget)
-  const reqAgent = getAgentDef("team-requirements-analyst")!;
+  // Invoke requirements agent (fire-and-forget) — resolved from config
+  const reqAgent = getIntakeAgent();
   const reqSessionId = generateSessionId(epicId, reqAgent.id);
 
   const reqTask: AgentTask = {
@@ -312,7 +352,7 @@ export async function handleRequirementsCompletion(
   const state = getWorkflow(workflowId);
   if (!state) return;
 
-  const reqAgent = getAgentDef("team-requirements-analyst")!;
+  const reqAgent = getIntakeAgent();
   const reqTask = state.agentTasks[reqAgent.id];
 
   // Mark task complete
@@ -341,11 +381,12 @@ export async function handleRequirementsCompletion(
   // Create child tickets based on requirements agent's plan
   await createTicketsFromPlan(ticketPlan, epicId, workflowId);
 
-  // Transition to design/development phases — driven by ticket readiness
-  state.phase = "design";
+  // Transition to next phase after requirements — driven by ticket readiness
+  const nextWorkflowPhase = nextPhase("requirements");
+  state.phase = nextWorkflowPhase;
   setWorkflow(state);
   persistWorkflow(workflowId);
-  emitEvent(workflowId, { type: "phase_change", phase: "design" });
+  emitEvent(workflowId, { type: "phase_change", phase: nextWorkflowPhase });
 
   // Process ready tickets (this kicks off the ticket-driven loop)
   await processReadyTickets(workflowId, epicId);
@@ -370,16 +411,25 @@ export async function processReadyTickets(workflowId: string, epicId: string): P
     return;
   }
 
-  // Determine current phase from ready tickets
-  const phases = readyTickets.map((t) => {
+  // Determine current phase from ready tickets — advance phase if tickets are ahead
+  const ticketPhases = readyTickets.map((t) => {
     const agent = t.assignee ? getAgentDef(t.assignee) : undefined;
     return agent?.phase;
   });
-  if (phases.includes("development") && state.phase === "design") {
-    state.phase = "development";
+  const currentPhaseIdx = PHASE_ORDER.indexOf(state.phase);
+  const furthestTicketPhase = ticketPhases.reduce<WorkflowPhase | undefined>((acc, p) => {
+    if (!p) return acc;
+    const pAsWorkflowPhase = p as WorkflowPhase;
+    const pIdx = PHASE_ORDER.indexOf(pAsWorkflowPhase);
+    const accIdx = acc ? PHASE_ORDER.indexOf(acc) : -1;
+    return pIdx > accIdx ? pAsWorkflowPhase : acc;
+  }, undefined);
 
-    // Create a single shared feature branch for ALL dev agents
-    if (!state.featureBranch) {
+  if (furthestTicketPhase && PHASE_ORDER.indexOf(furthestTicketPhase) > currentPhaseIdx) {
+    state.phase = furthestTicketPhase;
+
+    // Create a single shared feature branch for ALL dev agents when entering development
+    if (furthestTicketPhase === "development" && !state.featureBranch) {
       try {
         const { owner, repo } = parseRepoUrlFromConfig(state.repoConfig);
         const branch = state.repoConfig.repos[0]?.defaultBranch || "main";
@@ -395,7 +445,7 @@ export async function processReadyTickets(workflowId: string, epicId: string): P
     }
 
     setWorkflow(state);
-    emitEvent(workflowId, { type: "phase_change", phase: "development" });
+    emitEvent(workflowId, { type: "phase_change", phase: furthestTicketPhase });
   }
 
   // Invoke ready tickets — deduplicate by agent (only one ticket per agent at a time)
@@ -728,7 +778,7 @@ export async function handleAgentCompletion(
   }
 
   // Special case: requirements agent completion triggers ticket creation + phase advance
-  if (agentId === "team-requirements-analyst") {
+  if (agentId === getIntakeAgent().id) {
     console.log(`[engine] Requirements agent completed (source: ${payload.source || "unknown"}). Creating tickets...`);
     await handleRequirementsCompletion(workflowId, state.epicId, output);
     return { success: true };
@@ -1158,9 +1208,22 @@ async function invokeAgent(
           if (data.type === "text" && data.content) {
             fullOutput += data.content;
             emitEvent(workflowId, { type: "agent_output", agentId, chunk: data.content });
-          } else if (data.type === "trace" && data.event === "tool_start" && data.name) {
-            // Forward tool-use events so the pipeline visualization can light up icons
-            emitEvent(workflowId, { type: "tool_use", agentId, toolName: data.name });
+          } else if (data.type === "trace") {
+            if (data.event === "tool_start" && data.name) {
+              // Forward tool-use events so the pipeline visualization can light up icons
+              emitEvent(workflowId, { type: "tool_use", agentId, toolName: data.name });
+            } else if (data.event === "block_stop" && data.name) {
+              // Tool completed — capture duration if available
+              emitEvent(workflowId, { type: "tool_end", agentId, toolName: data.name });
+            } else if (data.event === "usage" && (data.inputTokens || data.outputTokens)) {
+              // Token usage per model call
+              emitEvent(workflowId, {
+                type: "token_usage",
+                agentId,
+                inputTokens: data.inputTokens || 0,
+                outputTokens: data.outputTokens || 0,
+              });
+            }
           }
         } catch {
           // Skip non-JSON lines
@@ -1565,7 +1628,7 @@ function parseRequirementsOutput(output: string): TicketPlan {
   }
 
   // Fallback: couldn't parse structured output, create a generic ticket set
-  // Heuristic: if the requirements mention frontend/UI/React/component, skip backend-designer
+  // Heuristic: if the requirements mention frontend/UI/React/component, skip designer
   const lowerOutput = output.toLowerCase();
   const isFrontendOnly = /\b(react|component|css|ui|visualization|frontend|next\.js|tailwind)\b/.test(lowerOutput) &&
     !/\b(api endpoint|database|lambda|dynamodb|backend service)\b/.test(lowerOutput);
@@ -1577,7 +1640,7 @@ function parseRequirementsOutput(output: string): TicketPlan {
         {
           title: "Frontend Implementation",
           description: "Implement the frontend component based on requirements and design reference",
-          assignee: "team-frontend-dev",
+          assignee: getDefaultDevAgent().id,
           blockedBy: [],
         },
       ],
@@ -1590,18 +1653,47 @@ function parseRequirementsOutput(output: string): TicketPlan {
       {
         title: "Design",
         description: "Design the implementation based on requirements",
-        assignee: "team-backend-designer",
+        assignee: getDefaultDesignAgent().id,
         blockedBy: [],
       },
       {
         title: "Implementation",
         description: "Implement the feature based on design specs",
-        assignee: "team-frontend-dev",
+        assignee: getDefaultDevAgent().id,
         blockedBy: ["Design"],
       },
     ],
   };
 }
+
+/**
+ * Build keyword map dynamically from agent roster.
+ * Generates keywords from agent id, name, role, and phase.
+ */
+function buildKeywordMap(): [string[], string][] {
+  return AGENT_ROSTER.map((agent) => {
+    const keywords: string[] = [];
+    // Derive keywords from agent id (e.g., "team-ios-designer" → "iosdesigner")
+    const idNormalized = agent.id.replace(/^team-/, "").replace(/[_\-\s]+/g, "");
+    keywords.push(idNormalized);
+    // Derive from name (e.g., "iOS Designer" → "iosdesigner")
+    const nameNormalized = agent.name.toLowerCase().replace(/[_\-\s]+/g, "");
+    keywords.push(nameNormalized);
+    // Derive from phase
+    keywords.push(agent.phase);
+    // Derive component words from role (first 3 significant words)
+    const roleWords = agent.role.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .split(/\s+/)
+      .filter((w) => w.length > 3)
+      .slice(0, 5);
+    keywords.push(...roleWords);
+    return [keywords, agent.id] as [string[], string];
+  });
+}
+
+/** Cached keyword map — built once from AGENT_ROSTER. */
+const KEYWORD_MAP = buildKeywordMap();
 
 /**
  * Resolve a fuzzy assignee name from the requirements agent to a valid agent ID.
@@ -1614,22 +1706,8 @@ function resolveAssignee(rawAssignee: string): string {
 
   const lower = rawAssignee.toLowerCase().replace(/[_\-\s]+/g, "");
 
-  // Keyword → agent ID mapping
-  const keywordMap: [string[], string][] = [
-    [["iosdesign", "iosarchitect", "uidesign", "swiftuidesign"], "team-ios-designer"],
-    [["androiddesign", "androidarchitect", "materialdesign", "composedesign"], "team-android-designer"],
-    [["backenddesign", "apidesign", "backendarchitect", "servicedesign"], "team-backend-designer"],
-    [["security", "securityreview", "threatmodel", "owasp"], "team-security-reviewer"],
-    [["legal", "compliance", "gdpr", "privacy", "legalcompliance"], "team-legal-compliance"],
-    [["localization", "i18n", "l10n", "translation", "locale"], "team-localization"],
-    [["analytics", "tracking", "metrics", "events", "instrumentation"], "team-analytics-designer"],
-    [["backenddev", "backenddevelop", "backendimpl", "serverdev"], "team-backend-dev"],
-    [["apidev", "apidevelop", "apiimpl", "apiengineer"], "team-api-dev"],
-    [["frontenddev", "frontenddevelop", "iosdev", "iosdevelop", "uidev", "mobiledevelop", "mobiledev", "iosengineer", "iosdeveloper", "frontenddeveloper"], "team-frontend-dev"],
-    [["requirements", "requirementsanalyst", "productanalyst"], "team-requirements-analyst"],
-  ];
-
-  for (const [keywords, agentId] of keywordMap) {
+  // Config-driven keyword → agent ID mapping (built from AGENT_ROSTER)
+  for (const [keywords, agentId] of KEYWORD_MAP) {
     if (keywords.some((kw) => lower.includes(kw) || kw.includes(lower))) {
       return agentId;
     }
@@ -1645,9 +1723,9 @@ function resolveAssignee(rawAssignee: string): string {
     }
   }
 
-  // Last resort: default to frontend dev for generic "developer" references
+  // Last resort: default to first dev agent for generic "developer" references
   if (lower.includes("dev") || lower.includes("implement") || lower.includes("engineer")) {
-    return "team-frontend-dev";
+    return getDefaultDevAgent().id;
   }
 
   // Return as-is (will cause a blocked ticket, but at least we tried)

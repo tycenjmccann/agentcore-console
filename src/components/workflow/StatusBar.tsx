@@ -12,6 +12,7 @@ const PHASE_DISPLAY: Record<WorkflowPhase, { label: string; description: string 
   requirements: { label: "Requirements", description: "Analyzing & creating tickets" },
   design: { label: "Design", description: "Designing architecture & UI" },
   development: { label: "Development", description: "Implementing features" },
+  verification: { label: "Verification", description: "Testing & QA" },
   review: { label: "Review", description: "Verifying & validating" },
   complete: { label: "Complete", description: "Workflow finished successfully" },
   error: { label: "Error", description: "Workflow encountered an error" },

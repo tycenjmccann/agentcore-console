@@ -10,3 +10,5 @@ aidlc-workflows/
 aidlc-docs/
 test-results/
 idea.md
+.claude/
+scripts/tool-test-results.json

@@ -4,197 +4,32 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import type {
   WorkflowState,
   WorkflowEvent,
-  AgentTask,
-  AgentTaskStatus,
-  WorkflowPhase,
-  AgentPhase,
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
-import { PIPELINE_PHASES, TOOL_ICON_MAP, resolveToolIcon } from "@/lib/pipeline-config";
+import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
 
 interface WorkflowBoardProps {
   workflowId: string;
 }
 
-// ─── Phase Configuration ─────────────────────────────────────────────────────
+// ─── Phase Order (derived from config) ──────────────────────────────────────
 
-interface PhaseConfig {
-  id: string;
-  name: string;
-  num: number;
-  type: "app" | "agent";
-  typeLabel: string;
-  agentPhase: AgentPhase | "intake";
-  identity: { icon: string; label: string }[];
-  config: { key: string; val: string }[];
-  tools: { icon?: string; dot?: "skill" | "ext"; label: string }[];
-  skills: { label: string }[];
-  outputs: { icon?: string; dot?: "skill" | "ext"; label: string }[];
-}
-
-const PHASE_CONFIGS: PhaseConfig[] = [
-  {
-    id: "intake",
-    name: "Intake",
-    num: 1,
-    type: "app",
-    typeLabel: "Web Application",
-    agentPhase: "intake",
-    identity: [{ icon: "", label: "Next.js 14 / App Router" }],
-    config: [
-      { key: "Host", val: "localhost:3000" },
-      { key: "Storage", val: "S3 multipart upload" },
-      { key: "Trigger", val: "EventBridge on epic create" },
-    ],
-    tools: [
-      { dot: "ext", label: "Upload PRD / Mockup / Figma" },
-      { dot: "ext", label: "Set Target Git Repo" },
-      { icon: "s3", label: "S3 Artifact Storage" },
-    ],
-    skills: [],
-    outputs: [{ icon: "eventbridge", label: "Jira Epic Created (EventBridge)" }],
-  },
-  {
-    id: "requirements",
-    name: "Requirements",
-    num: 2,
-    type: "agent",
-    typeLabel: "1 AgentCore Harness Agent",
-    agentPhase: "requirements",
-    identity: [
-      { icon: "agentcore", label: "AgentCore Runtime" },
-      { icon: "bedrock", label: "Claude Opus 4 (via Bedrock)" },
-    ],
-    config: [
-      { key: "Model", val: "us.anthropic.claude-opus-4-0-v1" },
-      { key: "Memory", val: "built-in (short-term context)" },
-      { key: "Max turns", val: "50" },
-      { key: "Timeout", val: "15 min" },
-    ],
-    tools: [
-      { icon: "s3", label: "S3 Read & Write" },
-      { icon: "agentcore", label: "Memory Read/Write" },
-      { dot: "ext", label: "Gateway (Figma, Browser)" },
-    ],
-    skills: [
-      { label: "PRD Parsing & Visual Analysis" },
-      { label: "Acceptance Criteria Generation" },
-      { label: "Vertical-Slice Ticket Decomposition" },
-    ],
-    outputs: [
-      { icon: "s3", label: "Write artifacts to S3" },
-      { icon: "agentcore", label: "Gateway: report_completion (tickets)" },
-    ],
-  },
-  {
-    id: "design",
-    name: "Design",
-    num: 3,
-    type: "agent",
-    typeLabel: "7 AgentCore Harness Agents",
-    agentPhase: "design",
-    identity: [
-      { icon: "agentcore", label: "AgentCore Runtime (x7 parallel)" },
-      { icon: "bedrock", label: "Claude Opus 4 / Sonnet 4" },
-    ],
-    config: [
-      { key: "Dispatch", val: "parallel fan-out, 7 runtimes" },
-      { key: "Memory", val: "built-in + shared namespace" },
-      { key: "A2A", val: "cross-agent query enabled" },
-    ],
-    tools: [
-      { icon: "s3", label: "S3 Read & Write" },
-      { icon: "agentcore", label: "Memory + A2A" },
-      { dot: "ext", label: "Gateway (Jira, GitHub)" },
-    ],
-    skills: [
-      { label: "iOS Architecture Design" },
-      { label: "Backend Systems Design" },
-      { label: "Privacy & Compliance" },
-      { label: "Security Review" },
-    ],
-    outputs: [
-      { icon: "s3", label: "Design docs to S3" },
-      { icon: "agentcore", label: "Gateway: save_design_doc" },
-    ],
-  },
-  {
-    id: "development",
-    name: "Development",
-    num: 4,
-    type: "agent",
-    typeLabel: "3 AgentCore Harness Agents",
-    agentPhase: "development",
-    identity: [
-      { icon: "agentcore", label: "AgentCore Runtime (x3 parallel)" },
-      { icon: "bedrock", label: "Claude Opus 4 / Sonnet 4" },
-    ],
-    config: [
-      { key: "Dispatch", val: "parallel fan-out, 3 runtimes" },
-      { key: "Tools", val: "Git CLI + Code Interpreter" },
-      { key: "Branch", val: "feature/{ticket}-{role}" },
-    ],
-    tools: [
-      { icon: "s3", label: "S3 Read & Write" },
-      { icon: "codebuild", label: "Code Interpreter" },
-      { dot: "ext", label: "Git CLI (clone, commit, push)" },
-      { icon: "agentcore", label: "Memory + A2A + Gateway" },
-    ],
-    skills: [
-      { label: "Swift / iOS Development" },
-      { label: "Node.js / TypeScript" },
-      { label: "Full-Stack Integration" },
-    ],
-    outputs: [
-      { dot: "ext", label: "Git commits to feature branch" },
-      { icon: "agentcore", label: "Gateway: report_completion (PR)" },
-    ],
-  },
-  {
-    id: "verification",
-    name: "QA & Ship",
-    num: 5,
-    type: "agent",
-    typeLabel: "2 AgentCore Harness Agents",
-    agentPhase: "verification",
-    identity: [
-      { icon: "agentcore", label: "AgentCore Runtime (x2 parallel)" },
-      { icon: "bedrock", label: "Claude Opus 4 / Sonnet 4" },
-    ],
-    config: [
-      { key: "Dispatch", val: "sequential then parallel" },
-      { key: "Retry", val: "3x fix cycles before escalation" },
-      { key: "Tools", val: "Git + Code Interpreter + A2A" },
-    ],
-    tools: [
-      { dot: "ext", label: "Git CLI (read feature branch)" },
-      { icon: "codebuild", label: "Code Interpreter (tests)" },
-      { icon: "agentcore", label: "Memory + A2A + Gateway" },
-    ],
-    skills: [
-      { label: "Visual Regression + Pixel Compare" },
-      { label: "E2E Tests (Playwright)" },
-      { label: "CI Failure Analysis + Auto-fix" },
-      { label: "Retry Loop (A2A fix request, 3x)" },
-    ],
-    outputs: [
-      { dot: "ext", label: "Pull Request (auto-merge ready)" },
-      { icon: "agentcore", label: "Workflow Complete" },
-    ],
-  },
-];
-
-// Map WorkflowPhase to phase index
-const PHASE_ORDER: Record<string, number> = {
-  intake: 0,
-  requirements: 1,
-  design: 2,
-  development: 3,
-  verification: 4,
-  review: 4,
-  complete: 5,
-  error: -1,
-};
+// Map WorkflowPhase / agentPhase strings to index in the pipeline
+const PHASE_ORDER: Record<string, number> = (() => {
+  const order: Record<string, number> = {};
+  PIPELINE_PHASES.forEach((phase, idx) => {
+    order[phase.id] = idx;
+    // Also map agentPhase if it differs from id (e.g. qa phase has agentPhase "verification")
+    if (phase.agentPhase !== phase.id) {
+      order[phase.agentPhase] = idx;
+    }
+  });
+  // Special states
+  order["review"] = PIPELINE_PHASES.length - 1;
+  order["complete"] = PIPELINE_PHASES.length;
+  order["error"] = -1;
+  return order;
+})();
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -361,9 +196,12 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   // Derive visual states from workflow state
   const currentPhaseIndex = state ? (PHASE_ORDER[state.phase] ?? -1) : -1;
   const isComplete = state?.phase === "complete";
+  // "settled" = loaded a completed workflow (not a live completion animation)
+  const isSettled = isComplete && !celebrating;
 
   const getPhaseClass = (phaseIndex: number) => {
     if (currentPhaseIndex === -1) return "";
+    if (isSettled) return "active done settled";
     if (phaseIndex < currentPhaseIndex || isComplete) return "active done";
     if (phaseIndex === currentPhaseIndex) return "active";
     return "";
@@ -371,6 +209,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   const getBoxClass = (phaseIndex: number) => {
     if (currentPhaseIndex === -1) return "";
+    if (isSettled) return "done settled";
     if (phaseIndex < currentPhaseIndex || isComplete) return "done";
     if (phaseIndex === currentPhaseIndex) return "awake";
     return "";
@@ -378,6 +217,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   const getItemClass = (phaseIndex: number): string => {
     if (!state) return "";
+    if (isSettled) return "done settled";
     if (phaseIndex < currentPhaseIndex || isComplete) return "done";
     if (phaseIndex === currentPhaseIndex) {
       const hasRunning = Object.values(state.agentTasks).some(
@@ -455,7 +295,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                 </feMerge>
               </filter>
             </defs>
-            {PHASE_CONFIGS.slice(0, -1).map((_, i) => {
+            {PIPELINE_PHASES.slice(0, -1).map((_, i) => {
               const x1 = 290 * (i + 1) + 44 * i;
               const x2 = x1 + 44;
               const y = 200;
@@ -464,7 +304,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
               return (
                 <path
                   key={`connector-${i}`}
-                  className={`flow-path ${showConnector ? "show" : ""} ${isActiveConnector ? "active" : ""}`}
+                  className={`flow-path ${showConnector ? "show" : ""} ${isActiveConnector ? "active" : ""} ${isSettled ? "settled" : ""}`}
                   d={`M ${x1} ${y} C ${x1 + 22} ${y}, ${x2 - 22} ${y}, ${x2} ${y}`}
                 />
               );
@@ -473,7 +313,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
           {/* Pipeline phases */}
           <div className="pipeline-phases">
-            {PHASE_CONFIGS.map((phase, idx) => (
+            {PIPELINE_PHASES.map((phase, idx) => (
               <div
                 key={phase.id}
                 className={`phase ${getPhaseClass(idx)}`}
@@ -541,20 +381,37 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                     </>
                   )}
 
-                  {/* Agent item */}
-                  {phase.type === "agent" && (
-                    <>
-                      <div className="sec-label">Agent</div>
-                      <div
-                        className={`item ${getItemClass(idx)} cursor-pointer`}
-                        onClick={() => setExpandedAgent(expandedAgent === phase.id ? null : phase.id)}
-                      >
-                        <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
-                        <span className="item-label">{phase.typeLabel.replace(/^\d+ AgentCore Harness /, "")}</span>
-                        <span className="item-status" />
-                      </div>
-                    </>
-                  )}
+                  {/* Individual Agents */}
+                  {phase.type === "agent" && phase.agents.length > 0 && (() => {
+                    return (
+                      <>
+                        <div className="sec-label">Agents ({phase.agents.length})</div>
+                        {phase.agents.map((agent) => {
+                          const agentTask = state?.agentTasks[agent.id];
+                          const agentItemClass = agentTask
+                            ? agentTask.status === "running" || agentTask.status === "waiting_response"
+                              ? "working"
+                              : agentTask.status === "complete"
+                              ? "done"
+                              : agentTask.status === "error"
+                              ? "error"
+                              : getItemClass(idx)
+                            : getItemClass(idx);
+                          return (
+                            <div
+                              key={agent.id}
+                              className={`item ${isSettled ? "done settled" : agentItemClass} cursor-pointer`}
+                              onClick={() => setExpandedAgent(expandedAgent === agent.id ? null : agent.id)}
+                            >
+                              <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
+                              <span className="item-label">{agent.displayName}</span>
+                              <span className="item-status" />
+                            </div>
+                          );
+                        })}
+                      </>
+                    );
+                  })()}
 
                   {/* Skills */}
                   {phase.skills.length > 0 && (
@@ -566,7 +423,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                         return (
                           <div key={i} className={`item ${itemClass}`}>
                             <span className="item-dot skill" />
-                            <span className="item-label">{skill.label}</span>
+                            <span className="item-label">{skill}</span>
                             <span className="item-status" />
                           </div>
                         );
@@ -603,16 +460,16 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         </div>
 
         {/* Status bar */}
-        <div className="pipeline-status">
-          <div className="status-phase">
-            {isComplete ? "Complete" : (state.phase === "error" ? "Error" : PHASE_CONFIGS[currentPhaseIndex]?.name || state.phase)}
+        <div className={`pipeline-status ${isSettled ? "settled" : ""}`}>
+          <div className="status-phase" style={isSettled ? { color: "#f97316" } : undefined}>
+            {isComplete ? "Complete" : (state.phase === "error" ? "Error" : PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase)}
           </div>
           <div className="status-text">
             {isComplete
               ? "All agents have completed their work"
               : state.phase === "error"
               ? state.error || "An error occurred"
-              : `Processing phase ${currentPhaseIndex + 1} of ${PHASE_CONFIGS.length}`}
+              : `Processing phase ${currentPhaseIndex + 1} of ${PIPELINE_PHASES.length}`}
           </div>
         </div>
 
@@ -721,6 +578,16 @@ const PIPELINE_STYLES = `
 .celebrate-wrapper .status-phase{color:#f97316}
 .celebrate-wrapper .pipeline-title{background:linear-gradient(90deg,#f97316,#fbbf24,#f97316);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .celebrate-wrapper .phase.done{opacity:1}
+
+/* Settled state — completed workflow loaded from history */
+@keyframes settledGlow{0%,100%{border-color:#f9731640;box-shadow:0 0 12px rgba(249,115,22,.15)}50%{border-color:#f9731660;box-shadow:0 0 20px rgba(249,115,22,.25)}}
+@keyframes settledItemGlow{0%,100%{border-color:#f9731625;background:#f9731608}50%{border-color:#f9731640;background:#f9731610}}
+.phase.settled{opacity:0.9}
+.agent-box.done.settled{animation:settledGlow 4s ease-in-out infinite;border-color:#f9731640}
+.item.done.settled{animation:settledItemGlow 4s ease-in-out infinite;opacity:0.85}
+.item.done.settled .item-status{background:#f97316;box-shadow:0 0 4px rgba(249,115,22,.4)}
+.item.done.settled .item-label{color:#e2e8f0}
+.flow-path.settled{stroke:#f9731650;opacity:.5;stroke-width:2}
 
 .agent-output-panel{margin-top:16px;width:100%;max-width:1720px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;overflow:hidden}
 .agent-output-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#0f1419;border-bottom:1px solid #1e293b;font-size:11px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase}

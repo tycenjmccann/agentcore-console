@@ -1,17 +1,17 @@
 /**
  * Pipeline Configuration
  *
- * This file maps deployed AgentCore harness agents to pipeline visualization phases.
- * Anyone deploying Agentis Hub configures their agents here — the pipeline visualization
- * reads this config to know which agents exist, what tools they have, and how to
- * display them.
+ * This file defines HOW to DISPLAY the pipeline — purely visual/UI concerns.
+ * Agent data (who exists, what tools they have) comes from agents.json (single source of truth).
  *
  * To customize for your environment:
- * 1. Deploy your AgentCore harness agents (follow the agent setup guide)
- * 2. Update PIPELINE_AGENTS below with your agent IDs and harness names
- * 3. Update TOOL_ICON_MAP if you add custom gateway tools
- * 4. The pipeline visualization will automatically reflect your config
+ * 1. Deploy your AgentCore harness agents
+ * 2. Update src/config/agents.json with your agent IDs and harness names
+ * 3. Update TOOL_ICON_MAP below if you add custom gateway tools
+ * 4. Update PHASE_DISPLAY_META if you change phase display properties
  */
+
+import agentsConfig from "@/config/agents.json";
 
 // ─── Tool → Icon Mapping ────────────────────────────────────────────────────
 // Maps gateway tool name prefixes to the AWS icon key used in the visualization.
@@ -52,10 +52,189 @@ export const TOOL_ICON_MAP: Record<string, { icon: string; label: string }> = {
   "invoke_team_agent": { icon: "agentcore", label: "A2A Invoke" },
 };
 
-// ─── Pipeline Phase Definitions ─────────────────────────────────────────────
-// Defines which agents belong to each pipeline phase.
+// ─── Phase Display Order ────────────────────────────────────────────────────
+// Defines the left-to-right ordering of phases in the visualization.
 
 export type PipelinePhaseId = "intake" | "requirements" | "design" | "development" | "qa";
+
+export const PHASE_DISPLAY_ORDER: PipelinePhaseId[] = [
+  "intake",
+  "requirements",
+  "design",
+  "development",
+  "qa",
+];
+
+// ─── Phase Display Metadata ─────────────────────────────────────────────────
+// Per-phase UI metadata: how to render each phase visually.
+// Agent lists are NOT here — they are derived from agents.json.
+
+export interface PipelineIdentityItem {
+  icon: string;
+  label: string;
+}
+
+export interface PipelineConfigItem {
+  key: string;
+  val: string;
+}
+
+export interface PipelineDisplayItem {
+  icon?: string;
+  dot?: "skill" | "ext";
+  label: string;
+}
+
+interface PhaseDisplayMeta {
+  name: string;
+  type: "app" | "agent";
+  /** Maps phase ID to the agentPhase key used in workflow state */
+  agentPhase: string;
+  identity: PipelineIdentityItem[];
+  config: PipelineConfigItem[];
+  tools: PipelineDisplayItem[];
+  skills: string[];
+  outputs: PipelineDisplayItem[];
+}
+
+export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
+  intake: {
+    name: "Intake",
+    type: "app",
+    agentPhase: "intake",
+    identity: [{ icon: "", label: "Next.js 14 / App Router" }],
+    config: [
+      { key: "Host", val: "localhost:3000" },
+      { key: "Storage", val: "S3 multipart upload" },
+      { key: "Trigger", val: "EventBridge on epic create" },
+    ],
+    tools: [
+      { dot: "ext", label: "Upload PRD / Mockup / Figma" },
+      { dot: "ext", label: "Set Target Git Repo" },
+      { icon: "s3", label: "S3 Artifact Storage" },
+    ],
+    skills: [],
+    outputs: [{ icon: "eventbridge", label: "Jira Epic Created (EventBridge)" }],
+  },
+  requirements: {
+    name: "Requirements",
+    type: "agent",
+    agentPhase: "requirements",
+    identity: [
+      { icon: "agentcore", label: "AgentCore Runtime" },
+      { icon: "bedrock", label: "Claude Opus 4 (via Bedrock)" },
+    ],
+    config: [
+      { key: "Model", val: "us.anthropic.claude-opus-4-0-v1" },
+      { key: "Memory", val: "built-in (short-term context)" },
+      { key: "Max turns", val: "50" },
+      { key: "Timeout", val: "15 min" },
+    ],
+    tools: [
+      { icon: "s3", label: "S3 Read & Write" },
+      { icon: "agentcore", label: "Memory Read/Write" },
+      { dot: "ext", label: "Gateway (Figma, Browser)" },
+    ],
+    skills: [
+      "PRD Parsing & Visual Analysis",
+      "Acceptance Criteria Generation",
+      "Vertical-Slice Ticket Decomposition",
+    ],
+    outputs: [
+      { icon: "s3", label: "Write artifacts to S3" },
+      { icon: "agentcore", label: "Gateway: report_completion (tickets)" },
+    ],
+  },
+  design: {
+    name: "Design",
+    type: "agent",
+    agentPhase: "design",
+    identity: [
+      { icon: "agentcore", label: "AgentCore Runtime (x7 parallel)" },
+      { icon: "bedrock", label: "Claude Opus 4 / Sonnet 4" },
+    ],
+    config: [
+      { key: "Dispatch", val: "parallel fan-out, 7 runtimes" },
+      { key: "Memory", val: "built-in + shared namespace" },
+      { key: "A2A", val: "cross-agent query enabled" },
+    ],
+    tools: [
+      { icon: "s3", label: "S3 Read & Write" },
+      { icon: "agentcore", label: "Memory + A2A" },
+      { dot: "ext", label: "Gateway (Jira, GitHub)" },
+    ],
+    skills: [
+      "iOS Architecture Design",
+      "Backend Systems Design",
+      "Privacy & Compliance",
+      "Security Review",
+    ],
+    outputs: [
+      { icon: "s3", label: "Design docs to S3" },
+      { icon: "agentcore", label: "Gateway: save_design_doc" },
+    ],
+  },
+  development: {
+    name: "Development",
+    type: "agent",
+    agentPhase: "development",
+    identity: [
+      { icon: "agentcore", label: "AgentCore Runtime (x3 parallel)" },
+      { icon: "bedrock", label: "Claude Opus 4 / Sonnet 4" },
+    ],
+    config: [
+      { key: "Dispatch", val: "parallel fan-out, 3 runtimes" },
+      { key: "Tools", val: "Git CLI + Code Interpreter" },
+      { key: "Branch", val: "feature/{ticket}-{role}" },
+    ],
+    tools: [
+      { icon: "s3", label: "S3 Read & Write" },
+      { icon: "codebuild", label: "Code Interpreter" },
+      { dot: "ext", label: "Git CLI (clone, commit, push)" },
+      { icon: "agentcore", label: "Memory + A2A + Gateway" },
+    ],
+    skills: [
+      "Swift / iOS Development",
+      "Node.js / TypeScript",
+      "Full-Stack Integration",
+    ],
+    outputs: [
+      { dot: "ext", label: "Git commits to feature branch" },
+      { icon: "agentcore", label: "Gateway: report_completion (PR)" },
+    ],
+  },
+  qa: {
+    name: "QA & Ship",
+    type: "agent",
+    agentPhase: "verification",
+    identity: [
+      { icon: "agentcore", label: "AgentCore Runtime (x2 parallel)" },
+      { icon: "bedrock", label: "Claude Opus 4 / Sonnet 4" },
+    ],
+    config: [
+      { key: "Dispatch", val: "sequential then parallel" },
+      { key: "Retry", val: "3x fix cycles before escalation" },
+      { key: "Tools", val: "Git + Code Interpreter + A2A" },
+    ],
+    tools: [
+      { dot: "ext", label: "Git CLI (read feature branch)" },
+      { icon: "codebuild", label: "Code Interpreter (tests)" },
+      { icon: "agentcore", label: "Memory + A2A + Gateway" },
+    ],
+    skills: [
+      "Visual Regression + Pixel Compare",
+      "E2E Tests (Playwright)",
+      "CI Failure Analysis + Auto-fix",
+      "Retry Loop (A2A fix request, 3x)",
+    ],
+    outputs: [
+      { dot: "ext", label: "Pull Request (auto-merge ready)" },
+      { icon: "agentcore", label: "Workflow Complete" },
+    ],
+  },
+};
+
+// ─── Agent Config Interface ─────────────────────────────────────────────────
 
 export interface PipelineAgentConfig {
   /** Agent ID — must match AGENT_ROSTER id and WorkflowState.agentTasks keys */
@@ -68,201 +247,81 @@ export interface PipelineAgentConfig {
   tools: string[];
 }
 
+// ─── Pipeline Phase Config (derived) ────────────────────────────────────────
+
 export interface PipelinePhaseConfig {
   id: PipelinePhaseId;
   name: string;
   num: number;
-  /** "app" for non-agent phases (intake), "agent" for AgentCore phases */
   type: "app" | "agent";
-  /** Agents deployed in this phase */
+  typeLabel: string;
+  agentPhase: string;
+  identity: PipelineIdentityItem[];
+  config: PipelineConfigItem[];
+  tools: PipelineDisplayItem[];
   agents: PipelineAgentConfig[];
-  /** Skills loaded by agents in this phase */
   skills: string[];
-  /** Output items produced by this phase */
-  outputs: string[];
+  outputs: PipelineDisplayItem[];
 }
 
-// ─── Default Pipeline Configuration ─────────────────────────────────────────
-// This is the Agentis Hub default deployment. Customize for your environment.
+// ─── Phase-to-agentPhase mapping ────────────────────────────────────────────
+// Maps agents.json phase values to pipeline phase IDs.
+// agents.json uses "verification" and "review" for QA agents.
 
-export const PIPELINE_PHASES: PipelinePhaseConfig[] = [
-  {
-    id: "intake",
-    name: "Intake",
-    num: 1,
-    type: "app",
-    agents: [],
-    skills: [],
-    outputs: ["Jira Epic Created (EventBridge)"],
-  },
-  {
-    id: "requirements",
-    name: "Requirements",
-    num: 2,
-    type: "agent",
-    agents: [
-      {
-        id: "team-requirements-analyst",
-        displayName: "Requirements Analyst",
-        harnessName: "team_requirements_analyst",
-        tools: [
-          "S3Storage___read_object",
-          "S3Storage___write_object",
-          "S3Storage___list_objects",
-          "SkillLoader___load_skill",
-          "WorkflowOutput___submit_ticket_plan",
-          "browser",
-        ],
-      },
-    ],
-    skills: [
-      "PRD Parsing & Visual Analysis",
-      "Acceptance Criteria Generation",
-      "Vertical-Slice Ticket Decomposition",
-    ],
-    outputs: ["Write artifacts to S3", "Gateway: report_completion (tickets)"],
-  },
-  {
-    id: "design",
-    name: "Design",
-    num: 3,
-    type: "agent",
-    agents: [
-      {
-        id: "team-ios-designer",
-        displayName: "iOS Architecture Designer",
-        harnessName: "team_ios_designer",
-        tools: ["S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "GitHubIntegration___get_file", "GitHubIntegration___search_code", "browser"],
-      },
-      {
-        id: "team-backend-designer",
-        displayName: "Backend Systems Designer",
-        harnessName: "team_backend_designer",
-        tools: ["S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "GitHubIntegration___get_file", "GitHubIntegration___search_code", "browser"],
-      },
-      {
-        id: "team-android-designer",
-        displayName: "Android Designer",
-        harnessName: "team_android_designer",
-        tools: ["S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "browser"],
-      },
-      {
-        id: "team-security-reviewer",
-        displayName: "Security Reviewer",
-        harnessName: "team_security_reviewer",
-        tools: ["S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "GitHubIntegration___search_code", "browser"],
-      },
-      {
-        id: "team-analytics-designer",
-        displayName: "Analytics Designer",
-        harnessName: "team_analytics_designer",
-        tools: ["S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "browser"],
-      },
-      {
-        id: "team-localization",
-        displayName: "Localization Planner",
-        harnessName: "team_localization",
-        tools: ["S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "browser"],
-      },
-      {
-        id: "team-legal-compliance",
-        displayName: "Privacy & Compliance",
-        harnessName: "team_legal_compliance",
-        tools: ["S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "browser"],
-      },
-    ],
-    skills: [
-      "ios-architecture",
-      "android-architecture",
-      "backend-systems",
-      "privacy-compliance",
-      "threat-modeling",
-      "localization",
-      "general-design",
-    ],
-    outputs: ["Design docs to S3", "Gateway: report_completion"],
-  },
-  {
-    id: "development",
-    name: "Development",
-    num: 4,
-    type: "agent",
-    agents: [
-      {
-        id: "team-backend-dev",
-        displayName: "Backend Developer",
-        harnessName: "team_backend_dev",
-        tools: [
-          "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill",
-          "GitHubIntegration___list_files", "GitHubIntegration___get_file",
-          "GitHubIntegration___commit_file", "GitHubIntegration___create_branch",
-          "GitHubIntegration___create_pr", "code_interpreter",
-        ],
-      },
-      {
-        id: "team-frontend-dev",
-        displayName: "Frontend Developer",
-        harnessName: "team_frontend_dev",
-        tools: [
-          "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill",
-          "GitHubIntegration___list_files", "GitHubIntegration___get_file",
-          "GitHubIntegration___commit_file", "GitHubIntegration___create_branch",
-          "GitHubIntegration___create_pr", "code_interpreter",
-        ],
-      },
-      {
-        id: "team-api-dev",
-        displayName: "API Developer",
-        harnessName: "team_api_dev",
-        tools: [
-          "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill",
-          "GitHubIntegration___list_files", "GitHubIntegration___get_file",
-          "GitHubIntegration___commit_file", "GitHubIntegration___create_branch",
-          "GitHubIntegration___create_pr", "code_interpreter",
-        ],
-      },
-    ],
-    skills: [
-      "node-typescript",
-      "swift-development",
-      "full-stack",
-    ],
-    outputs: ["Feature branch (shared)", "Pull Request created"],
-  },
-  {
-    id: "qa",
-    name: "QA & Ship",
-    num: 5,
-    type: "agent",
-    agents: [
-      {
-        id: "team-qa-verifier",
-        displayName: "QA Verifier",
-        harnessName: "team_qa_verifier",
-        tools: [
-          "GitHubIntegration___get_file", "GitHubIntegration___list_files",
-          "GitHubIntegration___commit_file", "code_interpreter",
-        ],
-      },
-      {
-        id: "team-ci-agent",
-        displayName: "CI Validation Agent",
-        harnessName: "team_ci_agent",
-        tools: [
-          "GitHubIntegration___get_file", "GitHubIntegration___list_files",
-          "GitHubIntegration___commit_file", "code_interpreter",
-        ],
-      },
-    ],
-    skills: [
-      "Visual Regression + Pixel Compare",
-      "E2E Tests (Playwright)",
-      "CI Failure Analysis + Auto-fix",
-      "Retry Loop (A2A fix request, 3x)",
-    ],
-    outputs: ["Pull Request (auto-merge ready)", "Workflow Complete"],
-  },
-];
+const AGENT_PHASE_TO_PIPELINE_PHASE: Record<string, PipelinePhaseId> = {
+  requirements: "requirements",
+  design: "design",
+  development: "development",
+  verification: "qa",
+  review: "qa",
+};
+
+// ─── Derive PIPELINE_PHASES from agents.json + display metadata ─────────────
+
+function buildPipelinePhases(): PipelinePhaseConfig[] {
+  return PHASE_DISPLAY_ORDER.map((phaseId, idx) => {
+    const meta = PHASE_DISPLAY_META[phaseId];
+
+    // Derive agents for this phase from agents.json
+    const agents: PipelineAgentConfig[] = agentsConfig.agents
+      .filter((a) => {
+        const mappedPhase = AGENT_PHASE_TO_PIPELINE_PHASE[a.phase];
+        return mappedPhase === phaseId;
+      })
+      .map((a) => ({
+        id: a.id,
+        displayName: a.name,
+        harnessName: a.harnessName,
+        tools: a.tools.filter((t) => t !== "gateway" && t !== "invoke_team_agent" && t !== "browser"),
+      }));
+
+    // Generate typeLabel dynamically
+    let typeLabel: string;
+    if (meta.type === "app") {
+      typeLabel = "Web Application";
+    } else {
+      const count = agents.length;
+      typeLabel = `${count} AgentCore Harness Agent${count !== 1 ? "s" : ""}`;
+    }
+
+    return {
+      id: phaseId,
+      name: meta.name,
+      num: idx + 1,
+      type: meta.type,
+      typeLabel,
+      agentPhase: meta.agentPhase,
+      identity: meta.identity,
+      config: meta.config,
+      tools: meta.tools,
+      agents,
+      skills: meta.skills,
+      outputs: meta.outputs,
+    };
+  });
+}
+
+export const PIPELINE_PHASES: PipelinePhaseConfig[] = buildPipelinePhases();
 
 // ─── Helper: Resolve tool name to icon ──────────────────────────────────────
 

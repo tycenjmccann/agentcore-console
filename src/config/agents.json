@@ -1,0 +1,138 @@
+{
+  "agents": [
+    {
+      "id": "team-requirements-analyst",
+      "name": "Requirements Analyst",
+      "role": "Parse PRD/mockup input, extract structured requirements, define acceptance criteria, determine which team agents need tickets",
+      "phase": "requirements",
+      "harnessName": "team_requirements_analyst",
+      "tools": ["gateway", "browser", "S3Storage___read_object", "S3Storage___write_object", "S3Storage___list_objects", "SkillLoader___load_skill", "WorkflowOutput___submit_ticket_plan"],
+      "canQueryAgents": [],
+      "keywords": ["requirements", "requirementsanalyst", "productanalyst", "prd", "analysis"]
+    },
+    {
+      "id": "team-ios-designer",
+      "name": "iOS Designer",
+      "role": "iOS/SwiftUI architecture, UI patterns, component design, accessibility",
+      "phase": "design",
+      "harnessName": "team_ios_designer",
+      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "GitHubIntegration___get_file", "GitHubIntegration___search_code"],
+      "canQueryAgents": ["team-requirements-analyst"],
+      "keywords": ["iosdesign", "iosarchitect", "uidesign", "swiftuidesign"]
+    },
+    {
+      "id": "team-backend-designer",
+      "name": "Backend Designer",
+      "role": "API design, data models, infrastructure architecture, service patterns",
+      "phase": "design",
+      "harnessName": "team_backend_designer",
+      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "GitHubIntegration___get_file", "GitHubIntegration___search_code"],
+      "canQueryAgents": ["team-requirements-analyst"],
+      "keywords": ["backenddesign", "apidesign", "backendarchitect", "servicedesign"]
+    },
+    {
+      "id": "team-android-designer",
+      "name": "Android Designer",
+      "role": "Android/Kotlin architecture, Material Design, Jetpack Compose patterns",
+      "phase": "design",
+      "harnessName": "team_android_designer",
+      "tools": ["s3_read", "s3_write", "a2a", "figma"],
+      "canQueryAgents": ["team-requirements-analyst"],
+      "keywords": ["androiddesign", "androidarchitect", "materialdesign", "composedesign"]
+    },
+    {
+      "id": "team-security-reviewer",
+      "name": "Security Reviewer",
+      "role": "Threat modeling, auth flows, OWASP, security architecture review",
+      "phase": "design",
+      "harnessName": "team_security_reviewer",
+      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "GitHubIntegration___search_code"],
+      "canQueryAgents": ["team-requirements-analyst", "team-backend-designer"],
+      "keywords": ["security", "securityreview", "threatmodel", "owasp"]
+    },
+    {
+      "id": "team-legal-compliance",
+      "name": "Legal & Compliance",
+      "role": "GDPR, privacy, ToS implications, data handling compliance",
+      "phase": "design",
+      "harnessName": "team_legal_compliance",
+      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill"],
+      "canQueryAgents": ["team-requirements-analyst"],
+      "keywords": ["legal", "compliance", "gdpr", "privacy", "legalcompliance"]
+    },
+    {
+      "id": "team-localization",
+      "name": "Localization",
+      "role": "i18n strategy, string extraction, RTL support, locale handling",
+      "phase": "design",
+      "harnessName": "team_localization",
+      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill"],
+      "canQueryAgents": ["team-ios-designer", "team-android-designer"],
+      "keywords": ["localization", "i18n", "l10n", "translation", "locale"]
+    },
+    {
+      "id": "team-analytics-designer",
+      "name": "Analytics Designer",
+      "role": "Event taxonomy, tracking plan, metrics definition, instrumentation",
+      "phase": "design",
+      "harnessName": "team_analytics_designer",
+      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill"],
+      "canQueryAgents": ["team-requirements-analyst", "team-ios-designer", "team-backend-designer", "team-android-designer"],
+      "keywords": ["analytics", "tracking", "metrics", "events", "instrumentation"]
+    },
+    {
+      "id": "team-backend-dev",
+      "name": "Backend Developer",
+      "role": "Implement backend services, APIs, infrastructure based on design specs",
+      "phase": "development",
+      "harnessName": "team_backend_dev",
+      "tools": ["gateway", "code_interpreter", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "GitHubIntegration___list_files", "GitHubIntegration___get_file", "GitHubIntegration___commit_file", "GitHubIntegration___create_branch", "GitHubIntegration___create_pr"],
+      "canQueryAgents": ["team-backend-designer", "team-security-reviewer"],
+      "keywords": ["backenddev", "backenddevelop", "backendimpl", "serverdev"]
+    },
+    {
+      "id": "team-api-dev",
+      "name": "API Developer",
+      "role": "Implement API layer, contracts, documentation, integration tests",
+      "phase": "development",
+      "harnessName": "team_api_dev",
+      "tools": ["gateway", "code_interpreter", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "GitHubIntegration___list_files", "GitHubIntegration___get_file", "GitHubIntegration___commit_file", "GitHubIntegration___create_branch", "GitHubIntegration___create_pr"],
+      "canQueryAgents": ["team-backend-designer", "team-backend-dev"],
+      "keywords": ["apidev", "apidevelop", "apiimpl", "apiengineer"]
+    },
+    {
+      "id": "team-frontend-dev",
+      "name": "Frontend Developer",
+      "role": "Implement UI from design specs (iOS/Android/Web)",
+      "phase": "development",
+      "harnessName": "team_frontend_dev",
+      "tools": ["gateway", "code_interpreter", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "GitHubIntegration___list_files", "GitHubIntegration___get_file", "GitHubIntegration___commit_file", "GitHubIntegration___create_branch", "GitHubIntegration___create_pr"],
+      "canQueryAgents": ["team-ios-designer", "team-android-designer"],
+      "keywords": ["frontenddev", "frontenddevelop", "iosdev", "iosdevelop", "uidev", "mobiledevelop", "mobiledev", "iosengineer", "iosdeveloper", "frontenddeveloper"]
+    },
+    {
+      "id": "team-qa-verifier",
+      "name": "QA Verifier",
+      "role": "Visual regression testing, E2E validation, and design-to-implementation comparison",
+      "phase": "verification",
+      "harnessName": "team_qa_verifier",
+      "tools": ["gateway", "code_interpreter", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "GitHubIntegration___list_files", "GitHubIntegration___get_file", "GitHubIntegration___commit_file", "GitHubIntegration___create_branch", "GitHubIntegration___create_pr"],
+      "canQueryAgents": ["team-frontend-dev", "team-backend-dev", "team-api-dev"],
+      "keywords": ["qa", "verification", "testing", "visualregression", "e2e"]
+    },
+    {
+      "id": "team-ci-agent",
+      "name": "CI Validation Agent",
+      "role": "Monitor CI results, parse build failures, instruct dev agents to fix issues",
+      "phase": "review",
+      "harnessName": "team_ci_agent",
+      "tools": ["gateway", "invoke_team_agent", "GitHubIntegration___get_file", "GitHubIntegration___list_files", "GitHubIntegration___commit_file"],
+      "canQueryAgents": ["team-frontend-dev", "team-backend-dev", "team-api-dev"],
+      "keywords": ["ci", "build", "pipeline", "validation", "cicd"]
+    }
+  ],
+  "defaults": {
+    "intakeAgentId": "team-requirements-analyst",
+    "defaultAssigneeId": "team-backend-designer"
+  }
+}

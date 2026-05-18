@@ -203,6 +203,16 @@ export function removeSubscriber(workflowId: string, controller: SSEController):
  * Emit an SSE event to all subscribers of a workflow.
  */
 export function emitEvent(workflowId: string, event: WorkflowEvent): void {
+  // Persist event to the workflow's event log (enables replay for completed runs)
+  // Skip high-frequency agent_output events to keep log manageable
+  if (event.type !== "agent_output") {
+    const state = getWorkflow(workflowId);
+    if (state) {
+      if (!state.eventLog) state.eventLog = [];
+      state.eventLog.push({ timestamp: new Date().toISOString(), event });
+    }
+  }
+
   const subs = subscribers.get(workflowId);
   if (!subs || subs.size === 0) return;
 

@@ -98,6 +98,11 @@ export interface AgentTask {
   error?: string;
 }
 
+export interface StoredEvent {
+  timestamp: string;
+  event: WorkflowEvent;
+}
+
 export interface WorkflowState {
   id: string;                    // workflow run ID
   phase: WorkflowPhase;
@@ -114,6 +119,8 @@ export interface WorkflowState {
   featureBranch?: string;
   /** QA verification retry counter (max 3 fix cycles before human escalation) */
   qaRetryCount?: number;
+  /** Persisted event log for replay (populated during live runs) */
+  eventLog?: StoredEvent[];
 }
 
 // ─── Repo Configuration ──────────────────────────────────────────────────────
@@ -205,6 +212,8 @@ export type WorkflowEvent =
   | { type: "agent_status"; agentId: string; status: AgentTaskStatus; ticketId?: string }
   | { type: "agent_output"; agentId: string; chunk: string }
   | { type: "tool_use"; agentId: string; toolName: string }
+  | { type: "tool_end"; agentId: string; toolName: string; durationMs?: number }
+  | { type: "token_usage"; agentId: string; inputTokens: number; outputTokens: number }
   | { type: "agent_complete"; agentId: string; output: string; branch?: string; commitSha?: string }
   | { type: "message"; message: AgentMessage }
   | { type: "ticket_created"; ticket: JiraTicket }
