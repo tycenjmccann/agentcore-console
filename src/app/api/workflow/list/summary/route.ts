@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { listWorkflows, ensureRehydrated } from "@/lib/workflow/store";
-import type { WorkflowSummary } from "@/lib/workflow/types";
+import { listWorkflowSummaries, ensureRehydrated } from "@/lib/workflow/store";
 
 export const dynamic = "force-dynamic";
 
@@ -12,16 +11,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   await ensureRehydrated();
-  const workflows = listWorkflows();
-
-  const summaries: WorkflowSummary[] = workflows.map((wf) => ({
-    id: wf.id,
-    title: wf.input.title,
-    phase: wf.phase,
-    epicId: wf.epicId,
-    startedAt: wf.startedAt,
-    completedAt: wf.completedAt,
-  }));
+  const summaries = listWorkflowSummaries();
 
   return NextResponse.json(
     { workflows: summaries },
