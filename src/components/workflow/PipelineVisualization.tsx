@@ -12,7 +12,6 @@ interface PipelineVisualizationProps {
 }
 
 type PhaseVisualState = "idle" | "active" | "done";
-type ItemVisualState = "idle" | "active" | "working" | "done";
 
 interface PhaseConfig {
   id: string;
@@ -34,13 +33,14 @@ interface PhaseConfig {
       icon?: string;
       dot?: "skill" | "ext";
       label: string;
+      agentId?: string; // maps to agentTasks key for per-agent status
     }[];
   }[];
 }
 
 // ─── Phase Configuration (matches reference HTML exactly) ────────────────────
 
-const PHASE_ORDER: WorkflowPhase[] = ["intake", "requirements", "design", "development", "review"];
+const PHASE_ORDER: WorkflowPhase[] = ["intake", "requirements", "design", "development", "verification", "review"];
 
 const PHASES: PhaseConfig[] = [
   {
@@ -104,7 +104,7 @@ const PHASES: PhaseConfig[] = [
       {
         label: "Agent",
         items: [
-          { id: "r-agent", icon: "agentcore", label: "Requirements Analyst" },
+          { id: "r-agent", icon: "agentcore", label: "Requirements Analyst", agentId: "team-requirements-analyst" },
         ],
       },
       {
@@ -149,26 +149,34 @@ const PHASES: PhaseConfig[] = [
         items: [
           { id: "d-s3", icon: "s3", label: "S3 Read & Write" },
           { id: "d-memory", icon: "agentcore", label: "Memory + A2A Messaging" },
-          { id: "d-jira", dot: "ext", label: "Jira (read tickets, add comments)" },
+          { id: "d-a2a", dot: "ext", label: "A2A + Gateway + Figma" },
         ],
       },
       {
         label: "Agents (parallel)",
         items: [
-          { id: "d-ios", icon: "agentcore", label: "iOS Architecture Designer" },
-          { id: "d-android", icon: "agentcore", label: "Android Designer" },
-          { id: "d-backend", icon: "agentcore", label: "Backend Systems Designer" },
-          { id: "d-security", icon: "agentcore", label: "Security Reviewer" },
-          { id: "d-analytics", icon: "agentcore", label: "Analytics Designer" },
-          { id: "d-l10n", icon: "agentcore", label: "Localization Planner" },
-          { id: "d-legal", icon: "agentcore", label: "Privacy & Compliance" },
+          { id: "d-ios", icon: "agentcore", label: "iOS Architecture Designer", agentId: "team-ios-designer" },
+          { id: "d-backend", icon: "agentcore", label: "Backend Systems Designer", agentId: "team-backend-designer" },
+          { id: "d-android", icon: "agentcore", label: "Android Designer", agentId: "team-android-designer" },
+          { id: "d-security", icon: "agentcore", label: "Security Reviewer", agentId: "team-security-reviewer" },
+          { id: "d-analytics", icon: "agentcore", label: "Analytics Designer", agentId: "team-analytics-designer" },
+          { id: "d-legal", icon: "agentcore", label: "Privacy & Compliance", agentId: "team-legal-compliance" },
+          { id: "d-i18n", icon: "agentcore", label: "Localization Planner", agentId: "team-localization" },
+        ],
+      },
+      {
+        label: "Skills",
+        items: [
+          { id: "d-sk1", dot: "skill", label: "Domain-Specific Design" },
+          { id: "d-sk2", dot: "skill", label: "Architecture Patterns" },
+          { id: "d-sk3", dot: "skill", label: "Security & Compliance" },
         ],
       },
       {
         label: "Output",
         items: [
-          { id: "d-docs", icon: "s3", label: "Design docs to S3" },
-          { id: "d-complete", icon: "agentcore", label: "Gateway: save_design_doc" },
+          { id: "d-s3write", icon: "s3", label: "Design docs to S3" },
+          { id: "d-jira", icon: "agentcore", label: "Gateway: report_completion" },
         ],
       },
     ],
@@ -189,31 +197,40 @@ const PHASES: PhaseConfig[] = [
     },
     config: [
       { key: "Dispatch", value: "parallel fan-out, 3 runtimes" },
-      { key: "Memory", value: "built-in + shared namespace" },
-      { key: "Git", value: "shared feature branch" },
+      { key: "Branch", value: "shared feature branch" },
+      { key: "Tools", value: "Git + Code Interpreter" },
     ],
     sections: [
       {
         label: "Tools (all agents)",
         items: [
           { id: "v-s3", icon: "s3", label: "S3 Read (design docs)" },
-          { id: "v-git", dot: "ext", label: "GitHub (branch, commit, PR)" },
-          { id: "v-code", icon: "codebuild", label: "Code Interpreter" },
+          { id: "v-code", icon: "codebuild", label: "Code Interpreter sandbox" },
+          { id: "v-memory", icon: "agentcore", label: "Memory + A2A + Gateway" },
+          { id: "v-git", dot: "ext", label: "Git — clone repo, feature branch" },
         ],
       },
       {
         label: "Agents (parallel)",
         items: [
-          { id: "v-frontend", icon: "agentcore", label: "Frontend Developer" },
-          { id: "v-backend", icon: "agentcore", label: "Backend Developer" },
-          { id: "v-api", icon: "agentcore", label: "API Developer" },
+          { id: "v-backend", icon: "agentcore", label: "Backend Developer", agentId: "team-backend-dev" },
+          { id: "v-frontend", icon: "agentcore", label: "Frontend Developer", agentId: "team-frontend-dev" },
+          { id: "v-api", icon: "agentcore", label: "API Developer", agentId: "team-api-dev" },
+        ],
+      },
+      {
+        label: "Skills",
+        items: [
+          { id: "v-sk1", dot: "skill", label: "Node/TypeScript Development" },
+          { id: "v-sk2", dot: "skill", label: "Full-Stack Implementation" },
+          { id: "v-sk3", dot: "skill", label: "GitHub Workflow" },
         ],
       },
       {
         label: "Output",
         items: [
-          { id: "v-commits", dot: "ext", label: "Commits to feature branch" },
-          { id: "v-pr", dot: "ext", label: "Pull Request created" },
+          { id: "v-branch", dot: "ext", label: "Feature branch (shared)" },
+          { id: "v-jira", icon: "agentcore", label: "Gateway: report_completion" },
         ],
       },
     ],
@@ -222,18 +239,18 @@ const PHASES: PhaseConfig[] = [
     id: "p5",
     num: 5,
     name: "QA & Ship",
-    phaseKey: "review",
+    phaseKey: "verification",
     type: "agent",
-    agentCount: 1,
+    agentCount: 2,
     identity: {
       icons: [
         { src: awsIcons.agentcore, alt: "AgentCore" },
         { src: awsIcons.codebuild, alt: "CodeBuild" },
       ],
-      descriptions: ["AgentCore Runtime", "Code Interpreter (testing)"],
+      descriptions: ["AgentCore Runtime (x2)", "Code Interpreter (testing)"],
     },
     config: [
-      { key: "Model", value: "us.anthropic.claude-sonnet-4-5-v1" },
+      { key: "Dispatch", value: "sequential (verify then ship)" },
       { key: "Retries", value: "3 fix cycles max" },
       { key: "Merge", value: "auto-merge on pass" },
     ],
@@ -241,23 +258,32 @@ const PHASES: PhaseConfig[] = [
       {
         label: "Tools",
         items: [
-          { id: "q-code", icon: "codebuild", label: "Code Interpreter (test runner)" },
-          { id: "q-git", dot: "ext", label: "GitHub (read PR, push fixes)" },
-          { id: "q-s3", icon: "s3", label: "S3 (read design specs)" },
+          { id: "q-git", dot: "ext", label: "Git CLI — reading feature branch" },
+          { id: "q-code", icon: "codebuild", label: "Code Interpreter — test sandbox" },
+          { id: "q-memory", icon: "agentcore", label: "Memory + A2A + Gateway" },
         ],
       },
       {
-        label: "Agent",
+        label: "Agents",
         items: [
-          { id: "q-agent", icon: "agentcore", label: "QA Verification Agent" },
+          { id: "q-verifier", icon: "agentcore", label: "QA Verifier", agentId: "team-qa-verifier" },
+          { id: "q-ci", icon: "agentcore", label: "CI Validation Agent", agentId: "team-ci-agent" },
         ],
       },
       {
-        label: "Actions",
+        label: "Skills",
         items: [
-          { id: "q-test", dot: "skill", label: "Run acceptance tests" },
-          { id: "q-review", dot: "skill", label: "Code review against design" },
-          { id: "q-merge", dot: "ext", label: "Merge to main" },
+          { id: "q-review", dot: "skill", label: "Visual Regression + Pixel Compare" },
+          { id: "q-test", dot: "skill", label: "E2E Tests (Playwright)" },
+          { id: "q-ci-skill", dot: "skill", label: "CI Failure Analysis + Auto-fix" },
+          { id: "q-retry", dot: "skill", label: "Retry Loop (A2A fix request, 3x)" },
+        ],
+      },
+      {
+        label: "Output",
+        items: [
+          { id: "q-pr", dot: "ext", label: "Pull Request (auto-merge ready)" },
+          { id: "q-done", icon: "agentcore", label: "Workflow Complete" },
         ],
       },
     ],
@@ -274,10 +300,10 @@ function getPhaseVisualState(phaseKey: WorkflowPhase, currentPhase: WorkflowPhas
   if (currentPhase === "error") {
     return thisIdx <= currentIdx ? "done" : "idle";
   }
-  if (currentPhase === "verification") {
-    const effectiveIdx = PHASE_ORDER.indexOf("review");
-    if (thisIdx < effectiveIdx) return "done";
-    if (thisIdx === effectiveIdx) return "active";
+  // Both "verification" and "review" map to QA & Ship (phase 5)
+  if (phaseKey === "verification") {
+    if (currentPhase === "verification" || currentPhase === "review") return "active";
+    if (currentIdx > PHASE_ORDER.indexOf("verification")) return "done";
     return "idle";
   }
 
@@ -286,32 +312,62 @@ function getPhaseVisualState(phaseKey: WorkflowPhase, currentPhase: WorkflowPhas
   return "idle";
 }
 
-function getItemState(phaseState: PhaseVisualState, agentTasks: Record<string, AgentTask>): ItemVisualState {
-  if (phaseState === "done") return "done";
-  if (phaseState === "active") {
-    const hasRunning = Object.values(agentTasks).some(
-      (t) => t.status === "running" || t.status === "waiting_response"
-    );
-    return hasRunning ? "working" : "active";
+function getAgentItemClass(agentId: string | undefined, agentTasks: Record<string, AgentTask>, phaseState: PhaseVisualState): string {
+  if (!agentId) {
+    // Non-agent items: show based on phase state
+    if (phaseState === "done") return "done";
+    if (phaseState === "active") return "active";
+    return "";
   }
-  return "idle";
+  // Agent-specific items: use individual task status
+  const task = agentTasks[agentId];
+  if (!task) {
+    if (phaseState === "done") return "done";
+    return "";
+  }
+  switch (task.status) {
+    case "running":
+    case "waiting_response":
+      return "working";
+    case "complete":
+      return "done";
+    case "error":
+      return "done";
+    case "pending":
+      return phaseState === "active" ? "active" : "";
+    default:
+      return "";
+  }
 }
 
-function getStatusDescription(phase: WorkflowPhase): { label: string; text: string } {
+function getStatusDescription(phase: WorkflowPhase, agentTasks: Record<string, AgentTask>): { label: string; text: string } {
+  const runningCount = Object.values(agentTasks).filter(
+    (t) => t.status === "running" || t.status === "waiting_response"
+  ).length;
+
   switch (phase) {
     case "intake":
       return { label: "Phase 1 — Intake", text: "Collecting requirements and sources..." };
     case "requirements":
-      return { label: "Phase 2 — Requirements", text: "Analyzing PRD and generating tickets..." };
+      return {
+        label: "Phase 2 — Requirements",
+        text: runningCount > 0 ? "Requirements Analyst agent working..." : "Analyzing PRD and generating tickets...",
+      };
     case "design":
-      return { label: "Phase 3 — Design", text: "Design agents working in parallel..." };
+      return {
+        label: "Phase 3 — Design (7 Agents Parallel)",
+        text: runningCount > 0 ? `${runningCount} design agent${runningCount > 1 ? "s" : ""} running in parallel` : "Design agents working...",
+      };
     case "development":
-      return { label: "Phase 4 — Development", text: "Developers implementing features..." };
-    case "review":
+      return {
+        label: "Phase 4 — Development (3 Agents Parallel)",
+        text: runningCount > 0 ? `${runningCount} dev agent${runningCount > 1 ? "s" : ""} running in parallel on shared branch` : "Developers implementing features...",
+      };
     case "verification":
-      return { label: "Phase 5 — QA & Ship", text: "Running tests and reviewing code..." };
+    case "review":
+      return { label: "Phase 5 — QA & Ship", text: "QA Verifier + CI Agent running verification" };
     case "complete":
-      return { label: "Complete", text: "Workflow finished successfully!" };
+      return { label: "PIPELINE COMPLETE", text: `${Object.keys(agentTasks).length} agents across 5 phases — real code shipped — zero human intervention` };
     case "error":
       return { label: "Error", text: "Workflow encountered an error." };
     default:
@@ -324,11 +380,20 @@ function getStatusDescription(phase: WorkflowPhase): { label: string; text: stri
 export default function PipelineVisualization({ workflowState, onStepClick }: PipelineVisualizationProps) {
   const [celebrating, setCelebrating] = useState(false);
   const [liveState, setLiveState] = useState<WorkflowState | null>(workflowState);
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     setLiveState(workflowState);
   }, [workflowState]);
+
+  // Trigger celebration on complete
+  useEffect(() => {
+    if (liveState?.phase === "complete" && !celebrating) {
+      setCelebrating(true);
+      setTimeout(() => setCelebrating(false), 1500);
+    }
+  }, [liveState?.phase, celebrating]);
 
   // SSE connection for live updates
   useEffect(() => {
@@ -363,24 +428,25 @@ export default function PipelineVisualization({ workflowState, onStepClick }: Pi
       switch (event.type) {
         case "phase_change":
           return { ...prev, phase: event.phase };
-        case "agent_status":
+        case "agent_status": {
+          const existingTask = prev.agentTasks[event.agentId];
           return {
             ...prev,
             agentTasks: {
               ...prev.agentTasks,
-              [event.agentId]: {
-                ...prev.agentTasks[event.agentId],
-                status: event.status,
-              },
+              [event.agentId]: existingTask
+                ? { ...existingTask, status: event.status }
+                : { id: `task_${Date.now()}`, agentId: event.agentId, ticketId: event.ticketId || "", status: event.status, input: "" },
             },
           };
+        }
         case "agent_complete":
           return {
             ...prev,
             agentTasks: {
               ...prev.agentTasks,
               [event.agentId]: {
-                ...prev.agentTasks[event.agentId],
+                ...(prev.agentTasks[event.agentId] || { id: `task_${Date.now()}`, agentId: event.agentId, ticketId: "", input: "" }),
                 status: "complete",
                 output: event.output,
                 branch: event.branch,
@@ -389,8 +455,6 @@ export default function PipelineVisualization({ workflowState, onStepClick }: Pi
             },
           };
         case "workflow_complete":
-          setCelebrating(true);
-          setTimeout(() => setCelebrating(false), 1500);
           return { ...prev, phase: "complete", completedAt: new Date().toISOString() };
         default:
           return prev;
@@ -400,7 +464,14 @@ export default function PipelineVisualization({ workflowState, onStepClick }: Pi
 
   const currentPhase = liveState?.phase ?? "intake";
   const agentTasks = liveState?.agentTasks ?? {};
-  const status = getStatusDescription(currentPhase);
+  const status = getStatusDescription(currentPhase, agentTasks);
+
+  function handleItemClick(phaseId: string, itemId: string, agentId?: string) {
+    onStepClick?.(phaseId, itemId);
+    if (agentId && agentTasks[agentId]) {
+      setExpandedAgent((prev) => (prev === agentId ? null : agentId));
+    }
+  }
 
   return (
     <div className={`pipeline-container${celebrating ? " celebrate" : ""}`}>
@@ -469,11 +540,11 @@ export default function PipelineVisualization({ workflowState, onStepClick }: Pi
             const x2 = x1 + 44;
             const y = 120;
             const thisState = getPhaseVisualState(phase.phaseKey, currentPhase);
-            const isActive = thisState === "done";
+            const isConnected = thisState === "done";
             return (
               <path
                 key={`conn-${idx}`}
-                className={`flow-path${isActive ? " show" : ""}${isActive ? " active" : ""}`}
+                className={`flow-path${isConnected ? " show" : ""}${isConnected ? " active" : ""}`}
                 d={`M ${x1} ${y} C ${x1 + 22} ${y}, ${x2 - 22} ${y}, ${x2} ${y}`}
               />
             );
@@ -542,13 +613,13 @@ export default function PipelineVisualization({ workflowState, onStepClick }: Pi
                     <div key={si}>
                       <div className="sec-label">{section.label}</div>
                       {section.items.map((item) => {
-                        const itemState = getItemState(phaseState, agentTasks);
-                        const itemClass = itemState !== "idle" ? ` ${itemState}` : "";
+                        const itemClass = getAgentItemClass(item.agentId, agentTasks, phaseState);
                         return (
                           <div
                             key={item.id}
-                            className={`pipeline-item${itemClass}`}
-                            onClick={() => onStepClick?.(phase.id, item.id)}
+                            className={`pipeline-item${itemClass ? " " + itemClass : ""}`}
+                            onClick={() => handleItemClick(phase.id, item.id, item.agentId)}
+                            style={{ cursor: item.agentId ? "pointer" : undefined }}
                           >
                             {item.icon && (
                               <img
@@ -577,6 +648,61 @@ export default function PipelineVisualization({ workflowState, onStepClick }: Pi
         <div className="status-phase-label">{status.label}</div>
         <div className="status-text">{status.text}</div>
       </div>
+
+      {/* Expanded agent output panel */}
+      {expandedAgent && agentTasks[expandedAgent] && (
+        <div
+          style={{
+            marginTop: 16,
+            background: "#1a2332",
+            border: "1px solid #1e293b",
+            borderRadius: 8,
+            padding: 16,
+            maxWidth: 800,
+            width: "100%",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>
+              {expandedAgent} — Output
+            </span>
+            <button
+              onClick={() => setExpandedAgent(null)}
+              style={{
+                background: "transparent",
+                border: "1px solid #475569",
+                color: "#94a3b8",
+                borderRadius: 4,
+                padding: "2px 8px",
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              Close
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8, fontSize: 10, color: "#64748b" }}>
+            <span>Status: {agentTasks[expandedAgent].status}</span>
+            {agentTasks[expandedAgent].branch && <span>Branch: {agentTasks[expandedAgent].branch}</span>}
+            {agentTasks[expandedAgent].commitSha && <span>Commit: {agentTasks[expandedAgent].commitSha?.slice(0, 7)}</span>}
+          </div>
+          <pre
+            style={{
+              fontSize: 11,
+              color: "#94a3b8",
+              background: "#0f1419",
+              padding: 12,
+              borderRadius: 4,
+              maxHeight: 300,
+              overflow: "auto",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {agentTasks[expandedAgent].output || "(No output yet — agent is working...)"}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
