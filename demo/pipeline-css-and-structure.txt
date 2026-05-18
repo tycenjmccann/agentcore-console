@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Agentis Hub — Architecture Pipeline</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0f1419;color:#e2e8f0;font-family:"Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;overflow-x:auto;padding:14px 20px}
+.title{font-size:28px;font-weight:700;background:linear-gradient(90deg,#0ea5e9,#38bdf8,#0ea5e9);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 3s linear infinite;margin-bottom:3px}
+.subtitle{font-size:12px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px}
+@keyframes shimmer{to{background-position:200% center}}
+
+.legend{display:flex;gap:18px;margin-bottom:14px;font-size:10px;color:#64748b;flex-wrap:wrap;justify-content:center}
+.legend-item{display:flex;align-items:center;gap:4px}
+.legend-item .aws-ico{width:18px;height:18px;border-radius:3px;object-fit:contain}
+.legend-item .dot{width:7px;height:7px;border-radius:50%}
+.legend-item .dot.skill{background:#a855f7}
+.legend-item .dot.ext{background:#64748b}
+
+.canvas{position:relative;width:1720px;min-height:840px}
+svg.connectors{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
+.flow-path{fill:none;stroke:#1e293b;stroke-width:2;stroke-linecap:round;opacity:0;transition:opacity .3s}
+.flow-path.show{opacity:1}
+.flow-path.active{stroke:url(#flowGrad);stroke-width:2.5;filter:url(#pathGlow)}
+.flow-dot{fill:#0ea5e9;filter:url(#dotGlow);opacity:0}
+
+.pipeline{display:flex;align-items:flex-start;gap:44px;position:relative;z-index:2}
+
+.phase{display:flex;flex-direction:column;align-items:center;width:290px;opacity:0.35;transition:opacity .5s,transform .4s;transform:translateY(6px)}
+.phase.active{opacity:1;transform:translateY(0)}
+.phase.done{opacity:0.8;transform:translateY(0)}
+
+.agent-box{width:100%;border-radius:11px;padding:12px 14px;text-align:center;transition:all .4s;background:#1a2332;border:2px solid #1e293b}
+.agent-box.awake{border-color:#0ea5e9;box-shadow:0 0 20px rgba(14,165,233,.3)}
+.agent-box.done{border-color:#22c55e50;box-shadow:0 0 8px rgba(34,197,94,.1)}
+.agent-box .phase-num{font-size:8px;color:#64748b;letter-spacing:2px;text-transform:uppercase}
+.agent-box .phase-name{font-size:15px;font-weight:700;color:#e2e8f0;margin-top:2px}
+.agent-box .phase-type{display:inline-flex;align-items:center;gap:4px;margin-top:5px;padding:3px 8px;border-radius:5px;font-size:9px;font-weight:600;letter-spacing:0.5px}
+.agent-box .phase-type.app{background:#0ea5e910;color:#38bdf8;border:1px solid #0ea5e925}
+.agent-box .phase-type.agent{background:#a855f710;color:#c084fc;border:1px solid #a855f725}
+
+.identity{display:flex;flex-direction:column;gap:0;margin-top:8px;align-items:center}
+.id-row{display:flex;align-items:center;gap:8px}
+.id-icon-col{display:flex;flex-direction:column;align-items:center;gap:4px}
+.id-labels{display:flex;flex-direction:column;gap:4px;text-align:left}
+.id-icon{width:20px;height:20px;border-radius:3px;object-fit:contain}
+.id-label{font-size:8.5px;color:#94a3b8;line-height:20px;height:20px;display:flex;align-items:center}
+
+.config-detail{margin-top:6px;padding:5px 8px;background:#0f141980;border-radius:5px;border:1px solid #1e293b;text-align:left}
+.config-detail .cfg-row{display:flex;align-items:center;gap:4px;font-size:8px;color:#64748b;line-height:1.6}
+.config-detail .cfg-key{color:#475569;font-weight:600;min-width:52px}
+.config-detail .cfg-val{color:#94a3b8}
+
+.work-area{width:100%;margin-top:8px;display:flex;flex-direction:column;gap:3px}
+.sec-label{font-size:7px;color:#475569;letter-spacing:1.5px;text-transform:uppercase;margin-top:6px;margin-bottom:2px;padding-left:3px}
+
+.item{display:flex;align-items:center;gap:5px;padding:5px 7px;border-radius:6px;border:1px solid transparent;background:#1a233260;transition:all .3s;position:relative}
+.item.active{border-color:#0ea5e940;background:#0ea5e910}
+.item.active .item-label{color:#e2e8f0}
+.item.done{border-color:#22c55e20;opacity:0.7}
+.item.done .item-status{background:#22c55e}
+.item.trigger{border-color:#f97316;background:#f9731610;animation:pulse .6s}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.02)}}
+@keyframes agentPulse{0%{border-color:#0ea5e960;box-shadow:0 0 8px rgba(14,165,233,.3)}50%{border-color:#0ea5e9;box-shadow:0 0 16px rgba(14,165,233,.5)}100%{border-color:#0ea5e960;box-shadow:0 0 8px rgba(14,165,233,.3)}}
+.item.working{border-color:#0ea5e960;background:#0ea5e908;animation:agentPulse 1s ease-in-out infinite}
+.item.working .item-label{color:#e2e8f0}
+.item.working .item-status{background:#0ea5e9;box-shadow:0 0 5px #0ea5e9}
+
+.svc-icon{width:16px;height:16px;border-radius:2px;object-fit:contain;flex-shrink:0}
+.item-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.item-dot.skill{background:#a855f7}
+.item-dot.ext{background:#64748b}
+
+.item-label{font-size:10px;font-weight:500;color:#94a3b8;line-height:1.15;transition:color .3s}
+.item.active .item-label{color:#e2e8f0}
+.item-status{width:6px;height:6px;border-radius:50%;background:#1e293b;margin-left:auto;flex-shrink:0;transition:background .3s}
+.item.active .item-status{background:#0ea5e9;box-shadow:0 0 5px #0ea5e9}
+
+.status{text-align:center;margin-top:16px;min-height:44px}
+.status-phase{font-size:11px;color:#0ea5e9;letter-spacing:2px;text-transform:uppercase;margin-bottom:2px}
+.status-text{font-size:15px;font-weight:500;color:#e2e8f0}
+.controls{margin-top:12px}
+.btn{background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;border:none;padding:10px 26px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;transition:transform .2s}
+.btn:hover{transform:scale(1.05)}
+
+@keyframes celebrateBurst{0%{border-color:#f97316;box-shadow:0 0 30px rgba(255,255,255,.6)}100%{border-color:#22c55e50;box-shadow:0 0 8px rgba(34,197,94,.1)}}
+@keyframes celebrateItemBurst{0%{border-color:#f97316;background:#f9731618}100%{border-color:#f9731640;background:#f9731608}}
+@keyframes celebrateStatusBurst{0%{background:#f97316;box-shadow:0 0 8px #fbbf24}100%{background:#22c55e;box-shadow:0 0 4px rgba(34,197,94,.3)}}
+@keyframes celebrateConnector{0%{stroke:#f97316;opacity:.8}100%{stroke:#22c55e80;opacity:.4}}
+body.celebrate .agent-box.done{animation:celebrateBurst 1.2s ease-out forwards}
+body.celebrate .item.done{animation:celebrateItemBurst 1.2s ease-out forwards}
+body.celebrate .item.done .item-status{animation:celebrateStatusBurst 1.2s ease-out forwards}
+body.celebrate .flow-path.show{animation:celebrateConnector 1.2s ease-out forwards}
+body.celebrate .status-phase{color:#f97316}
+body.celebrate .title{background:linear-gradient(90deg,#f97316,#fbbf24,#f97316);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+body.celebrate .phase.done{opacity:1}
+</style>
+
+
+<!-- HTML STRUCTURE (base64 icons removed for brevity) -->
+
+<script>
+var svgLayer=document.getElementById('svgLayer');
+
+function getPos(id,side){
+  var el=document.getElementById(id);
+  var r=el.getBoundingClientRect();
+  var canvas=document.getElementById('canvas').getBoundingClientRect();
+  var y=r.top+r.height/2-canvas.top;
+  if(side==='right')return{x:r.right-canvas.left,y:y};
+  if(side==='left')return{x:r.left-canvas.left,y:y};
+  return{x:r.left+r.width/2-canvas.left,y:y};
+}
+
+function createPathEl(fromId,fromSide,toId,toSide){
+  var from=getPos(fromId,fromSide);
+  var to=getPos(toId,toSide);
+  var dx=to.x-from.x;
+  var dy=to.y-from.y;
+  var d;
+  if(Math.abs(dx)>Math.abs(dy)*0.8){
+    var cpx=dx*0.4;
+    d='M'+from.x+','+from.y+' C'+(from.x+cpx)+','+from.y+' '+(to.x-cpx)+','+to.y+' '+to.x+','+to.y;
+  } else {
+    var cpy=dy*0.4;
+    d='M'+from.x+','+from.y+' C'+from.x+','+(from.y+cpy)+' '+to.x+','+(to.y-cpy)+' '+to.x+','+to.y;
+  }
+  var path=document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d',d);
+  path.setAttribute('class','flow-path');
+  svgLayer.appendChild(path);
+  var dot=document.createElementNS('http://www.w3.org/2000/svg','circle');
+  dot.setAttribute('r','5');
+  dot.setAttribute('class','flow-dot');
+  svgLayer.appendChild(dot);
+  return{path:path,dot:dot};
+}
+
+function animateConnector(fromId,fromSide,toId,toSide,duration){
+  duration=duration||900;
+  return new Promise(function(resolve){
+    var result=createPathEl(fromId,fromSide,toId,toSide);
+    var path=result.path,dot=result.dot;
+    path.classList.add('show','active');
+    var pathLen=path.getTotalLength();
+    var startT=performance.now();
+    dot.style.opacity='1';
+    function tick(now){
+      var t=Math.min((now-startT)/duration,1);
+      var ease=t<0.5?2*t*t:-1+(4-2*t)*t;
+      var pt=path.getPointAtLength(ease*pathLen);
+      dot.setAttribute('cx',pt.x);
+      dot.setAttribute('cy',pt.y);
+      dot.style.opacity=t<0.05?t/0.05:(t>0.9?(1-t)/0.1:'1');
+      if(t<1)requestAnimationFrame(tick);
+      else{dot.style.opacity='0';path.classList.remove('active');resolve();}
+    }
+    requestAnimationFrame(tick);
+  });
+}
+
+function activate(id,desc){
+  var el=document.getElementById(id);
+  el.classList.remove('done','trigger');
+  el.classList.add('active');
+  if(desc)document.getElementById('statusText').textContent=desc;
+}
+function startWorking(id){
+  var el=document.getElementById(id);
+  el.classList.remove('active');
+  el.classList.add('working');
+}
+function done(id){
+  var el=document.getElementById(id);
+  el.classList.remove('active','trigger','working');
+  el.classList.add('done');
+}
+function trigger(id){
+  document.getElementById(id).classList.add('trigger');
+}
+function wakeAgent(boxId){
+  document.getElementById(boxId).classList.add('awake');
+}
+function doneAgent(boxId){
+  var el=document.getElementById(boxId);
+  el.classList.remove('awake');
+  el.classList.add('done');
+}
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms)});}
+
+var running=false;
+async function start(){
+  if(running)return;
+  running=true;
+  document.getElementById('playBtn').innerHTML='Playing...';
+
+  document.querySelectorAll('.phase').forEach(function(p){p.className='phase'});
+  document.querySelectorAll('.agent-box').forEach(function(b){b.className='agent-box'});
+  document.querySelectorAll('.item').forEach(function(i){i.className=i.className.replace(/\b(active|done|trigger|working)\b/g,'').trim()});
+  document.querySelectorAll('.flow-path,.flow-dot').forEach(function(e){e.remove()});
+  document.getElementById('statusPhase').textContent='';
+  document.getElementById('statusText').textContent='';
+  await sleep(800);
+
+  // ===================== PHASE 1: INTAKE =====================
+  document.getElementById('p1').classList.add('active');
+  wakeAgent('box1');
+  document.getElementById('statusPhase').textContent='Phase 1: Intake';
+
+  activate('i-prd','User uploads PRD or mockup');
+  await sleep(900);
+  done('i-prd');
+
+  activate('i-repo','Target Git repository configured');
+  await sleep(900);
+  done('i-repo');
+
+  activate('i-s3','Artifacts stored in S3 bucket');
+  await sleep(900);
+  done('i-s3');
+
+  activate('i-epic','Submit triggers Jira Epic creation via EventBridge');
+  await sleep(800);
+  // Trigger + connector fire simultaneously
+  trigger('i-epic');
+  doneAgent('box1');
+  document.getElementById('p1').classList.remove('active');
+  document.getElementById('p1').classList.add('done');
+  document.getElementById('statusText').textContent='EventBridge event wakes Requirements Agent';
+  await animateConnector('i-epic','right','box2','left',1000);
+  done('i-epic');
+
+  // ===================== PHASE 2: REQUIREMENTS =====================
+  document.getElementById('p2').classList.add('active');
+  wakeAgent('box2');
+  document.getElementById('statusPhase').textContent='Phase 2: Requirements Agent';
+  await sleep(600);
+
+  activate('r-s3','Tool: S3 Read — fetching PRD artifacts');
+  await animateConnector('r-s3','left','i-s3','right',800);
+  done('r-s3');
+  await sleep(300);
+
+  activate('r-memory','Tool: Memory — storing context');
+  await sleep(600);
+  done('r-memory');
+
+  activate('r-gateway','Tool: Gateway — Figma frames, Browser');
+  await sleep(600);
+  done('r-gateway');
+
+  // Agent pulses 3x while working
+  document.getElementById('statusText').textContent='Requirements Analyst agent working...';
+  startWorking('r-agent');
+  await sleep(1000);
+
+  // Skills activate while agent pulses
+  activate('r-parse','');
+  await sleep(800);
+  done('r-parse');
+  activate('r-criteria','');
+  await sleep(800);
+  done('r-criteria');
+  activate('r-decomp','');
+  await sleep(800);
+  done('r-decomp');
+
+  done('r-agent');
+  await sleep(300);
+
+  // S3 tool re-activates when writing output
+  activate('r-s3','Writing requirements artifacts to S3');
+  activate('r-s3write','');
+  await animateConnector('r-s3write','left','i-s3','right',800);
+  done('r-s3write');
+  done('r-s3');
+  await sleep(300);
+
+  // Gateway report_completion + connector fire simultaneously
+  activate('r-jira','Gateway: report_completion — creating tickets');
+  await sleep(400);
+  trigger('r-jira');
+  doneAgent('box2');
+  document.getElementById('p2').classList.remove('active');
+  document.getElementById('p2').classList.add('done');
+  document.getElementById('statusText').textContent='Jira tickets created — wakes 7 Design Agents';
+  await animateConnector('r-jira','right','box3','left',1000);
+  done('r-jira');
+
+  // ===================== PHASE 3: DESIGN =====================
+  document.getElementById('p3').classList.add('active');
+  wakeAgent('box3');
+  document.getElementById('statusPhase').textContent='Phase 3: Design (7 Agents Parallel)';
+  await sleep(600);
+
+  activate('d-s3','Tool: S3 Read — fetching requirements');
+  await animateConnector('d-s3','left','i-s3','right',800);
+  done('d-s3');
+  await sleep(300);
+
+  activate('d-memory','Tool: Memory — reading shared context');
+  await sleep(500);
+  done('d-memory');
+
+  activate('d-a2a','Tool: A2A + Gateway + Figma ready');
+  await sleep(500);
+  done('d-a2a');
+
+  // ALL 7 agents light up simultaneously and pulse
+  var designAgents=['d-ios','d-backend','d-android','d-security','d-analytics','d-legal','d-i18n'];
+  document.getElementById('statusText').textContent='All 7 design agents running in parallel';
+  designAgents.forEach(function(id){startWorking(id)});
+  await sleep(1500);
+
+  // Skills activate while agents pulse
+  activate('d-sk1','');activate('d-sk2','');activate('d-sk3','');
+  await sleep(1500);
+  done('d-sk1');done('d-sk2');done('d-sk3');
+  await sleep(500);
+
+  // All agents complete together
+  designAgents.forEach(function(id){done(id)});
+  await sleep(400);
+
+  activate('d-s3','Writing design artifacts to S3');
+  activate('d-s3write','');
+  await animateConnector('d-s3write','left','i-s3','right',800);
+  done('d-s3write');
+  done('d-s3');
+  await sleep(300);
+
+  // Gateway report_completion + connector simultaneously
+  activate('d-jira','Gateway: report_completion');
+  await sleep(400);
+  trigger('d-jira');
+  doneAgent('box3');
+  document.getElementById('p3').classList.remove('active');
+  document.getElementById('p3').classList.add('done');
+  document.getElementById('statusText').textContent='Design done — dev tickets unblocked — wakes Dev Agents';
+  await animateConnector('d-jira','right','box4','left',1000);
+  done('d-jira');
+
+  // ===================== PHASE 4: DEVELOPMENT =====================
+  document.getElementById('p4').classList.add('active');
+  wakeAgent('box4');
+  document.getElementById('statusPhase').textContent='Phase 4: Development (3 Agents Parallel)';
+  await sleep(600);
+
+  activate('v-s3','Tool: S3 Read — fetching design artifacts');
+  await animateConnector('v-s3','left','i-s3','right',800);
+  done('v-s3');
+  await sleep(300);
+
+  activate('v-code','Tool: Code Interpreter sandbox started');
+  await sleep(600);
+  done('v-code');
+
+  activate('v-memory','Tool: Memory + A2A + Gateway');
+  await sleep(500);
+  done('v-memory');
+
+  activate('v-git','Tool: Git — clone repo, create feature branch');
+  await sleep(600);
+  done('v-git');
+
+  // ALL 3 dev agents light up and pulse
+  var devAgents=['v-backend','v-frontend','v-api'];
+  document.getElementById('statusText').textContent='All 3 dev agents running in parallel on shared branch';
+  devAgents.forEach(function(id){startWorking(id)});
+  await sleep(1500);
+
+  // Skills activate while agents pulse
+  activate('v-sk1','');activate('v-sk2','');activate('v-sk3','');
+  await sleep(1500);
+  done('v-sk1');done('v-sk2');done('v-sk3');
+  await sleep(500);
+
+  // All agents complete together
+  devAgents.forEach(function(id){done(id)});
+  await sleep(400);
+
+  // Git tool + Feature branch light up simultaneously (git commit + push)
+  activate('v-git','Git: commit to feature branch + push PR');
+  activate('v-branch','');
+  await sleep(700);
+  done('v-git');
+  done('v-branch');
+
+  // Gateway report_completion + connector simultaneously
+  activate('v-jira','Gateway: report_completion');
+  await sleep(400);
+  trigger('v-jira');
+  doneAgent('box4');
+  document.getElementById('p4').classList.remove('active');
+  document.getElementById('p4').classList.add('done');
+  document.getElementById('statusText').textContent='Dev done — QA ticket created — wakes QA Agents';
+  await animateConnector('v-jira','right','box5','left',1000);
+  done('v-jira');
+
+  // ===================== PHASE 5: QA & SHIP =====================
+  document.getElementById('p5').classList.add('active');
+  wakeAgent('box5');
+  document.getElementById('statusPhase').textContent='Phase 5: QA & Ship (2 Agents)';
+  await sleep(600);
+
+  activate('q-git','Tool: Git CLI — reading feature branch');
+  await animateConnector('q-git','left','v-branch','right',800);
+  done('q-git');
+  await sleep(300);
+
+  activate('q-code','Tool: Code Interpreter — test sandbox');
+  await sleep(600);
+  done('q-code');
+
+  activate('q-memory','Tool: Memory + A2A + Gateway');
+  await sleep(500);
+  done('q-memory');
+
+  // QA agents pulse while working
+  document.getElementById('statusText').textContent='QA Verifier + CI Agent running verification';
+  startWorking('q-verifier');
+  startWorking('q-ci');
+  await sleep(1200);
+
+  // Skills fire
+  activate('q-review','');
+  await sleep(700);
+  done('q-review');
+  activate('q-test','');
+  await sleep(700);
+  done('q-test');
+  activate('q-ci-skill','');
+  await sleep(700);
+  done('q-ci-skill');
+  activate('q-retry','Retry not needed — passed first try');
+  await sleep(600);
+  done('q-retry');
+
+  done('q-verifier');
+  done('q-ci');
+  await sleep(400);
+
+  // Git CLI + PR light up simultaneously (merge + auto-merge)
+  activate('q-git','Git CLI: merge checks pass');
+  activate('q-pr','Pull request approved (auto-merge ready)');
+  await sleep(800);
+  done('q-git');
+  done('q-pr');
+
+  activate('q-done','Workflow COMPLETE');
+  await sleep(600);
+  trigger('q-done');
+  await sleep(500);
+  done('q-done');
+
+  doneAgent('box5');
+  document.getElementById('p5').classList.remove('active');
+  document.getElementById('p5').classList.add('done');
+
+  // CELEBRATION — all elements burst simultaneously via CSS animation (no stagger)
+  document.getElementById('statusPhase').textContent='PIPELINE COMPLETE';
+  document.getElementById('statusText').textContent='13 agents across 5 phases — real code shipped — zero human intervention';
+  document.body.offsetHeight; // force reflow so animation starts on same frame for all elements
+  document.body.classList.add('celebrate');
+  await sleep(1500);
+
+  document.getElementById('playBtn').innerHTML='Replay';
+  running=false;
+}
+
+window.addEventListener('load',function(){setTimeout(start,900)});
+</script>
