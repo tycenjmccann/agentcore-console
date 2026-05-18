@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.container { display: flex; height: 100vh; }
+
+.sidebar {
+  width: 200px;
+  background: #12121a;
+  border-right: 1px solid #2a2a3a;
+  padding: 20px 12px;
+  flex-shrink: 0;
+}
+.logo { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; padding: 0 8px; }
+.logo-icon { width: 28px; height: 28px; background: #0ea5e9; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.logo-icon svg { width: 16px; height: 16px; fill: white; }
+.logo-text h1 { font-size: 16px; font-weight: 700; color: white; }
+.logo-text p { font-size: 10px; color: #6b7280; }
+
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px; margin-bottom: 2px;
+  font-size: 13px; font-weight: 500; color: #9ca3af;
+}
+.nav-item.active { background: rgba(14,165,233,0.15); color: #38bdf8; }
+
+.main { flex: 1; padding: 24px 28px; overflow-y: auto; }
+.header-bar {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;
+}
+.header-bar h2 { font-size: 20px; font-weight: 700; color: #f8f9fa; }
+.region-badge { background: #1a1a25; border: 1px solid #2a2a3a; border-radius: 8px; padding: 5px 10px; font-size: 11px; color: #94a3b8; }
+
+.card {
+  background: #12121a; border: 1px solid #2a2a3a; border-radius: 12px; padding: 20px; margin-bottom: 20px;
+}
+.section-title { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; margin-bottom: 14px; }
+.metrics-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+.metrics-grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
+.metric { }
+.metric-label { font-size: 9px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.metric-value { font-size: 20px; font-weight: 700; color: #f8f9fa; }
+.metric-sub { font-size: 10px; color: #6b7280; margin-top: 2px; }
+
+.epic-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid #2a2a3a; }
+.epic-title { font-size: 10px; color: #9ca3af; margin-bottom: 10px; }
+.epic-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.epic-name { font-size: 11px; color: #d1d5db; width: 200px; flex-shrink: 0; }
+.epic-bar { flex: 1; height: 8px; background: #222230; border-radius: 4px; overflow: hidden; }
+.epic-fill { height: 100%; border-radius: 4px; }
+.epic-count { font-size: 10px; color: #6b7280; width: 40px; text-align: right; flex-shrink: 0; }
+
+.table-section { }
+.table-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.view-all { font-size: 11px; color: #38bdf8; }
+table { width: 100%; border-collapse: collapse; }
+th { font-size: 9px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; padding: 8px 10px; text-align: left; border-bottom: 1px solid #2a2a3a; }
+th.right { text-align: right; }
+td { padding: 12px 10px; border-bottom: 1px solid #1a1a25; font-size: 13px; }
+td.right { text-align: right; }
+.agent-name { color: #e2e8f0; font-weight: 600; }
+.val-bold { font-weight: 700; color: #f8f9fa; }
+.val-cyan { color: #22d3ee; font-weight: 600; }
+.val-purple { color: #a78bfa; font-weight: 600; }
+.val-green { color: #4ade80; font-weight: 700; }
+.val-emerald { color: #34d399; font-weight: 700; }
+.val-dim { color: #6b7280; }
+.status-badge { background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.3); padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; }
+.agent-icon { width: 28px; height: 28px; background: rgba(14,165,233,0.15); border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; margin-right: 10px; vertical-align: middle; }
+.agent-icon svg { width: 14px; height: 14px; fill: #38bdf8; }
+
+.callout {
+  position: fixed; top: 20px; right: 300px;
+  background: #ef4444; color: white; padding: 8px 16px; border-radius: 8px;
+  font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(239,68,68,0.4);
+  z-index: 100;
+}
+.callout::after {
+  content: ''; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+  border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 8px solid #ef4444;
+}
+.no-toggle {
+  position: fixed; top: 16px; right: 80px;
+  border: 2px dashed #ef4444; border-radius: 8px; padding: 4px 12px;
+  font-size: 12px; color: #ef4444; font-weight: 500;
+  z-index: 100;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="sidebar">
+    <div class="logo">
+      <div class="logo-icon"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1.07A7.001 7.001 0 0113 23h-2a7.001 7.001 0 01-6.93-6H3a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2z"/></svg></div>
+      <div class="logo-text"><h1>Agentis</h1><p>Hub</p></div>
+    </div>
+    <div class="nav-item active">Dashboard</div>
+    <div class="nav-item">Agents</div>
+    <div class="nav-item">Build</div>
+    <div class="nav-item">Workflow</div>
+    <div class="nav-item">Routing</div>
+    <div class="nav-item">Ticket History</div>
+  </div>
+  <div class="main">
+    <div class="header-bar">
+      <h2>Dashboard</h2>
+      <span class="region-badge">us-east-1</span>
+    </div>
+
+    <!-- Agent Activity -->
+    <div class="card">
+      <div class="section-title">Agent Activity</div>
+      <div class="metrics-grid">
+        <div class="metric"><div class="metric-label">Invocations</div><div class="metric-value">505</div><div class="metric-sub">305 sessions</div></div>
+        <div class="metric"><div class="metric-label">Tokens</div><div class="metric-value">297.2M / 3.0M</div><div class="metric-sub">in / out</div></div>
+        <div class="metric"><div class="metric-label">Avg Duration</div><div class="metric-value">5s</div><div class="metric-sub">per session</div></div>
+        <div class="metric"><div class="metric-label">Total Duration</div><div class="metric-value">41m 7s</div><div class="metric-sub">autonomous work time</div></div>
+        <div class="metric"><div class="metric-label">Active Agents</div><div class="metric-value">26</div><div class="metric-sub">of 27 total</div></div>
+      </div>
+    </div>
+
+    <!-- Jira Section -->
+    <div class="card">
+      <div class="section-title">Jira</div>
+      <div class="metrics-grid-6">
+        <div class="metric"><div class="metric-label">Tickets Resolved</div><div class="metric-value">234</div><div class="metric-sub">18 in progress</div></div>
+        <div class="metric"><div class="metric-label">Active Epics</div><div class="metric-value">5</div><div class="metric-sub">in progress</div></div>
+        <div class="metric"><div class="metric-label">Stories Done</div><div class="metric-value">89</div><div class="metric-sub">12 active</div></div>
+        <div class="metric"><div class="metric-label">Avg Resolution</div><div class="metric-value">4.2m</div><div class="metric-sub">per ticket</div></div>
+        <div class="metric"><div class="metric-label">Throughput</div><div class="metric-value">33/day</div><div class="metric-sub">avg this week</div></div>
+        <div class="metric"><div class="metric-label">Automation Rate</div><div class="metric-value">92%</div><div class="metric-sub">no human needed</div></div>
+      </div>
+      <div class="epic-section">
+        <div class="epic-title">Epic Progress</div>
+        <div class="epic-row"><span class="epic-name">Customer Onboarding Automation</span><div class="epic-bar"><div class="epic-fill" style="width:75%;background:#f97316"></div></div><span class="epic-count">9/12</span></div>
+        <div class="epic-row"><span class="epic-name">Support Ticket Resolution</span><div class="epic-bar"><div class="epic-fill" style="width:87.5%;background:#3b82f6"></div></div><span class="epic-count">21/24</span></div>
+        <div class="epic-row"><span class="epic-name">Account Migration</span><div class="epic-bar"><div class="epic-fill" style="width:37.5%;background:#a855f7"></div></div><span class="epic-count">3/8</span></div>
+        <div class="epic-row"><span class="epic-name">Billing Dispute Handling</span><div class="epic-bar"><div class="epic-fill" style="width:93%;background:#22c55e"></div></div><span class="epic-count">14/15</span></div>
+        <div class="epic-row"><span class="epic-name">Data Cleanup Sprint</span><div class="epic-bar"><div class="epic-fill" style="width:93%;background:#06b6d4"></div></div><span class="epic-count">28/30</span></div>
+      </div>
+    </div>
+
+    <!-- Agent Performance -->
+    <div class="card">
+      <div class="table-header">
+        <div class="section-title" style="margin-bottom:0">Agent Performance</div>
+        <span class="view-all">View all →</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Agent</th>
+            <th class="right">Sessions</th>
+            <th class="right">Tokens (in/out)</th>
+            <th class="right">Invocations</th>
+            <th class="right">Avg Duration</th>
+            <th class="right">Total Duration</th>
+            <th class="right">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="agent-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg></span><span class="agent-name">agentis_builder</span></td><td class="right val-bold">68</td><td class="right"><span class="val-cyan">4.5M</span> <span class="val-dim">|</span> <span class="val-purple">14.4K</span></td><td class="right val-green">27</td><td class="right val-bold">1s</td><td class="right val-emerald">39s</td><td class="right"><span class="status-badge">READY</span></td></tr>
+          <tr><td><span class="agent-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg></span><span class="agent-name">csharness_cssonnet</span></td><td class="right val-bold">51</td><td class="right"><span class="val-cyan">8.1M</span> <span class="val-dim">|</span> <span class="val-purple">18.0K</span></td><td class="right val-green">103</td><td class="right val-bold">3s</td><td class="right val-emerald">4m 54s</td><td class="right"><span class="status-badge">READY</span></td></tr>
+          <tr><td><span class="agent-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg></span><span class="agent-name">deepresearcher_deepresea...</span></td><td class="right val-bold">2</td><td class="right"><span class="val-cyan">6.8M</span> <span class="val-dim">|</span> <span class="val-purple">10.8K</span></td><td class="right val-green">7</td><td class="right val-bold">1s</td><td class="right val-emerald">5s</td><td class="right"><span class="status-badge">READY</span></td></tr>
+          <tr><td><span class="agent-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg></span><span class="agent-name">routing_designer_v2</span></td><td class="right val-bold">0</td><td class="right"><span class="val-cyan">510.0K</span> <span class="val-dim">|</span> <span class="val-purple">9.1K</span></td><td class="right val-green">3</td><td class="right val-bold">1s</td><td class="right val-emerald">3s</td><td class="right"><span class="status-badge">READY</span></td></tr>
+          <tr><td><span class="agent-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg></span><span class="agent-name">routing_developer_v2</span></td><td class="right val-bold">0</td><td class="right"><span class="val-cyan">628.0K</span> <span class="val-dim">|</span> <span class="val-purple">18.4K</span></td><td class="right val-green">3</td><td class="right val-bold">2s</td><td class="right val-emerald">7s</td><td class="right"><span class="status-badge">READY</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="no-toggle">No theme toggle</div>
+  <div class="callout">Dark mode only — no way to switch</div>
+</div>
+</body>
+</html>

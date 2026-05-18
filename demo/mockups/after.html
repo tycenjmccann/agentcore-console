@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html data-theme="light">
+<head>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #f8f9fa; color: #1a1a2e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.container { display: flex; height: 100vh; }
+
+.sidebar {
+  width: 256px;
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  padding: 24px 16px;
+}
+.logo { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; padding: 0 8px; }
+.logo-icon { width: 32px; height: 32px; background: #6366f1; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.logo-icon svg { width: 20px; height: 20px; fill: white; }
+.logo-text h1 { font-size: 18px; font-weight: 700; color: #1a1a2e; }
+.logo-text p { font-size: 11px; color: #64748b; }
+
+.nav-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 8px; margin-bottom: 4px;
+  font-size: 14px; font-weight: 500; color: #64748b;
+}
+.nav-item.active { background: rgba(99,102,241,0.1); color: #6366f1; border: 1px solid rgba(99,102,241,0.2); }
+
+.main { flex: 1; padding: 32px; overflow-y: auto; }
+.header-bar {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;
+}
+.header-bar h2 { font-size: 24px; font-weight: 700; color: #1a1a2e; }
+
+.header-right { display: flex; align-items: center; gap: 16px; }
+.region-badge { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 12px; font-size: 12px; color: #64748b; }
+
+.theme-toggle {
+  display: flex; align-items: center; gap: 8px;
+  background: #ffffff; border: 2px solid #22c55e; border-radius: 24px; padding: 6px 14px;
+  font-size: 13px; font-weight: 600; color: #1a1a2e;
+  box-shadow: 0 2px 8px rgba(34,197,94,0.2);
+}
+.toggle-icon { font-size: 16px; }
+
+.metrics-card {
+  background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.metrics-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 24px; }
+.metric { text-align: center; }
+.metric-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.metric-value { font-size: 24px; font-weight: 700; color: #1a1a2e; }
+.metric-sub { font-size: 11px; color: #64748b; margin-top: 4px; }
+
+.section-title { font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+
+.epic-list { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; }
+.epic-item { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+.epic-item:last-child { border-bottom: none; }
+.epic-bar { flex: 1; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+.epic-bar-fill { height: 100%; border-radius: 4px; }
+.epic-name { width: 200px; font-size: 13px; color: #374151; }
+.epic-count { font-size: 12px; color: #64748b; width: 50px; text-align: right; }
+
+.callout {
+  position: absolute; top: 20px; right: 300px;
+  background: #22c55e; color: white; padding: 8px 16px; border-radius: 8px;
+  font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(34,197,94,0.4);
+}
+.callout::after {
+  content: ''; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+  border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 8px solid #22c55e;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="sidebar">
+    <div class="logo">
+      <div class="logo-icon"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1.07A7.001 7.001 0 0113 23h-2a7.001 7.001 0 01-6.93-6H3a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2z"/></svg></div>
+      <div class="logo-text"><h1>Agentis</h1><p>Hub</p></div>
+    </div>
+    <div class="nav-item active">Dashboard</div>
+    <div class="nav-item">Agents</div>
+    <div class="nav-item">Build</div>
+    <div class="nav-item">Workflow</div>
+    <div class="nav-item">Ticket History</div>
+  </div>
+  <div class="main">
+    <div class="header-bar">
+      <h2>Dashboard</h2>
+      <div class="header-right">
+        <div class="theme-toggle"><span class="toggle-icon">☀️</span> Light Mode</div>
+        <span class="region-badge">us-east-1</span>
+      </div>
+    </div>
+    <div class="metrics-card">
+      <div class="metrics-grid">
+        <div class="metric"><div class="metric-label">Invocations</div><div class="metric-value">505</div><div class="metric-sub">305 sessions</div></div>
+        <div class="metric"><div class="metric-label">Tokens</div><div class="metric-value">297.2M / 3.0M</div><div class="metric-sub">in / out</div></div>
+        <div class="metric"><div class="metric-label">Avg Duration</div><div class="metric-value">5s</div><div class="metric-sub">per session</div></div>
+        <div class="metric"><div class="metric-label">Total Duration</div><div class="metric-value">41m 7s</div><div class="metric-sub">autonomous work time</div></div>
+        <div class="metric"><div class="metric-label">Active Agents</div><div class="metric-value">26</div><div class="metric-sub">of 27 total</div></div>
+      </div>
+    </div>
+    <div class="section-title">Epic Progress</div>
+    <div class="epic-list">
+      <div class="epic-item"><span class="epic-name">Customer Onboarding Automation</span><div class="epic-bar"><div class="epic-bar-fill" style="width:75%;background:#f97316"></div></div><span class="epic-count">9/12</span></div>
+      <div class="epic-item"><span class="epic-name">Support Ticket Resolution</span><div class="epic-bar"><div class="epic-bar-fill" style="width:87%;background:#3b82f6"></div></div><span class="epic-count">21/24</span></div>
+      <div class="epic-item"><span class="epic-name">Account Migration</span><div class="epic-bar"><div class="epic-bar-fill" style="width:37%;background:#eab308"></div></div><span class="epic-count">3/8</span></div>
+      <div class="epic-item"><span class="epic-name">Billing Dispute Handling</span><div class="epic-bar"><div class="epic-bar-fill" style="width:93%;background:#22c55e"></div></div><span class="epic-count">14/15</span></div>
+    </div>
+  </div>
+  <div class="callout">Theme toggle added by agents!</div>
+</div>
+</body>
+</html>

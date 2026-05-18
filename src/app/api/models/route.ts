@@ -16,10 +16,10 @@ const BEDROCK_MODELS: ModelOption[] = [
     isDefault: true,
   },
   {
-    id: "claude-opus-4",
-    label: "Claude Opus 4",
+    id: "claude-opus-46",
+    label: "Claude Opus 4.6",
     provider: "bedrock",
-    modelId: "global.anthropic.claude-opus-4-20250514-v1:0",
+    modelId: "global.anthropic.claude-opus-4-6-v1",
     description: "Most capable model. Best for complex reasoning and code generation.",
   },
 ];

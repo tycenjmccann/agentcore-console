@@ -1,0 +1,52 @@
+[
+  {
+    "id": "01-intro",
+    "file": "01-intro.mp3",
+    "duration": 11.496
+  },
+  {
+    "id": "02-navigate",
+    "file": "02-navigate.mp3",
+    "duration": 13.824
+  },
+  {
+    "id": "03-submit",
+    "file": "03-submit.mp3",
+    "duration": 11.16
+  },
+  {
+    "id": "04-requirements",
+    "file": "04-requirements.mp3",
+    "duration": 11.04
+  },
+  {
+    "id": "05-design",
+    "file": "05-design.mp3",
+    "duration": 9.864
+  },
+  {
+    "id": "06-development",
+    "file": "06-development.mp3",
+    "duration": 12.216
+  },
+  {
+    "id": "07-pr-created",
+    "file": "07-pr-created.mp3",
+    "duration": 11.328
+  },
+  {
+    "id": "08-merge",
+    "file": "08-merge.mp3",
+    "duration": 10.728
+  },
+  {
+    "id": "09-result",
+    "file": "09-result.mp3",
+    "duration": 10.488
+  },
+  {
+    "id": "10-closing",
+    "file": "10-closing.mp3",
+    "duration": 4.32
+  }
+]

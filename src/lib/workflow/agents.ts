@@ -66,7 +66,24 @@ VALID ASSIGNEE IDs (you MUST use one of these exact values):
 - "team-api-dev" — API implementation, contracts, docs
 - "team-frontend-dev" — UI/frontend implementation (iOS/Android/Web)
 
-The workflow_id will be provided in your input context. Use it when calling tools.`,
+The workflow_id will be provided in your input context. Use it when calling tools.
+
+## CRITICAL FALLBACK: If submit_ticket_plan tool is unavailable or fails
+If you cannot use the submit_ticket_plan tool, you MUST output your ticket plan as a JSON code block in your response text. The engine will parse it. Format:
+\`\`\`json
+{
+  "requirements": "your requirements summary here",
+  "tickets": [
+    {
+      "title": "Ticket title",
+      "description": "What to implement",
+      "assignee": "team-frontend-dev",
+      "blockedBy": []
+    }
+  ]
+}
+\`\`\`
+This is MANDATORY — without it the workflow cannot proceed.`,
     tools: ["s3_read", "gateway", "figma"],
     canQueryAgents: [],
   },
@@ -435,6 +452,18 @@ When done, report: branch name, PR URL, files changed, test results.`,
 9. All AWS ARNs, credentials, and service config are SERVER-ONLY. Never use NEXT_PUBLIC_ for sensitive values. Client components call server-side API routes.
 10. Every component you create MUST be imported and rendered somewhere. No orphaned components. Wire the full flow.
 11. Before creating your PR, review: are there duplicate files? abandoned iterations? Fix them before the PR.
+12. NEVER put source code inside markdown (.md) files. All code MUST be committed as real source files (.tsx, .ts, .css).
+13. NEVER create a new API endpoint if one already exists. Check src/app/api/ FIRST.
+14. Your deliverables are REAL committed source files, not documentation.
+
+## PIXEL-PERFECT CSS REPLICATION RULE
+When your context includes an HTML/CSS reference file marked [CRITICAL]:
+- Extract EVERY CSS value (colors, dimensions, fonts, animations, gradients, shadows, border-radius, etc.) from the reference
+- Use those EXACT values in your implementation — do NOT approximate or "interpret" them
+- Copy keyframe animations verbatim (timings, easing functions, transform values)
+- The reference HTML IS the spec. If it says \`background: #0f1419\`, your code MUST use \`#0f1419\`, not a similar dark color
+- If the reference has 5 phases, your component renders 5 phases. If it has specific section layouts (tools, agents, skills), replicate those sections
+- When in doubt, copy the CSS literally into your stylesheet and adapt only the React rendering logic
 
 Your job:
 1. FIRST call load_skill with skill_name "full-stack" (for web) or "swift-development" (for iOS)

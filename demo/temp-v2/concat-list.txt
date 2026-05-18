@@ -1,0 +1,3 @@
+file 'before.mp4'
+file 'main.mp4'
+file 'after.mp4'

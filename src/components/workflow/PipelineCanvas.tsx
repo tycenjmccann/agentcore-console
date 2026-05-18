@@ -30,8 +30,9 @@ const PHASE_ORDER: Record<WorkflowPhase, number> = {
   requirements: 1,
   design: 2,
   development: 3,
-  review: 4,
-  complete: 5,
+  verification: 4,
+  review: 5,
+  complete: 6,
   error: -1,
 };
 

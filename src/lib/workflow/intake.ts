@@ -12,6 +12,7 @@
 import {
   S3Client,
   GetObjectCommand,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { writeArtifact } from "./workspace";
 import type { IntakeSource, WorkflowInput } from "./types";
@@ -38,6 +39,11 @@ interface ProcessedSource {
  * For images/PDFs: stores as-is with content type.
  */
 async function processUrl(url: string): Promise<{ content: string; contentType: string }> {
+  // Route s3:// URIs to S3 handler (UI submits them as type "url")
+  if (url.startsWith("s3://")) {
+    return processS3Source(url);
+  }
+
   try {
     const response = await fetch(url, {
       headers: {
@@ -56,11 +62,11 @@ async function processUrl(url: string): Promise<{ content: string; contentType: 
 
     const contentType = response.headers.get("content-type") || "text/plain";
 
-    // HTML content — extract text
+    // HTML content — preserve raw HTML (contains CSS values, structure, animations)
+    // Stripping tags would destroy the design spec that agents need to replicate
     if (contentType.includes("text/html") || contentType.includes("application/xhtml")) {
       const html = await response.text();
-      const text = stripHtmlTags(html);
-      return { content: text, contentType: "text/plain" };
+      return { content: html, contentType: "text/html" };
     }
 
     // JSON content — prettify
@@ -339,6 +345,8 @@ export function buildRequirementsContext(
     context += `## Input Sources\n\n`;
     const imageFiles: string[] = [];
 
+    const MAX_INLINE_SIZE = 30000; // Cap inline content to avoid context overflow
+
     for (const source of processedSources) {
       context += `### Source: ${source.label || source.originalValue} (${source.type})\n`;
       if (source.isImage && source.s3Key) {
@@ -346,6 +354,12 @@ export function buildRequirementsContext(
         imageFiles.push(`/workspace/intake/${filename}`);
         context += `**[Image file available at /workspace/intake/${filename}]**\n`;
         context += `Use the browser tool to navigate to the presigned URL to view this mockup/screenshot.\n\n`;
+      } else if (source.content.length > MAX_INLINE_SIZE && source.s3Key) {
+        // Large content: provide first 8K chars + S3 reference for full access
+        const bucket = process.env.TEAM_WORKFLOW_S3_BUCKET || "";
+        context += `**[Large file: ${(source.content.length / 1024).toFixed(0)}KB — showing first 8KB, full content at s3://${bucket}/${source.s3Key}]**\n\n`;
+        context += `${source.content.slice(0, 8000)}\n\n`;
+        context += `... [TRUNCATED — use s3_read tool to access full ${(source.content.length / 1024).toFixed(0)}KB content at s3://${bucket}/${source.s3Key}]\n\n`;
       } else {
         context += `${source.content}\n\n`;
       }
@@ -378,4 +392,59 @@ export function buildRequirementsContext(
   context += `Available agents: team-ios-designer, team-backend-designer, team-android-designer, team-security-reviewer, team-legal-compliance, team-localization, team-analytics-designer, team-backend-dev, team-api-dev, team-frontend-dev\n`;
 
   return context;
+}
+
+// ─── Upfront Validation ─────────────────────────────────────────────────────
+
+/**
+ * Validate that all intake sources are reachable BEFORE starting the workflow.
+ * Returns an array of error strings for any unreachable sources.
+ * Empty array = all sources valid.
+ */
+export async function validateIntakeSources(
+  sources: IntakeSource[]
+): Promise<string[]> {
+  const errors: string[] = [];
+  const client = new S3Client({ region: DEFAULT_REGION });
+
+  const checks = sources.map(async (source) => {
+    const value = source.value;
+    try {
+      if (value.startsWith("s3://")) {
+        // S3 URI — HEAD check
+        const match = value.match(/^s3:\/\/([^/]+)\/(.+)$/);
+        if (!match) {
+          return `Invalid S3 URI format: ${value}`;
+        }
+        const [, bucket, key] = match;
+        await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+        return null; // OK
+      } else if (value.startsWith("http://") || value.startsWith("https://")) {
+        // HTTP URL — HEAD check
+        const res = await fetch(value, {
+          method: "HEAD",
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!res.ok) {
+          return `URL unreachable (${res.status}): ${value}`;
+        }
+        return null; // OK
+      }
+      // Upload type — skip validation (already in memory)
+      return null;
+    } catch (err) {
+      return `Source unreachable: ${value} — ${(err as Error).message}`;
+    }
+  });
+
+  const results = await Promise.allSettled(checks);
+  for (const result of results) {
+    if (result.status === "fulfilled" && result.value) {
+      errors.push(result.value);
+    } else if (result.status === "rejected") {
+      errors.push(`Validation error: ${result.reason}`);
+    }
+  }
+
+  return errors;
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { startWorkflow } from "@/lib/workflow/engine";
 import { DEMO_MODE, startDemoWorkflow } from "@/lib/workflow/demo-mode";
 import { ensureRehydrated } from "@/lib/workflow/store";
+import { validateIntakeSources } from "@/lib/workflow/intake";
 import type { WorkflowInput } from "@/lib/workflow/types";
 
 /**
@@ -23,6 +24,20 @@ export async function POST(req: NextRequest) {
     // Defaults
     if (!body.sources) body.sources = [];
     if (!body.description) body.description = "";
+
+    // Validate all sources are reachable BEFORE starting the workflow
+    if (body.sources.length > 0) {
+      const validationErrors = await validateIntakeSources(body.sources);
+      if (validationErrors.length > 0) {
+        return NextResponse.json(
+          {
+            error: "Source validation failed — some sources are unreachable",
+            details: validationErrors,
+          },
+          { status: 422 }
+        );
+      }
+    }
 
     // Ensure rehydration so ticket counter is synced
     await ensureRehydrated();

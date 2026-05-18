@@ -16,6 +16,7 @@ const PHASE_LABELS: Record<AgentPhase, string> = {
   requirements: "Requirements",
   design: "Design",
   development: "Development",
+  verification: "Verification",
   review: "Review",
 };
 
@@ -23,6 +24,7 @@ const PHASE_DESCRIPTIONS: Record<AgentPhase, string> = {
   requirements: "Analyze & plan tickets",
   design: "Architecture & UI design",
   development: "Implement features",
+  verification: "QA & testing",
   review: "Verify & validate",
 };
 

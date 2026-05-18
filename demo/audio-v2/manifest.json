@@ -1,0 +1,52 @@
+[
+  {
+    "id": "01-intro",
+    "file": "01-intro.mp3",
+    "duration": 16.43102
+  },
+  {
+    "id": "02-dashboard-context",
+    "file": "02-dashboard-context.mp3",
+    "duration": 17.554286
+  },
+  {
+    "id": "03-ticket-history",
+    "file": "03-ticket-history.mp3",
+    "duration": 9.247347
+  },
+  {
+    "id": "04-workflow-intro",
+    "file": "04-workflow-intro.mp3",
+    "duration": 12.747755
+  },
+  {
+    "id": "05-submit",
+    "file": "05-submit.mp3",
+    "duration": 12.120816
+  },
+  {
+    "id": "06-design",
+    "file": "06-design.mp3",
+    "duration": 15.882449
+  },
+  {
+    "id": "07-development",
+    "file": "07-development.mp3",
+    "duration": 17.71102
+  },
+  {
+    "id": "08-complete",
+    "file": "08-complete.mp3",
+    "duration": 13.714286
+  },
+  {
+    "id": "09-before-after",
+    "file": "09-before-after.mp3",
+    "duration": 14.915918
+  },
+  {
+    "id": "10-closing",
+    "file": "10-closing.mp3",
+    "duration": 7.000816
+  }
+]

@@ -38,6 +38,7 @@ import { generateSessionId } from "./session";
 import { invokeHarnessAgent, discoverAgents } from "@/lib/agentcore-sdk";
 import { processIntakeSources, buildRequirementsContext } from "./intake";
 import { provisionWorkspace, startCodeInterpreterSession, stopCodeInterpreterSession, writeArtifact, readArtifact, listArtifacts } from "./workspace";
+import { initManifest, addManifestEntries, getManifest, buildManifestContext } from "./manifest";
 import { getCodeSearchProvider } from "./code-search-provider";
 
 const DEFAULT_REGION = process.env.AWS_REGION || "us-east-1";
@@ -134,6 +135,25 @@ async function processIntakeAndStart(
     } catch (err) {
       console.warn("Intake processing partial failure:", err);
     }
+
+    // Hard stop: if ALL sources failed to load, abort the workflow
+    const failedCount = processedSources.filter(s => s.content.startsWith("[Error")).length;
+    if (failedCount === processedSources.length && processedSources.length > 0) {
+      const errorMsg = `All ${failedCount} intake sources failed to load. Aborting workflow.`;
+      console.error(`[engine] ${errorMsg}`);
+      state.phase = "error" as WorkflowState["phase"];
+      state.error = errorMsg;
+      setWorkflow(state);
+      emitEvent(workflowId, { type: "error", error: errorMsg });
+      throw new Error(errorMsg);
+    }
+  }
+
+  // Initialize the cumulative workflow manifest with intake sources
+  try {
+    await initManifest(workflowId, processedSources);
+  } catch (err) {
+    console.warn("[engine] Manifest initialization failed (non-fatal):", err);
   }
 
   // Phase: Requirements
@@ -496,10 +516,8 @@ async function invokeAgentBackground(
   if (!task) return;
 
   try {
-    // Determine model override: use workflow-level override for dev agents
-    const modelOverride = (agentDef.phase === "development" && state.input?.modelOverride)
-      ? state.input.modelOverride
-      : undefined;
+    // Determine model override: apply to ALL agents when specified
+    const modelOverride = state.input?.modelOverride || undefined;
 
     if (modelOverride) {
       const modelId = modelOverride.bedrockModelConfig?.modelId || modelOverride.openAiModelConfig?.modelId || "unknown";
@@ -666,6 +684,22 @@ export async function handleAgentCompletion(
       shared: true,
     });
   } catch { /* S3 write failure is non-fatal */ }
+
+  // Register the agent's output in the cumulative manifest
+  try {
+    const entryType = agentDef.phase === "development" ? "code" :
+                      agentDef.phase === "design" ? "design-doc" :
+                      agentDef.phase === "verification" ? "report" : "analysis";
+    await addManifestEntries(workflowId, agentDef.phase, [{
+      type: entryType as "code" | "design-doc" | "report" | "analysis",
+      format: "markdown",
+      description: `${agentDef.name} output`,
+      s3Key: `workflows/${workflowId}/shared/output.md`,
+      sizeBytes: output.length,
+      addedBy: agentDef.id,
+      critical: agentDef.phase === "design", // Design outputs are critical for dev agents
+    }]);
+  } catch { /* manifest update failure is non-fatal */ }
 
   // Check if agent saved artifacts via tools (design doc, completion report)
   try {
@@ -1189,36 +1223,33 @@ async function buildAgentContext(ticket: JiraTicket, state: WorkflowState): Prom
     } catch { /* no visual analysis available — agent can still read images directly */ }
   }
 
-  // For dev agents: include design artifacts from upstream agents
+  // For dev agents: inject the cumulative manifest so they can access ALL upstream artifacts
   if (agentDef?.phase === "development") {
-    context += `## Design Artifacts\n`;
-    // Collect outputs from completed design agents
-    for (const [aid, task] of Object.entries(state.agentTasks)) {
-      const def = getAgentDef(aid);
-      if (def?.phase === "design" && task.status === "complete" && task.output) {
-        context += `### ${def.name} Output\n${task.output.slice(0, 4000)}\n\n`;
+    // Manifest-based context: inlines critical artifacts directly into prompt
+    try {
+      const manifest = await getManifest(state.id);
+      if (manifest) {
+        context += await buildManifestContext(manifest, agentDef.phase, agentDef.id);
+      }
+    } catch { /* manifest read failed — fall back to inline excerpts */ }
+
+    // Fallback: if manifest is empty or unavailable, include truncated inline excerpts
+    const manifest = await getManifest(state.id).catch(() => null);
+    const hasManifestEntries = manifest && (
+      manifest.phases.intake.length > 0 ||
+      manifest.phases.design.length > 0 ||
+      manifest.phases.requirements.length > 0
+    );
+
+    if (!hasManifestEntries) {
+      context += `## Design Artifacts (inline excerpts)\n`;
+      for (const [aid, task] of Object.entries(state.agentTasks)) {
+        const def = getAgentDef(aid);
+        if (def?.phase === "design" && task.status === "complete" && task.output) {
+          context += `### ${def.name} Output\n${task.output.slice(0, 4000)}\n\n`;
+        }
       }
     }
-
-    // Also try S3 shared artifacts
-    try {
-      const sharedArtifacts = await listArtifacts({ workflowId: state.id });
-      const designDocs = sharedArtifacts.filter(
-        (a) => a.key.includes("/shared/") && a.key.endsWith(".md") && !a.key.includes("intake")
-      );
-      for (const doc of designDocs.slice(0, 3)) {
-        try {
-          const content = await readArtifact({
-            workflowId: state.id,
-            filename: doc.key.split("/shared/").pop() || "",
-            shared: true,
-          });
-          if (content && !context.includes(content.slice(0, 100))) {
-            context += `### S3 Design Doc: ${doc.key.split("/").pop()}\n${content.slice(0, 3000)}\n\n`;
-          }
-        } catch { /* skip */ }
-      }
-    } catch { /* S3 listing failed — non-fatal */ }
 
     context += `## Repository\n`;
     context += `Layout: ${state.repoConfig.layout}\n`;
@@ -1400,6 +1431,16 @@ async function buildAgentContext(ticket: JiraTicket, state: WorkflowState): Prom
     }
   }
 
+  // For design agents: inject manifest so they can access intake sources directly
+  if (agentDef?.phase === "design") {
+    try {
+      const manifest = await getManifest(state.id);
+      if (manifest) {
+        context += await buildManifestContext(manifest, agentDef.phase, agentDef.id);
+      }
+    } catch { /* manifest read failed — non-fatal */ }
+  }
+
   // For design agents: include other design agent outputs if available (e.g., security needs backend design)
   if (agentDef?.phase === "design" && agentDef.canQueryAgents.length > 0) {
     const upstreamOutputs: string[] = [];
@@ -1497,6 +1538,25 @@ function parseRequirementsOutput(output: string): TicketPlan {
   }
 
   // Fallback: couldn't parse structured output, create a generic ticket set
+  // Heuristic: if the requirements mention frontend/UI/React/component, skip backend-designer
+  const lowerOutput = output.toLowerCase();
+  const isFrontendOnly = /\b(react|component|css|ui|visualization|frontend|next\.js|tailwind)\b/.test(lowerOutput) &&
+    !/\b(api endpoint|database|lambda|dynamodb|backend service)\b/.test(lowerOutput);
+
+  if (isFrontendOnly) {
+    return {
+      requirements: output,
+      tickets: [
+        {
+          title: "Frontend Implementation",
+          description: "Implement the frontend component based on requirements and design reference",
+          assignee: "team-frontend-dev",
+          blockedBy: [],
+        },
+      ],
+    };
+  }
+
   return {
     requirements: output,
     tickets: [
