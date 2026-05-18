@@ -1,0 +1,258 @@
+/* Pipeline Board — Custom Animations & Styles
+ * Matches the exact CSS from the HTML mockup reference.
+ */
+
+/* ─── Shimmer Title Animation ─────────────────────────────────────────── */
+@keyframes shimmer {
+  to {
+    background-position: 200% center;
+  }
+}
+
+.pipeline-title {
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(90deg, #0ea5e9, #38bdf8, #0ea5e9);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 3s linear infinite;
+}
+
+/* ─── Phase Card States ───────────────────────────────────────────────── */
+.phase-card {
+  opacity: 0.35;
+  transition: opacity 0.5s, transform 0.4s;
+  transform: translateY(6px);
+}
+
+.phase-card.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.phase-card.done {
+  opacity: 0.8;
+  transform: translateY(0);
+}
+
+/* ─── Agent Box ───────────────────────────────────────────────────────── */
+.agent-box {
+  border-radius: 11px;
+  padding: 12px 14px;
+  text-align: center;
+  transition: all 0.4s;
+  background: #1a2332;
+  border: 2px solid #1e293b;
+}
+
+.agent-box.awake {
+  border-color: #0ea5e9;
+  box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
+}
+
+.agent-box.done {
+  border-color: rgba(34, 197, 94, 0.31);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.1);
+}
+
+/* ─── Pipeline Items ──────────────────────────────────────────────────── */
+.pipeline-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: rgba(26, 35, 50, 0.38);
+  transition: all 0.3s;
+  position: relative;
+}
+
+.pipeline-item.active {
+  border-color: rgba(14, 165, 233, 0.25);
+  background: rgba(14, 165, 233, 0.063);
+}
+
+.pipeline-item.active .item-label {
+  color: #e2e8f0;
+}
+
+.pipeline-item.active .item-status-dot {
+  background: #0ea5e9;
+  box-shadow: 0 0 5px #0ea5e9;
+}
+
+.pipeline-item.done {
+  border-color: rgba(34, 197, 94, 0.125);
+  opacity: 0.7;
+}
+
+.pipeline-item.done .item-status-dot {
+  background: #22c55e;
+}
+
+.pipeline-item.trigger {
+  border-color: #f97316;
+  background: rgba(249, 115, 22, 0.063);
+  animation: pulse 0.6s;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+@keyframes agentPulse {
+  0% {
+    border-color: rgba(14, 165, 233, 0.376);
+    box-shadow: 0 0 8px rgba(14, 165, 233, 0.3);
+  }
+  50% {
+    border-color: #0ea5e9;
+    box-shadow: 0 0 16px rgba(14, 165, 233, 0.5);
+  }
+  100% {
+    border-color: rgba(14, 165, 233, 0.376);
+    box-shadow: 0 0 8px rgba(14, 165, 233, 0.3);
+  }
+}
+
+.pipeline-item.working {
+  border-color: rgba(14, 165, 233, 0.376);
+  background: rgba(14, 165, 233, 0.031);
+  animation: agentPulse 1s ease-in-out infinite;
+}
+
+.pipeline-item.working .item-label {
+  color: #e2e8f0;
+}
+
+.pipeline-item.working .item-status-dot {
+  background: #0ea5e9;
+  box-shadow: 0 0 5px #0ea5e9;
+}
+
+/* ─── SVG Connector Paths ─────────────────────────────────────────────── */
+.flow-path {
+  fill: none;
+  stroke: #1e293b;
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.flow-path.show {
+  opacity: 1;
+}
+
+.flow-path.active {
+  stroke: url(#flowGrad);
+  stroke-width: 2.5;
+  filter: url(#pathGlow);
+}
+
+/* ─── Celebration Animations ──────────────────────────────────────────── */
+@keyframes celebrateBurst {
+  0% {
+    border-color: #f97316;
+    box-shadow: 0 0 30px rgba(255, 255, 255, 0.6);
+  }
+  100% {
+    border-color: rgba(34, 197, 94, 0.31);
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.1);
+  }
+}
+
+@keyframes celebrateItemBurst {
+  0% {
+    border-color: #f97316;
+    background: rgba(249, 115, 22, 0.094);
+  }
+  100% {
+    border-color: rgba(249, 115, 22, 0.25);
+    background: rgba(249, 115, 22, 0.031);
+  }
+}
+
+@keyframes celebrateStatusBurst {
+  0% {
+    background: #f97316;
+    box-shadow: 0 0 8px #fbbf24;
+  }
+  100% {
+    background: #22c55e;
+    box-shadow: 0 0 4px rgba(34, 197, 94, 0.3);
+  }
+}
+
+@keyframes celebrateConnector {
+  0% {
+    stroke: #f97316;
+    opacity: 0.8;
+  }
+  100% {
+    stroke: rgba(34, 197, 94, 0.5);
+    opacity: 0.4;
+  }
+}
+
+.celebrating .agent-box.done {
+  animation: celebrateBurst 1.2s ease-out forwards;
+}
+
+.celebrating .pipeline-item.done {
+  animation: celebrateItemBurst 1.2s ease-out forwards;
+}
+
+.celebrating .pipeline-item.done .item-status-dot {
+  animation: celebrateStatusBurst 1.2s ease-out forwards;
+}
+
+.celebrating .flow-path.show {
+  animation: celebrateConnector 1.2s ease-out forwards;
+}
+
+.celebrating .pipeline-title {
+  background: linear-gradient(90deg, #f97316, #fbbf24, #f97316);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.celebrating .phase-card.done {
+  opacity: 1;
+}
+
+/* ─── Phase Type Badges ───────────────────────────────────────────────── */
+.phase-type-badge.app {
+  background: rgba(14, 165, 233, 0.063);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.145);
+}
+
+.phase-type-badge.agent {
+  background: rgba(168, 85, 247, 0.063);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.145);
+}
+
+/* ─── Button ──────────────────────────────────────────────────────────── */
+.pipeline-btn {
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: #fff;
+  border: none;
+  padding: 10px 26px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.pipeline-btn:hover {
+  transform: scale(1.05);
+}
