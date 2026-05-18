@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { Globe, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { invalidateCachePrefix } from "@/lib/client-cache";
+import Spinner from "@/components/ui/Spinner";
+import { useLoading } from "@/components/providers/LoadingProvider";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -16,6 +18,8 @@ export default function Header() {
   const title = pathname.startsWith("/agents/") && pathname !== "/agents"
     ? "Agent Detail"
     : pageTitles[pathname] || "AgentCore Console";
+
+  const { isLoading } = useLoading();
 
   const [region, setRegion] = useState(() => {
     if (typeof window !== "undefined") {
@@ -58,7 +62,18 @@ export default function Header() {
 
   return (
     <header className="h-14 bg-surface-1 border-b border-surface-4 flex items-center justify-between px-6">
-      <h2 className="text-lg font-semibold text-white">{title}</h2>
+      <div className="flex items-center gap-3">
+        <h2 className="text-lg font-semibold text-white">{title}</h2>
+        
+        {/* Loading Spinner - shows when any data is being fetched */}
+        {isLoading && (
+          <Spinner
+            size="sm"
+            className="ml-2"
+            aria-label="Loading data"
+          />
+        )}
+      </div>
 
       <div className="flex items-center gap-4">
         {/* Region Selector */}
