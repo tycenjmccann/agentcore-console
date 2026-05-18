@@ -116,6 +116,21 @@ export interface WorkflowState {
   qaRetryCount?: number;
 }
 
+// ─── Workflow Summary (for sidebar list) ─────────────────────────────────────
+
+/**
+ * Lightweight workflow representation for the sidebar history list.
+ * Avoids transferring full agentTasks/messages/notifications payloads.
+ */
+export interface WorkflowSummary {
+  id: string;
+  title: string;                 // from input.title
+  phase: WorkflowPhase;
+  epicId: string;
+  startedAt: string;
+  completedAt?: string;
+}
+
 // ─── Repo Configuration ──────────────────────────────────────────────────────
 
 export type RepoLayout = "monorepo" | "multi-repo";
