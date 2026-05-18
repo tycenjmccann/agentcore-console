@@ -44,6 +44,13 @@
   .status-pending {
     @apply status-dot bg-yellow-400 animate-pulse;
   }
+
+  /* Loading Spinner - GPU-accelerated animation */
+  .spinner-ring {
+    @apply rounded-full animate-spin;
+    /* GPU acceleration for smooth 60fps animation */
+    will-change: transform;
+  }
 }
 
 @layer utilities {
