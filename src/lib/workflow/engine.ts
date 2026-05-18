@@ -517,7 +517,17 @@ async function invokeAgentBackground(
 
   try {
     // Determine model override: apply to ALL agents when specified
-    const modelOverride = state.input?.modelOverride || undefined;
+    // Normalize: accept both string shorthand (e.g., "claude-opus-46") and full object
+    let modelOverride = state.input?.modelOverride || undefined;
+    if (typeof modelOverride === "string") {
+      // Map shorthand to proper bedrockModelConfig format
+      const MODEL_ID_MAP: Record<string, string> = {
+        "claude-opus-46": "global.anthropic.claude-opus-4-6-v1",
+        "claude-sonnet-45": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      };
+      const fullModelId = MODEL_ID_MAP[modelOverride as string] || (modelOverride as string);
+      modelOverride = { bedrockModelConfig: { modelId: fullModelId } };
+    }
 
     if (modelOverride) {
       const modelId = modelOverride.bedrockModelConfig?.modelId || modelOverride.openAiModelConfig?.modelId || "unknown";

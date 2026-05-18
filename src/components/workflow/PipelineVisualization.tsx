@@ -1,459 +1,563 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import type {
-  WorkflowState,
-  WorkflowPhase,
-  AgentTaskStatus,
-} from "@/lib/workflow/types";
+import { useState, useEffect, useRef, useCallback } from "react";
+import type { WorkflowState, WorkflowPhase, AgentTask, WorkflowEvent } from "@/lib/workflow/types";
+import awsIcons from "@/lib/aws-icons.json";
 
-// ── Phase configuration ─────────────────────────────────────────────────────
-
-interface PhaseConfig {
-  id: string;
-  num: number;
-  name: string;
-  phaseType: "app" | "agent";
-  phaseTypeLabel: string;
-  identity: string[];
-  config: Record<string, string>;
-  sections: PhaseSection[];
-}
-
-interface PhaseSection {
-  label: string;
-  items: PhaseItem[];
-}
-
-interface PhaseItem {
-  id: string;
-  label: string;
-  dotType: "skill" | "ext" | "svc";
-}
-
-const PHASES: PhaseConfig[] = [
-  {
-    id: "intake",
-    num: 1,
-    name: "Intake",
-    phaseType: "app",
-    phaseTypeLabel: "Web Application",
-    identity: ["Next.js 14 / App Router"],
-    config: {
-      Host: "localhost:3000",
-      Storage: "S3 multipart upload",
-      Trigger: "EventBridge on epic create",
-    },
-    sections: [
-      {
-        label: "User Actions",
-        items: [
-          { id: "i-prd", label: "Upload PRD / Mockup / Figma", dotType: "ext" },
-          { id: "i-repo", label: "Set Target Git Repo", dotType: "ext" },
-          { id: "i-s3", label: "S3 Artifact Storage", dotType: "svc" },
-        ],
-      },
-      {
-        label: "Trigger",
-        items: [
-          { id: "i-epic", label: "Jira Epic Created (EventBridge)", dotType: "svc" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "requirements",
-    num: 2,
-    name: "Requirements",
-    phaseType: "agent",
-    phaseTypeLabel: "1 AgentCore Harness Agent",
-    identity: ["AgentCore Runtime", "Claude Opus 4 (via Bedrock)"],
-    config: {
-      Model: "us.anthropic.claude-opus-4-0-v1",
-      Memory: "built-in (short-term context)",
-      "Max turns": "50",
-      Timeout: "15 min",
-    },
-    sections: [
-      {
-        label: "Tools",
-        items: [
-          { id: "r-s3", label: "S3 Read & Write", dotType: "svc" },
-          { id: "r-memory", label: "Memory Read/Write", dotType: "svc" },
-          { id: "r-gateway", label: "Gateway (Figma, Browser)", dotType: "ext" },
-        ],
-      },
-      {
-        label: "Agent",
-        items: [
-          { id: "r-agent", label: "Requirements Analyst", dotType: "svc" },
-        ],
-      },
-      {
-        label: "Skills (loaded: requirements-analysis)",
-        items: [
-          { id: "r-parse", label: "PRD Parsing & Visual Analysis", dotType: "skill" },
-          { id: "r-criteria", label: "Acceptance Criteria Generation", dotType: "skill" },
-          { id: "r-decomp", label: "Vertical-Slice Ticket Decomposition", dotType: "skill" },
-        ],
-      },
-      {
-        label: "Output",
-        items: [
-          { id: "r-s3write", label: "Write artifacts to S3", dotType: "svc" },
-          { id: "r-jira", label: "Gateway: report_completion (tickets)", dotType: "svc" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "design",
-    num: 3,
-    name: "Design",
-    phaseType: "agent",
-    phaseTypeLabel: "7 AgentCore Harness Agents",
-    identity: ["AgentCore Runtime (x7 parallel)", "Claude Opus 4 / Sonnet 4"],
-    config: {
-      Dispatch: "parallel fan-out, 7 runtimes",
-      Memory: "built-in + shared namespace",
-      A2A: "cross-agent query enabled",
-    },
-    sections: [
-      {
-        label: "Tools (all agents)",
-        items: [
-          { id: "d-s3", label: "S3 Read & Write", dotType: "svc" },
-          { id: "d-memory", label: "Memory Read/Write", dotType: "svc" },
-          { id: "d-a2a", label: "A2A (cross-agent invoke)", dotType: "svc" },
-          { id: "d-skill", label: "SkillLoader (domain skills)", dotType: "svc" },
-        ],
-      },
-      {
-        label: "Agents (parallel)",
-        items: [
-          { id: "d-ios", label: "iOS Designer", dotType: "skill" },
-          { id: "d-android", label: "Android Designer", dotType: "skill" },
-          { id: "d-backend", label: "Backend Systems Designer", dotType: "skill" },
-          { id: "d-security", label: "Security Reviewer", dotType: "skill" },
-          { id: "d-analytics", label: "Analytics Designer", dotType: "skill" },
-          { id: "d-localization", label: "Localization Planner", dotType: "skill" },
-          { id: "d-privacy", label: "Privacy/Compliance", dotType: "skill" },
-        ],
-      },
-      {
-        label: "Output",
-        items: [
-          { id: "d-docs", label: "Design docs to S3", dotType: "svc" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "development",
-    num: 4,
-    name: "Development",
-    phaseType: "agent",
-    phaseTypeLabel: "3 AgentCore Harness Agents",
-    identity: ["AgentCore Runtime (x3 parallel)", "Claude Sonnet 4"],
-    config: {
-      Dispatch: "parallel fan-out, 3 runtimes",
-      Tools: "Code Interpreter + GitHub",
-      Branch: "feature/{ticket-id}",
-    },
-    sections: [
-      {
-        label: "Tools (all agents)",
-        items: [
-          { id: "dev-s3", label: "S3 Read (design docs)", dotType: "svc" },
-          { id: "dev-code", label: "Code Interpreter", dotType: "svc" },
-          { id: "dev-git", label: "GitHub (branch, commit, PR)", dotType: "svc" },
-          { id: "dev-a2a", label: "A2A (ask designers)", dotType: "svc" },
-        ],
-      },
-      {
-        label: "Agents (parallel)",
-        items: [
-          { id: "dev-frontend", label: "Frontend Dev (Swift/TS)", dotType: "skill" },
-          { id: "dev-backend", label: "Backend Dev (Node/TS)", dotType: "skill" },
-          { id: "dev-api", label: "API Dev (Services)", dotType: "skill" },
-        ],
-      },
-      {
-        label: "Output",
-        items: [
-          { id: "dev-pr", label: "Pull Requests", dotType: "svc" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "review",
-    num: 5,
-    name: "Review",
-    phaseType: "app",
-    phaseTypeLabel: "Human + Automated",
-    identity: ["PR Review & Merge"],
-    config: {
-      Checks: "lint, test, security scan",
-      Approval: "human review required",
-      Merge: "squash to main",
-    },
-    sections: [
-      {
-        label: "Automated",
-        items: [
-          { id: "rv-lint", label: "Lint & Format Check", dotType: "ext" },
-          { id: "rv-test", label: "Unit & Integration Tests", dotType: "ext" },
-          { id: "rv-security", label: "Security Scan", dotType: "ext" },
-        ],
-      },
-      {
-        label: "Human",
-        items: [
-          { id: "rv-review", label: "Code Review & Approval", dotType: "ext" },
-          { id: "rv-merge", label: "Merge to Main", dotType: "ext" },
-        ],
-      },
-    ],
-  },
-];
-
-// ── Phase status derivation from WorkflowState ──────────────────────────────
-
-type PhaseStatus = "pending" | "active" | "done";
-
-function getPhaseStatus(phaseId: string, workflowPhase: WorkflowPhase): PhaseStatus {
-  const order: WorkflowPhase[] = ["intake", "requirements", "design", "development", "review", "complete"];
-  const currentIdx = order.indexOf(workflowPhase);
-  const phaseIdx = order.indexOf(phaseId as WorkflowPhase);
-
-  if (phaseId === "review" && workflowPhase === "complete") return "done";
-  if (workflowPhase === "complete") return "done";
-  if (workflowPhase === "error") {
-    return phaseIdx < currentIdx ? "done" : phaseIdx === currentIdx ? "active" : "pending";
-  }
-  if (phaseIdx < currentIdx) return "done";
-  if (phaseIdx === currentIdx) return "active";
-  return "pending";
-}
-
-function getItemStatus(
-  itemId: string,
-  phaseStatus: PhaseStatus,
-  agentTasks: Record<string, { status: AgentTaskStatus }>
-): "" | "active" | "done" | "working" {
-  if (phaseStatus === "done") return "done";
-  if (phaseStatus === "pending") return "";
-
-  // Map specific items to agent task status
-  const agentMapping: Record<string, string> = {
-    "r-agent": "team-requirements",
-    "d-ios": "team-ios-designer",
-    "d-android": "team-android-designer",
-    "d-backend": "team-backend-designer",
-    "d-security": "team-security-reviewer",
-    "d-analytics": "team-analytics-designer",
-    "d-localization": "team-localization",
-    "d-privacy": "team-legal-compliance",
-    "dev-frontend": "team-frontend-dev",
-    "dev-backend": "team-backend-dev",
-    "dev-api": "team-api-dev",
-  };
-
-  const agentId = agentMapping[itemId];
-  if (agentId && agentTasks[agentId]) {
-    const taskStatus = agentTasks[agentId].status;
-    if (taskStatus === "running" || taskStatus === "waiting_response") return "working";
-    if (taskStatus === "complete") return "done";
-    if (taskStatus === "error") return "active";
-  }
-
-  // For active phase, show all items as active
-  if (phaseStatus === "active") return "active";
-  return "";
-}
-
-// ── SVG Connector Defs ──────────────────────────────────────────────────────
-
-function ConnectorDefs() {
-  return (
-    <defs>
-      <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.2} />
-        <stop offset="50%" stopColor="#0ea5e9" stopOpacity={0.9} />
-        <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.2} />
-      </linearGradient>
-      <filter id="pathGlow" x="-10%" y="-10%" width="120%" height="120%">
-        <feGaussianBlur stdDeviation={2} result="blur" />
-        <feMerge>
-          <feMergeNode in="blur" />
-          <feMergeNode in="SourceGraphic" />
-        </feMerge>
-      </filter>
-      <filter id="dotGlow" x="-100%" y="-100%" width="300%" height="300%">
-        <feGaussianBlur stdDeviation={4} result="blur" />
-        <feMerge>
-          <feMergeNode in="blur" />
-          <feMergeNode in="SourceGraphic" />
-        </feMerge>
-      </filter>
-    </defs>
-  );
-}
-
-// ── Main Component ──────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface PipelineVisualizationProps {
   workflowState: WorkflowState | null;
   onStepClick?: (phaseId: string, itemId: string) => void;
 }
 
-export default function PipelineVisualization({
-  workflowState,
-  onStepClick,
-}: PipelineVisualizationProps) {
+type PhaseVisualState = "idle" | "active" | "done";
+type ItemVisualState = "idle" | "active" | "working" | "done";
+
+interface PhaseConfig {
+  id: string;
+  num: number;
+  name: string;
+  phaseKey: WorkflowPhase;
+  type: "app" | "agent";
+  agentCount?: number;
+  identity: {
+    label?: string;
+    icons?: { src: string; alt: string }[];
+    descriptions?: string[];
+  };
+  config: { key: string; value: string }[];
+  sections: {
+    label: string;
+    items: {
+      id: string;
+      icon?: string;
+      dot?: "skill" | "ext";
+      label: string;
+    }[];
+  }[];
+}
+
+// ─── Phase Configuration (matches reference HTML exactly) ────────────────────
+
+const PHASE_ORDER: WorkflowPhase[] = ["intake", "requirements", "design", "development", "review"];
+
+const PHASES: PhaseConfig[] = [
+  {
+    id: "p1",
+    num: 1,
+    name: "Intake",
+    phaseKey: "intake",
+    type: "app",
+    identity: { label: "Next.js 14 / App Router" },
+    config: [
+      { key: "Host", value: "localhost:3000" },
+      { key: "Storage", value: "S3 multipart upload" },
+      { key: "Trigger", value: "EventBridge on epic create" },
+    ],
+    sections: [
+      {
+        label: "User Actions",
+        items: [
+          { id: "i-prd", dot: "ext", label: "Upload PRD / Mockup / Figma" },
+          { id: "i-repo", dot: "ext", label: "Set Target Git Repo" },
+          { id: "i-s3", icon: "s3", label: "S3 Artifact Storage" },
+        ],
+      },
+      {
+        label: "Trigger",
+        items: [
+          { id: "i-epic", icon: "eventbridge", label: "Jira Epic Created (EventBridge)" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "p2",
+    num: 2,
+    name: "Requirements",
+    phaseKey: "requirements",
+    type: "agent",
+    agentCount: 1,
+    identity: {
+      icons: [
+        { src: awsIcons.agentcore, alt: "AgentCore" },
+        { src: awsIcons.bedrock, alt: "Bedrock" },
+      ],
+      descriptions: ["AgentCore Runtime", "Claude Opus 4 (via Bedrock)"],
+    },
+    config: [
+      { key: "Model", value: "us.anthropic.claude-opus-4-0-v1" },
+      { key: "Memory", value: "built-in (short-term context)" },
+      { key: "Max turns", value: "50" },
+      { key: "Timeout", value: "15 min" },
+    ],
+    sections: [
+      {
+        label: "Tools",
+        items: [
+          { id: "r-s3", icon: "s3", label: "S3 Read & Write" },
+          { id: "r-memory", icon: "agentcore", label: "Memory Read/Write" },
+          { id: "r-gateway", dot: "ext", label: "Gateway (Figma, Browser)" },
+        ],
+      },
+      {
+        label: "Agent",
+        items: [
+          { id: "r-agent", icon: "agentcore", label: "Requirements Analyst" },
+        ],
+      },
+      {
+        label: "Skills (loaded: requirements-analysis)",
+        items: [
+          { id: "r-parse", dot: "skill", label: "PRD Parsing & Visual Analysis" },
+          { id: "r-criteria", dot: "skill", label: "Acceptance Criteria Generation" },
+          { id: "r-decomp", dot: "skill", label: "Vertical-Slice Ticket Decomposition" },
+        ],
+      },
+      {
+        label: "Output",
+        items: [
+          { id: "r-s3write", icon: "s3", label: "Write artifacts to S3" },
+          { id: "r-jira", icon: "agentcore", label: "Gateway: report_completion (tickets)" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "p3",
+    num: 3,
+    name: "Design",
+    phaseKey: "design",
+    type: "agent",
+    agentCount: 7,
+    identity: {
+      icons: [
+        { src: awsIcons.agentcore, alt: "AgentCore" },
+        { src: awsIcons.bedrock, alt: "Bedrock" },
+      ],
+      descriptions: ["AgentCore Runtime (x7 parallel)", "Claude Opus 4 / Sonnet 4"],
+    },
+    config: [
+      { key: "Dispatch", value: "parallel fan-out, 7 runtimes" },
+      { key: "Memory", value: "built-in + shared namespace" },
+      { key: "A2A", value: "cross-agent query enabled" },
+    ],
+    sections: [
+      {
+        label: "Tools (all agents)",
+        items: [
+          { id: "d-s3", icon: "s3", label: "S3 Read & Write" },
+          { id: "d-memory", icon: "agentcore", label: "Memory + A2A Messaging" },
+          { id: "d-jira", dot: "ext", label: "Jira (read tickets, add comments)" },
+        ],
+      },
+      {
+        label: "Agents (parallel)",
+        items: [
+          { id: "d-ios", icon: "agentcore", label: "iOS Architecture Designer" },
+          { id: "d-android", icon: "agentcore", label: "Android Designer" },
+          { id: "d-backend", icon: "agentcore", label: "Backend Systems Designer" },
+          { id: "d-security", icon: "agentcore", label: "Security Reviewer" },
+          { id: "d-analytics", icon: "agentcore", label: "Analytics Designer" },
+          { id: "d-l10n", icon: "agentcore", label: "Localization Planner" },
+          { id: "d-legal", icon: "agentcore", label: "Privacy & Compliance" },
+        ],
+      },
+      {
+        label: "Output",
+        items: [
+          { id: "d-docs", icon: "s3", label: "Design docs to S3" },
+          { id: "d-complete", icon: "agentcore", label: "Gateway: save_design_doc" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "p4",
+    num: 4,
+    name: "Development",
+    phaseKey: "development",
+    type: "agent",
+    agentCount: 3,
+    identity: {
+      icons: [
+        { src: awsIcons.agentcore, alt: "AgentCore" },
+        { src: awsIcons.bedrock, alt: "Bedrock" },
+      ],
+      descriptions: ["AgentCore Runtime (x3 parallel)", "Claude Sonnet 4 (via Bedrock)"],
+    },
+    config: [
+      { key: "Dispatch", value: "parallel fan-out, 3 runtimes" },
+      { key: "Memory", value: "built-in + shared namespace" },
+      { key: "Git", value: "shared feature branch" },
+    ],
+    sections: [
+      {
+        label: "Tools (all agents)",
+        items: [
+          { id: "v-s3", icon: "s3", label: "S3 Read (design docs)" },
+          { id: "v-git", dot: "ext", label: "GitHub (branch, commit, PR)" },
+          { id: "v-code", icon: "codebuild", label: "Code Interpreter" },
+        ],
+      },
+      {
+        label: "Agents (parallel)",
+        items: [
+          { id: "v-frontend", icon: "agentcore", label: "Frontend Developer" },
+          { id: "v-backend", icon: "agentcore", label: "Backend Developer" },
+          { id: "v-api", icon: "agentcore", label: "API Developer" },
+        ],
+      },
+      {
+        label: "Output",
+        items: [
+          { id: "v-commits", dot: "ext", label: "Commits to feature branch" },
+          { id: "v-pr", dot: "ext", label: "Pull Request created" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "p5",
+    num: 5,
+    name: "QA & Ship",
+    phaseKey: "review",
+    type: "agent",
+    agentCount: 1,
+    identity: {
+      icons: [
+        { src: awsIcons.agentcore, alt: "AgentCore" },
+        { src: awsIcons.codebuild, alt: "CodeBuild" },
+      ],
+      descriptions: ["AgentCore Runtime", "Code Interpreter (testing)"],
+    },
+    config: [
+      { key: "Model", value: "us.anthropic.claude-sonnet-4-5-v1" },
+      { key: "Retries", value: "3 fix cycles max" },
+      { key: "Merge", value: "auto-merge on pass" },
+    ],
+    sections: [
+      {
+        label: "Tools",
+        items: [
+          { id: "q-code", icon: "codebuild", label: "Code Interpreter (test runner)" },
+          { id: "q-git", dot: "ext", label: "GitHub (read PR, push fixes)" },
+          { id: "q-s3", icon: "s3", label: "S3 (read design specs)" },
+        ],
+      },
+      {
+        label: "Agent",
+        items: [
+          { id: "q-agent", icon: "agentcore", label: "QA Verification Agent" },
+        ],
+      },
+      {
+        label: "Actions",
+        items: [
+          { id: "q-test", dot: "skill", label: "Run acceptance tests" },
+          { id: "q-review", dot: "skill", label: "Code review against design" },
+          { id: "q-merge", dot: "ext", label: "Merge to main" },
+        ],
+      },
+    ],
+  },
+];
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+function getPhaseVisualState(phaseKey: WorkflowPhase, currentPhase: WorkflowPhase): PhaseVisualState {
+  const currentIdx = PHASE_ORDER.indexOf(currentPhase);
+  const thisIdx = PHASE_ORDER.indexOf(phaseKey);
+
+  if (currentPhase === "complete") return "done";
+  if (currentPhase === "error") {
+    return thisIdx <= currentIdx ? "done" : "idle";
+  }
+  if (currentPhase === "verification") {
+    const effectiveIdx = PHASE_ORDER.indexOf("review");
+    if (thisIdx < effectiveIdx) return "done";
+    if (thisIdx === effectiveIdx) return "active";
+    return "idle";
+  }
+
+  if (thisIdx < currentIdx) return "done";
+  if (thisIdx === currentIdx) return "active";
+  return "idle";
+}
+
+function getItemState(phaseState: PhaseVisualState, agentTasks: Record<string, AgentTask>): ItemVisualState {
+  if (phaseState === "done") return "done";
+  if (phaseState === "active") {
+    const hasRunning = Object.values(agentTasks).some(
+      (t) => t.status === "running" || t.status === "waiting_response"
+    );
+    return hasRunning ? "working" : "active";
+  }
+  return "idle";
+}
+
+function getStatusDescription(phase: WorkflowPhase): { label: string; text: string } {
+  switch (phase) {
+    case "intake":
+      return { label: "Phase 1 — Intake", text: "Collecting requirements and sources..." };
+    case "requirements":
+      return { label: "Phase 2 — Requirements", text: "Analyzing PRD and generating tickets..." };
+    case "design":
+      return { label: "Phase 3 — Design", text: "Design agents working in parallel..." };
+    case "development":
+      return { label: "Phase 4 — Development", text: "Developers implementing features..." };
+    case "review":
+    case "verification":
+      return { label: "Phase 5 — QA & Ship", text: "Running tests and reviewing code..." };
+    case "complete":
+      return { label: "Complete", text: "Workflow finished successfully!" };
+    case "error":
+      return { label: "Error", text: "Workflow encountered an error." };
+    default:
+      return { label: "Idle", text: "Waiting to start..." };
+  }
+}
+
+// ─── Component ─────────────────────────────────────────────────────────────────
+
+export default function PipelineVisualization({ workflowState, onStepClick }: PipelineVisualizationProps) {
   const [celebrating, setCelebrating] = useState(false);
-  const pipelineRef = useRef<HTMLDivElement>(null);
-  const [connectorPaths, setConnectorPaths] = useState<string[]>([]);
+  const [liveState, setLiveState] = useState<WorkflowState | null>(workflowState);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
-  const currentPhase: WorkflowPhase = workflowState?.phase ?? "intake";
-  const agentTasks = workflowState?.agentTasks ?? {};
-
-  // Celebrate when workflow completes
   useEffect(() => {
-    if (currentPhase === "complete") {
-      setCelebrating(true);
-      const timer = setTimeout(() => setCelebrating(false), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [currentPhase]);
+    setLiveState(workflowState);
+  }, [workflowState]);
 
-  // Compute SVG connector paths between phases
-  const computeConnectors = useCallback(() => {
-    if (!pipelineRef.current) return;
-    const phases = pipelineRef.current.querySelectorAll<HTMLElement>(".phase");
-    const paths: string[] = [];
+  // SSE connection for live updates
+  useEffect(() => {
+    if (!liveState?.id) return;
 
-    for (let i = 0; i < phases.length - 1; i++) {
-      const curr = phases[i];
-      const next = phases[i + 1];
-      const currRect = curr.getBoundingClientRect();
-      const nextRect = next.getBoundingClientRect();
-      const containerRect = pipelineRef.current.getBoundingClientRect();
+    const es = new EventSource(`/api/workflow/${liveState.id}/stream`);
+    eventSourceRef.current = es;
 
-      const x1 = currRect.right - containerRect.left;
-      const y1 = currRect.top + currRect.height / 2 - containerRect.top;
-      const x2 = nextRect.left - containerRect.left;
-      const y2 = nextRect.top + nextRect.height / 2 - containerRect.top;
+    es.onmessage = (event) => {
+      try {
+        const data: WorkflowEvent = JSON.parse(event.data);
+        handleSSEEvent(data);
+      } catch {
+        // Ignore parse errors
+      }
+    };
 
-      const midX = (x1 + x2) / 2;
-      paths.push(`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`);
-    }
+    es.onerror = () => {
+      // EventSource auto-reconnects
+    };
 
-    setConnectorPaths(paths);
+    return () => {
+      es.close();
+      eventSourceRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveState?.id]);
+
+  const handleSSEEvent = useCallback((event: WorkflowEvent) => {
+    setLiveState((prev) => {
+      if (!prev) return prev;
+      switch (event.type) {
+        case "phase_change":
+          return { ...prev, phase: event.phase };
+        case "agent_status":
+          return {
+            ...prev,
+            agentTasks: {
+              ...prev.agentTasks,
+              [event.agentId]: {
+                ...prev.agentTasks[event.agentId],
+                status: event.status,
+              },
+            },
+          };
+        case "agent_complete":
+          return {
+            ...prev,
+            agentTasks: {
+              ...prev.agentTasks,
+              [event.agentId]: {
+                ...prev.agentTasks[event.agentId],
+                status: "complete",
+                output: event.output,
+                branch: event.branch,
+                commitSha: event.commitSha,
+              },
+            },
+          };
+        case "workflow_complete":
+          setCelebrating(true);
+          setTimeout(() => setCelebrating(false), 1500);
+          return { ...prev, phase: "complete", completedAt: new Date().toISOString() };
+        default:
+          return prev;
+      }
+    });
   }, []);
 
-  useEffect(() => {
-    computeConnectors();
-    const handleResize = () => computeConnectors();
-    window.addEventListener("resize", handleResize);
-    // Recompute after layout settles
-    const timer = setTimeout(computeConnectors, 100);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      clearTimeout(timer);
-    };
-  }, [computeConnectors, currentPhase]);
-
-  // Status text
-  const statusText = getStatusText(currentPhase, agentTasks);
+  const currentPhase = liveState?.phase ?? "intake";
+  const agentTasks = liveState?.agentTasks ?? {};
+  const status = getStatusDescription(currentPhase);
 
   return (
-    <div className={`pipeline-container ${celebrating ? "celebrate" : ""}`}>
+    <div className={`pipeline-container${celebrating ? " celebrate" : ""}`}>
       <div className="pipeline-title">Agentis Hub</div>
       <div className="pipeline-subtitle">Autonomous Multi-Agent Development Pipeline</div>
 
-      {/* Legend */}
+      {/* Legend with all 5 AWS icons */}
       <div className="pipeline-legend">
         <div className="legend-item">
+          <img className="aws-ico" src={awsIcons.bedrock} alt="Bedrock" />
+          Amazon Bedrock
+        </div>
+        <div className="legend-item">
+          <img className="aws-ico" src={awsIcons.agentcore} alt="AgentCore" />
+          Bedrock AgentCore
+        </div>
+        <div className="legend-item">
+          <img className="aws-ico" src={awsIcons.s3} alt="S3" />
+          Amazon S3
+        </div>
+        <div className="legend-item">
+          <img className="aws-ico" src={awsIcons.eventbridge} alt="EventBridge" />
+          Amazon EventBridge
+        </div>
+        <div className="legend-item">
+          <img className="aws-ico" src={awsIcons.codebuild} alt="CodeBuild" />
+          Code Interpreter
+        </div>
+        <div className="legend-item">
           <span className="dot skill" />
-          <span>Loaded Skill</span>
+          Loaded Skill
         </div>
         <div className="legend-item">
           <span className="dot ext" />
-          <span>External</span>
+          External
         </div>
       </div>
 
-      {/* Pipeline Canvas */}
-      <div className="pipeline-canvas" ref={pipelineRef}>
-        {/* SVG Connectors */}
+      {/* Canvas with SVG connectors */}
+      <div className="pipeline-canvas">
         <svg className="connectors">
-          <ConnectorDefs />
-          {connectorPaths.map((path, idx) => {
-            const phaseStatus = getPhaseStatus(PHASES[idx].id, currentPhase);
-            const isActive = phaseStatus === "active" || phaseStatus === "done";
-            const isDone = phaseStatus === "done";
+          <defs>
+            <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.2} />
+              <stop offset="50%" stopColor="#0ea5e9" stopOpacity={0.9} />
+              <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.2} />
+            </linearGradient>
+            <filter id="pathGlow" x="-10%" y="-10%" width="120%" height="120%">
+              <feGaussianBlur stdDeviation="2" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+            <filter id="dotGlow" x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur stdDeviation="4" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          {/* Connector paths between phases */}
+          {PHASES.slice(0, -1).map((phase, idx) => {
+            const x1 = 290 * (idx + 1) + 44 * idx;
+            const x2 = x1 + 44;
+            const y = 120;
+            const thisState = getPhaseVisualState(phase.phaseKey, currentPhase);
+            const isActive = thisState === "done";
             return (
               <path
-                key={idx}
-                className={`flow-path ${isActive ? "show" : ""} ${isDone ? "" : isActive ? "active" : ""}`}
-                d={path}
+                key={`conn-${idx}`}
+                className={`flow-path${isActive ? " show" : ""}${isActive ? " active" : ""}`}
+                d={`M ${x1} ${y} C ${x1 + 22} ${y}, ${x2 - 22} ${y}, ${x2} ${y}`}
               />
             );
           })}
         </svg>
 
-        {/* Phase Cards */}
+        {/* Pipeline phases */}
         <div className="pipeline-phases">
           {PHASES.map((phase) => {
-            const phaseStatus = getPhaseStatus(phase.id, currentPhase);
-            const boxClass = phaseStatus === "active" ? "awake" : phaseStatus === "done" ? "done" : "";
+            const phaseState = getPhaseVisualState(phase.phaseKey, currentPhase);
+            const boxClass = phaseState === "active" ? "awake" : phaseState === "done" ? "done" : "";
 
             return (
-              <div key={phase.id} className={`phase ${phaseStatus}`}>
-                <div className={`agent-box ${boxClass}`}>
+              <div
+                key={phase.id}
+                className={`phase${phaseState === "active" ? " active" : ""}${phaseState === "done" ? " done" : ""}`}
+              >
+                <div className={`agent-box${boxClass ? " " + boxClass : ""}`}>
                   <div className="phase-num">Phase {phase.num}</div>
                   <div className="phase-name">{phase.name}</div>
-                  <div className={`phase-type ${phase.phaseType}`}>
-                    {phase.phaseTypeLabel}
+                  <div className={`phase-type ${phase.type}`}>
+                    {phase.type === "app"
+                      ? "Web Application"
+                      : `${phase.agentCount} AgentCore Harness Agent${(phase.agentCount ?? 1) > 1 ? "s" : ""}`}
                   </div>
 
+                  {/* Identity */}
                   <div className="phase-identity">
-                    {phase.identity.map((label, i) => (
-                      <div key={i} className="id-label" style={{ textAlign: "center", height: "auto", lineHeight: "1.4" }}>
-                        {label}
+                    {phase.identity.label && (
+                      <div className="id-label" style={{ textAlign: "center", height: "auto", lineHeight: "1.4" }}>
+                        {phase.identity.label}
                       </div>
-                    ))}
+                    )}
+                    {phase.identity.icons && (
+                      <div className="id-row">
+                        <div className="id-icon-col">
+                          {phase.identity.icons.map((icon, i) => (
+                            <img key={i} className="id-icon" src={icon.src} alt={icon.alt} />
+                          ))}
+                        </div>
+                        {phase.identity.descriptions && (
+                          <div className="id-labels">
+                            {phase.identity.descriptions.map((desc, i) => (
+                              <div key={i} className="id-label">{desc}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
+                  {/* Config */}
                   <div className="config-detail">
-                    {Object.entries(phase.config).map(([key, val]) => (
-                      <div key={key} className="cfg-row">
-                        <span className="cfg-key">{key}</span>
-                        <span className="cfg-val">{val}</span>
+                    {phase.config.map((cfg, i) => (
+                      <div key={i} className="cfg-row">
+                        <span className="cfg-key">{cfg.key}</span>
+                        <span className="cfg-val">{cfg.value}</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
+                {/* Work area */}
                 <div className="work-area">
-                  {phase.sections.map((section, sIdx) => (
-                    <div key={sIdx}>
+                  {phase.sections.map((section, si) => (
+                    <div key={si}>
                       <div className="sec-label">{section.label}</div>
                       {section.items.map((item) => {
-                        const itemStatus = getItemStatus(item.id, phaseStatus, agentTasks);
+                        const itemState = getItemState(phaseState, agentTasks);
+                        const itemClass = itemState !== "idle" ? ` ${itemState}` : "";
                         return (
                           <div
                             key={item.id}
-                            className={`pipeline-item ${itemStatus}`}
+                            className={`pipeline-item${itemClass}`}
                             onClick={() => onStepClick?.(phase.id, item.id)}
                           >
-                            {item.dotType === "svc" ? (
-                              <span className="item-dot ext" style={{ background: "#0ea5e9" }} />
-                            ) : (
-                              <span className={`item-dot ${item.dotType}`} />
+                            {item.icon && (
+                              <img
+                                className="svc-icon"
+                                src={awsIcons[item.icon as keyof typeof awsIcons]}
+                                alt={item.icon}
+                              />
                             )}
+                            {item.dot && <span className={`item-dot ${item.dot}`} />}
                             <span className="item-label">{item.label}</span>
                             <span className="item-status" />
                           </div>
@@ -468,47 +572,11 @@ export default function PipelineVisualization({
         </div>
       </div>
 
-      {/* Status */}
+      {/* Status bar */}
       <div className="pipeline-status">
-        <div className="status-phase-label">{currentPhase}</div>
-        <div className="status-text">{statusText}</div>
+        <div className="status-phase-label">{status.label}</div>
+        <div className="status-text">{status.text}</div>
       </div>
     </div>
   );
-}
-
-function getStatusText(
-  phase: WorkflowPhase,
-  agentTasks: Record<string, { status: AgentTaskStatus }>
-): string {
-  switch (phase) {
-    case "intake":
-      return "Awaiting PRD upload and repository configuration";
-    case "requirements":
-      return "Analyzing requirements and decomposing into tickets";
-    case "design": {
-      const running = Object.values(agentTasks).filter(
-        (t) => t.status === "running" || t.status === "waiting_response"
-      ).length;
-      return running > 0
-        ? `${running} design agent${running > 1 ? "s" : ""} working in parallel`
-        : "Design agents preparing...";
-    }
-    case "development": {
-      const devRunning = Object.values(agentTasks).filter(
-        (t) => t.status === "running"
-      ).length;
-      return devRunning > 0
-        ? `${devRunning} developer${devRunning > 1 ? "s" : ""} writing code`
-        : "Development agents preparing...";
-    }
-    case "review":
-      return "Pull requests ready for review";
-    case "complete":
-      return "All tasks completed successfully!";
-    case "error":
-      return "An error occurred — check agent logs";
-    default:
-      return "";
-  }
 }
