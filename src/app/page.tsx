@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cachedFetch, getCached } from "@/lib/client-cache";
+import { useLoadingState } from "@/components/providers/LoadingProvider";
 
 interface Agent {
   id: string;
@@ -75,8 +76,16 @@ export default function DashboardPage() {
   const [metrics, setMetrics] = useState<MetricsData | null>(() => getCached<MetricsData>("/api/agentcore/metrics"));
   const [loading, setLoading] = useState(!getCached("/api/agentcore/agents"));
   const jira = useJiraMetrics();
+  
+  // Register loading state with global context
+  const loadingState = useLoadingState("dashboard-data");
 
   useEffect(() => {
+    // Start loading indicator
+    if (loading) {
+      loadingState.start();
+    }
+
     // Fetch with cache — returns instantly if cached, revalidates in background
     Promise.all([
       cachedFetch<Agent[]>("/api/agentcore/agents"),
@@ -87,7 +96,10 @@ export default function DashboardPage() {
         if (metricsData && !(metricsData as any).error) setMetrics(metricsData);
       })
       .catch(() => setAgents([]))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        loadingState.stop();
+      });
   }, []);
 
   return (
