@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bot, Hammer, Workflow, History } from "lucide-react";
+import { LayoutDashboard, Bot, Hammer, Workflow, History, GitBranch } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/agents", label: "Agents", icon: Bot },
+  { href: "/workflow", label: "Pipeline", icon: GitBranch },
   { href: "/build", label: "Build", icon: Hammer },
   { href: "/routing", label: "Routing", icon: Workflow },
   { href: "/tickets", label: "Ticket History", icon: History },
