@@ -1,0 +1,223 @@
+/* Workflow Pipeline Animations */
+
+/* Pulsing animation for running agents */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+.agent-running {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Success celebration burst */
+@keyframes celebrate {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+.agent-complete-animate {
+  animation: celebrate 0.6s ease-out;
+}
+
+/* Connector line drawing animation */
+@keyframes drawLine {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.connector-line {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+}
+
+.connector-line-active {
+  animation: drawLine 1s ease-out forwards;
+}
+
+/* Phase transition fade-in */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.phase-enter {
+  animation: fadeIn 0.4s ease-out;
+}
+
+/* Waiting state breathing animation */
+@keyframes breathe {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.agent-waiting {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+/* Error shake animation */
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-5px);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(5px);
+  }
+}
+
+.agent-error-animate {
+  animation: shake 0.5s ease-in-out;
+}
+
+/* Workflow completion celebration */
+@keyframes confetti {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.workflow-complete-burst::after {
+  content: '🎉';
+  position: absolute;
+  animation: confetti 2s ease-out;
+}
+
+/* Phase status indicators */
+.phase-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.phase-indicator-pending {
+  background-color: rgb(156, 163, 175); /* gray-400 */
+}
+
+.phase-indicator-active {
+  background-color: rgb(59, 130, 246); /* blue-500 */
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+}
+
+.phase-indicator-complete {
+  background-color: rgb(34, 197, 94); /* green-500 */
+}
+
+/* Agent card transitions */
+.agent-card {
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.agent-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.agent-card-pending {
+  border-color: rgb(229, 231, 235); /* gray-200 */
+  background-color: rgb(249, 250, 251); /* gray-50 */
+}
+
+.agent-card-running {
+  border-color: rgb(59, 130, 246); /* blue-500 */
+  background-color: rgb(239, 246, 255); /* blue-50 */
+}
+
+.agent-card-complete {
+  border-color: rgb(34, 197, 94); /* green-500 */
+  background-color: rgb(240, 253, 244); /* green-50 */
+}
+
+.agent-card-error {
+  border-color: rgb(239, 68, 68); /* red-500 */
+  background-color: rgb(254, 242, 242); /* red-50 */
+}
+
+.agent-card-waiting {
+  border-color: rgb(251, 191, 36); /* amber-400 */
+  background-color: rgb(254, 252, 232); /* amber-50 */
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .agent-card-pending {
+    border-color: rgb(55, 65, 81); /* gray-700 */
+    background-color: rgb(31, 41, 55); /* gray-800 */
+  }
+
+  .agent-card-running {
+    border-color: rgb(59, 130, 246); /* blue-500 */
+    background-color: rgb(30, 58, 138); /* blue-900 */
+  }
+
+  .agent-card-complete {
+    border-color: rgb(34, 197, 94); /* green-500 */
+    background-color: rgb(20, 83, 45); /* green-900 */
+  }
+
+  .agent-card-error {
+    border-color: rgb(239, 68, 68); /* red-500 */
+    background-color: rgb(127, 29, 29); /* red-900 */
+  }
+
+  .agent-card-waiting {
+    border-color: rgb(251, 191, 36); /* amber-400 */
+    background-color: rgb(120, 53, 15); /* amber-900 */
+  }
+}
+
+/* SVG path animations */
+.svg-path {
+  transition: stroke 0.3s ease;
+}
+
+.svg-path-pending {
+  stroke: rgb(209, 213, 219); /* gray-300 */
+}
+
+.svg-path-active {
+  stroke: rgb(59, 130, 246); /* blue-500 */
+}
+
+.svg-path-complete {
+  stroke: rgb(34, 197, 94); /* green-500 */
+}
