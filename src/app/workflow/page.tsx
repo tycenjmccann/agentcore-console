@@ -1,5 +1,4 @@
 import PipelineBoard from "@/components/workflow/PipelineBoard";
-import "@/styles/pipeline.css";
 
 export const metadata = {
   title: "Architecture Pipeline | Agentis Hub",
