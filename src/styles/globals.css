@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import "./pipeline.css";
+
 @layer base {
   body {
     @apply bg-surface-0 text-gray-100 antialiased;
