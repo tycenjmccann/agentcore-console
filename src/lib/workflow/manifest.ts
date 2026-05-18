@@ -164,10 +164,12 @@ export async function buildManifestContext(manifest: WorkflowManifest, agentPhas
   const bucket = ARTIFACT_BUCKET;
   let ctx = `## Upstream Artifacts (from earlier pipeline phases)\n\n`;
 
-  // Only inline critical content for agents that actually need it (dev agents).
-  // Design agents get a much smaller budget to avoid exceeding API payload limits.
+  // Inline critical content for agents that need it.
+  // Requirements agents need full intake content (they're analyzing it first).
+  // Dev agents need full content for implementation. Design agents get less.
   const isDev = agentId?.includes("-dev") || agentId?.includes("-frontend") || agentPhase === "development";
-  const MAX_CRITICAL_BUDGET = isDev ? 60000 : 8000;
+  const isRequirements = agentPhase === "requirements" || agentId?.includes("requirements");
+  const MAX_CRITICAL_BUDGET = (isDev || isRequirements) ? 60000 : 8000;
   let criticalBudgetUsed = 0;
 
   // Determine which phases to show (everything up to and including current phase)
@@ -184,8 +186,12 @@ export async function buildManifestContext(manifest: WorkflowManifest, agentPhas
     ctx += `### ${capitalize(phase)} Phase\n`;
 
     for (const entry of entries) {
-      if (entry.critical && entry.format !== "image" && criticalBudgetUsed < MAX_CRITICAL_BUDGET) {
-        // INLINE critical content directly — agents can't access S3
+      // Requirements agents get ALL text content inlined (they need full intake to analyze).
+      // Other agents only get entries marked critical.
+      const shouldInline = (entry.format !== "image") && criticalBudgetUsed < MAX_CRITICAL_BUDGET &&
+        (entry.critical || isRequirements);
+      if (shouldInline) {
+        // INLINE content directly — agents can't access S3
         try {
           // Parse the s3Key which may be a full URI or just a key path
           const rawKey = entry.s3Key.replace(/^s3:\/\/[^/]+\//, "");

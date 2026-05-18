@@ -1158,8 +1158,10 @@ async function invokeAgent(
           if (data.type === "text" && data.content) {
             fullOutput += data.content;
             emitEvent(workflowId, { type: "agent_output", agentId, chunk: data.content });
+          } else if (data.type === "trace" && data.event === "tool_start" && data.name) {
+            // Forward tool-use events so the pipeline visualization can light up icons
+            emitEvent(workflowId, { type: "tool_use", agentId, toolName: data.name });
           }
-          // We could also forward trace events here if needed
         } catch {
           // Skip non-JSON lines
         }
@@ -1217,6 +1219,21 @@ async function buildAgentContext(ticket: JiraTicket, state: WorkflowState): Prom
   }
 
   const agentDef = ticket.assignee ? getAgentDef(ticket.assignee) : undefined;
+
+  // Include repo context for ALL agents (needed for GitHubIntegration tool calls)
+  if (state.repoConfig?.repos?.length > 0) {
+    const { owner, repo } = parseRepoUrlFromConfig(state.repoConfig);
+    const defaultBranch = state.repoConfig.repos[0]?.defaultBranch || "main";
+    context += `## GitHub Repository Context\n`;
+    context += `When calling ANY GitHubIntegration tool, use these values:\n`;
+    context += `- owner: "${owner}"\n`;
+    context += `- repo: "${repo}"\n`;
+    context += `- default branch: "${defaultBranch}"\n\n`;
+    context += `## S3 Workflow Artifacts\n`;
+    context += `When calling S3Storage tools, workflow artifacts are at:\n`;
+    context += `- Shared artifacts: workflows/${state.id}/shared/\n`;
+    context += `- Your agent workspace: workflows/${state.id}/agents/${agentDef?.id || ticket.assignee}/\n\n`;
+  }
 
   // Include visual analysis for design and dev agents (image descriptions from requirements agent)
   if (agentDef?.phase === "design" || agentDef?.phase === "development") {
@@ -1441,8 +1458,8 @@ async function buildAgentContext(ticket: JiraTicket, state: WorkflowState): Prom
     }
   }
 
-  // For design agents: inject manifest so they can access intake sources directly
-  if (agentDef?.phase === "design") {
+  // For requirements and design agents: inject manifest so they can access intake sources directly
+  if (agentDef?.phase === "requirements" || agentDef?.phase === "design") {
     try {
       const manifest = await getManifest(state.id);
       if (manifest) {

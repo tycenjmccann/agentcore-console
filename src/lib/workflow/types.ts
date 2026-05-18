@@ -204,6 +204,7 @@ export type WorkflowEvent =
   | { type: "phase_change"; phase: WorkflowPhase }
   | { type: "agent_status"; agentId: string; status: AgentTaskStatus; ticketId?: string }
   | { type: "agent_output"; agentId: string; chunk: string }
+  | { type: "tool_use"; agentId: string; toolName: string }
   | { type: "agent_complete"; agentId: string; output: string; branch?: string; commitSha?: string }
   | { type: "message"; message: AgentMessage }
   | { type: "ticket_created"; ticket: JiraTicket }

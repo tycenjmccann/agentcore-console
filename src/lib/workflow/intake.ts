@@ -44,6 +44,47 @@ async function processUrl(url: string): Promise<{ content: string; contentType: 
     return processS3Source(url);
   }
 
+  // Handle file:// URIs — read from local filesystem
+  if (url.startsWith("file://")) {
+    try {
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      const filePath = url.replace("file://", "");
+      const content = await fs.readFile(filePath, "utf-8");
+      const ext = path.extname(filePath).toLowerCase();
+      const contentTypeMap: Record<string, string> = {
+        ".html": "text/html",
+        ".htm": "text/html",
+        ".json": "application/json",
+        ".md": "text/markdown",
+        ".txt": "text/plain",
+        ".css": "text/css",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+      };
+      const contentType = contentTypeMap[ext] || "text/plain";
+
+      // Images need base64 encoding
+      if (contentType.startsWith("image/")) {
+        const buffer = await fs.readFile(filePath);
+        return {
+          content: buffer.toString("base64"),
+          contentType,
+          isImage: true,
+          imageFormat: ext.replace(".", ""),
+        } as { content: string; contentType: string; isImage?: boolean; imageFormat?: string };
+      }
+
+      return { content, contentType };
+    } catch (err) {
+      return {
+        content: `[Error reading file: ${(err as Error).message}]`,
+        contentType: "text/plain",
+      };
+    }
+  }
+
   try {
     const response = await fetch(url, {
       headers: {

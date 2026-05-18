@@ -10,6 +10,7 @@ import type {
   AgentPhase,
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
+import { PIPELINE_PHASES, TOOL_ICON_MAP, resolveToolIcon } from "@/lib/pipeline-config";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -202,6 +203,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const [celebrating, setCelebrating] = useState(false);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
+  // Tool flash state: maps "phaseId:iconKey" to a timeout so items flash when tools fire
+  const [toolFlashes, setToolFlashes] = useState<Record<string, boolean>>({});
+  const toolFlashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const eventSourceRef = useRef<EventSource | null>(null);
   const pipelineRef = useRef<HTMLDivElement>(null);
 
@@ -299,6 +303,30 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           [event.agentId]: (prev[event.agentId] || "") + event.chunk,
         }));
         break;
+      case "tool_use": {
+        // Flash the corresponding icon/item in the pipeline
+        const resolved = resolveToolIcon(event.toolName);
+        if (resolved) {
+          // Find which phase this agent belongs to
+          const agentPhase = PIPELINE_PHASES.find((p) =>
+            p.agents.some((a) => a.id === event.agentId)
+          );
+          if (agentPhase) {
+            const flashKey = `${agentPhase.id}:${resolved.icon}`;
+            // Set flash active
+            setToolFlashes((prev) => ({ ...prev, [flashKey]: true }));
+            // Clear any existing timer for this key
+            if (toolFlashTimers.current[flashKey]) {
+              clearTimeout(toolFlashTimers.current[flashKey]);
+            }
+            // Auto-clear after 800ms
+            toolFlashTimers.current[flashKey] = setTimeout(() => {
+              setToolFlashes((prev) => ({ ...prev, [flashKey]: false }));
+            }, 800);
+          }
+        }
+        break;
+      }
       case "agent_complete":
         setState((s) => {
           if (!s) return s;
@@ -494,17 +522,22 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                   {phase.tools.length > 0 && (
                     <>
                       <div className="sec-label">{phase.id === "intake" ? "User Actions" : "Tools"}</div>
-                      {phase.tools.map((tool, i) => (
-                        <div key={i} className={`item ${getItemClass(idx)}`}>
-                          {tool.icon ? (
-                            <img className="svc-icon" src={(awsIcons as Record<string, string>)[tool.icon]} alt={tool.icon} />
-                          ) : (
-                            <span className={`item-dot ${tool.dot || "ext"}`} />
-                          )}
-                          <span className="item-label">{tool.label}</span>
-                          <span className="item-status" />
-                        </div>
-                      ))}
+                      {phase.tools.map((tool, i) => {
+                        const iconKey = tool.icon || tool.dot || "ext";
+                        const isFlashing = toolFlashes[`${phase.id}:${iconKey}`];
+                        const itemClass = isFlashing ? "trigger" : getItemClass(idx);
+                        return (
+                          <div key={i} className={`item ${itemClass}`}>
+                            {tool.icon ? (
+                              <img className="svc-icon" src={(awsIcons as Record<string, string>)[tool.icon]} alt={tool.icon} />
+                            ) : (
+                              <span className={`item-dot ${tool.dot || "ext"}`} />
+                            )}
+                            <span className="item-label">{tool.label}</span>
+                            <span className="item-status" />
+                          </div>
+                        );
+                      })}
                     </>
                   )}
 
@@ -527,13 +560,17 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                   {phase.skills.length > 0 && (
                     <>
                       <div className="sec-label">Skills</div>
-                      {phase.skills.map((skill, i) => (
-                        <div key={i} className={`item ${getItemClass(idx)}`}>
-                          <span className="item-dot skill" />
-                          <span className="item-label">{skill.label}</span>
-                          <span className="item-status" />
-                        </div>
-                      ))}
+                      {phase.skills.map((skill, i) => {
+                        const isSkillFlashing = toolFlashes[`${phase.id}:skill`];
+                        const itemClass = isSkillFlashing ? "trigger" : getItemClass(idx);
+                        return (
+                          <div key={i} className={`item ${itemClass}`}>
+                            <span className="item-dot skill" />
+                            <span className="item-label">{skill.label}</span>
+                            <span className="item-status" />
+                          </div>
+                        );
+                      })}
                     </>
                   )}
 
@@ -541,17 +578,22 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                   {phase.outputs.length > 0 && (
                     <>
                       <div className="sec-label">{phase.id === "intake" ? "Trigger" : "Output"}</div>
-                      {phase.outputs.map((out, i) => (
-                        <div key={i} className={`item ${getItemClass(idx)}`}>
-                          {out.icon ? (
-                            <img className="svc-icon" src={(awsIcons as Record<string, string>)[out.icon]} alt={out.icon} />
-                          ) : (
-                            <span className={`item-dot ${out.dot || "ext"}`} />
-                          )}
-                          <span className="item-label">{out.label}</span>
-                          <span className="item-status" />
-                        </div>
-                      ))}
+                      {phase.outputs.map((out, i) => {
+                        const outIconKey = out.icon || out.dot || "ext";
+                        const isOutFlashing = toolFlashes[`${phase.id}:${outIconKey}`];
+                        const itemClass = isOutFlashing ? "trigger" : getItemClass(idx);
+                        return (
+                          <div key={i} className={`item ${itemClass}`}>
+                            {out.icon ? (
+                              <img className="svc-icon" src={(awsIcons as Record<string, string>)[out.icon]} alt={out.icon} />
+                            ) : (
+                              <span className={`item-dot ${out.dot || "ext"}`} />
+                            )}
+                            <span className="item-label">{out.label}</span>
+                            <span className="item-status" />
+                          </div>
+                        );
+                      })}
                     </>
                   )}
                 </div>
