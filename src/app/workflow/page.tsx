@@ -1,54 +1,74 @@
 "use client";
 
-import { useState } from "react";
-import IntakeForm from "@/components/workflow/IntakeForm";
-import WorkflowBoard from "@/components/workflow/WorkflowBoard";
-import type { WorkflowInput } from "@/lib/workflow/types";
+import { useState, useEffect } from "react";
+import PipelineVisualization from "@/components/workflow/PipelineVisualization";
+import type { WorkflowState } from "@/lib/workflow/types";
+import "@/styles/pipeline.css";
 
+/**
+ * Workflow Pipeline page - displays the animated multi-agent pipeline.
+ * Polls the workflow API for state updates and passes them to the visualization.
+ */
 export default function WorkflowPage() {
-  const [workflowId, setWorkflowId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [workflowState, setWorkflowState] = useState<WorkflowState | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (input: WorkflowInput) => {
-    setIsLoading(true);
-    setError(null);
+  useEffect(() => {
+    fetchWorkflowState();
+    const interval = setInterval(fetchWorkflowState, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
+  async function fetchWorkflowState() {
     try {
-      const res = await fetch("/api/workflow/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-
+      const res = await fetch("/api/workflow/state");
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || `HTTP ${res.status}`);
+        // If no workflow exists yet, show intake state
+        if (res.status === 404) {
+          setWorkflowState(null);
+          setLoading(false);
+          return;
+        }
+        throw new Error(`Failed to fetch workflow state: ${res.status}`);
       }
-
-      const { workflowId: id } = await res.json();
-      setWorkflowId(id);
-    } catch (err) {
-      setError((err as Error).message);
+      const data = await res.json();
+      setWorkflowState(data);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  };
+  }
+
+  function handleStepClick(phaseId: string, itemId: string) {
+    console.log(`[Pipeline] Clicked phase=${phaseId} item=${itemId}`);
+    // Future: open detail panel for the clicked step
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[600px]">
+        <div className="text-gray-500 text-sm">Loading pipeline...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[600px]">
+        <div className="text-red-400 text-sm">{error}</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {!workflowId ? (
-        <>
-          {error && (
-            <div className="max-w-2xl mx-auto p-3 bg-red-900/30 border border-red-700 rounded-lg text-sm text-red-300">
-              {error}
-            </div>
-          )}
-          <IntakeForm onSubmit={handleSubmit} isLoading={isLoading} />
-        </>
-      ) : (
-        <WorkflowBoard workflowId={workflowId} />
-      )}
+    <div className="-m-6">
+      <PipelineVisualization
+        workflowState={workflowState}
+        onStepClick={handleStepClick}
+      />
     </div>
   );
 }
