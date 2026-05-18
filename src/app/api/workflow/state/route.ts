@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { WorkflowState } from "@/lib/workflow/types";
+import type { WorkflowState, IntakeSource } from "@/lib/workflow/types";
 
 /**
  * GET /api/workflow/state
@@ -10,6 +10,33 @@ export async function GET() {
   const demoState: WorkflowState = getDemoWorkflowState();
   return NextResponse.json(demoState);
 }
+
+/** Demo sources representing realistic intake artifacts */
+const DEMO_SOURCES: IntakeSource[] = [
+  {
+    type: "s3",
+    value: "s3://agentcore-artifacts-023392223961-us-east-1/workflows/wf_demo_001/shared/source-0-s3.md",
+    contentType: "text/markdown",
+    label: "PRD - Pipeline Visualization Feature",
+  },
+  {
+    type: "s3",
+    value: "s3://agentcore-artifacts-023392223961-us-east-1/workflows/wf_demo_001/shared/source-1-s3.md",
+    contentType: "text/plain",
+    label: "Current workflow page.tsx",
+  },
+  {
+    type: "url",
+    value: "https://www.figma.com/design/abc123/Pipeline-Visualization",
+    label: "Figma Design - Pipeline Layout",
+  },
+  {
+    type: "s3",
+    value: "s3://agentcore-artifacts-023392223961-us-east-1/workflows/wf_demo_001/shared/source-2-s3.md",
+    contentType: "text/plain",
+    label: "WorkflowBoard.tsx",
+  },
+];
 
 function getDemoWorkflowState(): WorkflowState {
   // Cycle through phases for demo purposes based on time
@@ -58,7 +85,7 @@ function getDemoWorkflowState(): WorkflowState {
           },
         ],
       },
-      sources: [],
+      sources: DEMO_SOURCES,
     },
     agentTasks: buildDemoAgentTasks(currentPhase),
     messages: [],
