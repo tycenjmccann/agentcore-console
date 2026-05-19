@@ -53,10 +53,18 @@ Files to modify:
 
 Dependencies already available: lucide-react (ChevronLeft, ChevronRight, GripVertical, ChevronDown), Tailwind CSS, CSS variables.
 
-See attached PRD for full spec, acceptance criteria, and technical context.`,
+See attached PRD for full spec, acceptance criteria, and technical context.
+
+IMPORTANT: Two mockup images are attached as sources:
+- sidebar-desired-state.png — Visual mockup of the DESIRED final state (dark theme, collapsed sidebar, enriched intake card with expandable sources)
+- sidebar-current-state.png — Screenshot of the CURRENT state (for reference)
+
+Design agents MUST read these images using S3Storage___read_object to understand the visual target.`,
   repoUrl: "https://github.com/tycenjmccann/agentcore-console",
   sources: [
     `s3://${S3_BUCKET}/intake-sources/sidebar-intake-v4/prd.md`,
+    `s3://${S3_BUCKET}/intake-sources/sidebar-intake-v4/mockup/sidebar-desired-state.png`,
+    `s3://${S3_BUCKET}/intake-sources/sidebar-intake-v4/mockup/sidebar-current-state.png`,
     `s3://${S3_BUCKET}/intake-sources/sidebar-intake-v4/context/page.tsx`,
     `s3://${S3_BUCKET}/intake-sources/sidebar-intake-v4/context/WorkflowBoard.tsx`,
     `s3://${S3_BUCKET}/intake-sources/sidebar-intake-v4/context/types.ts`,

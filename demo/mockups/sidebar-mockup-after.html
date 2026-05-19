@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1419; color: #e7e9ea; display: flex; height: 100vh; }
+
+/* Nav sidebar (fixed) */
+.nav { width: 190px; background: #1a1f2e; padding: 16px; border-right: 1px solid #2d3748; flex-shrink: 0; }
+.nav-brand { font-size: 18px; font-weight: 700; margin-bottom: 24px; color: #fff; }
+.nav-brand small { font-size: 11px; color: #8899a6; display: block; }
+.nav-item { padding: 10px 12px; margin: 4px 0; border-radius: 8px; color: #8899a6; font-size: 14px; cursor: pointer; }
+.nav-item.active { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+
+/* Workflow history sidebar - COLLAPSED STATE */
+.history-collapsed { width: 32px; background: #1a1f2e; border-right: 1px solid #2d3748; display: flex; flex-direction: column; align-items: center; padding-top: 16px; position: relative; }
+.expand-btn { width: 24px; height: 24px; border-radius: 4px; background: #2d3748; border: 1px solid #4a5568; color: #8899a6; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 12px; }
+.expand-btn:hover { background: #374151; color: #fff; }
+
+/* Main pipeline area - FULL WIDTH */
+.pipeline { flex: 1; padding: 24px; overflow: auto; }
+.pipeline-header { font-size: 12px; color: #8899a6; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
+
+/* Phase boxes */
+.phases { display: flex; gap: 12px; align-items: flex-start; }
+.phase { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 12px; padding: 16px; width: 280px; flex-shrink: 0; }
+.phase-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.phase-icon { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.phase-icon.green { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.phase-icon.blue { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+.phase-icon.purple { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+.phase-name { font-size: 14px; font-weight: 600; }
+.phase-status { font-size: 11px; color: #22c55e; margin-left: auto; }
+
+/* Intake card with epic title */
+.epic-badge { background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 6px 10px; font-size: 11px; color: #93c5fd; margin-bottom: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.epic-id { color: #60a5fa; font-weight: 600; }
+
+/* Expandable source items */
+.action-item { padding: 8px 10px; border-radius: 6px; background: #141921; margin: 4px 0; font-size: 12px; color: #8899a6; cursor: pointer; }
+.action-item .chevron { float: right; transition: transform 0.2s; }
+.action-item.expanded .chevron { transform: rotate(90deg); }
+.source-list { padding: 6px 10px 6px 20px; font-size: 11px; color: #60a5fa; }
+.source-list div { padding: 3px 0; }
+.source-list div::before { content: ""; display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: #4a5568; margin-right: 8px; vertical-align: middle; }
+
+/* Connector lines */
+.connector { width: 40px; display: flex; align-items: center; justify-content: center; color: #4a5568; font-size: 18px; }
+
+/* Annotations */
+.annotation { position: absolute; background: #fbbf24; color: #000; font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 4px; white-space: nowrap; }
+.annotation::after { content: ""; position: absolute; width: 0; height: 0; }
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<div class="nav">
+  <div class="nav-brand">Agentis<small>Hub</small></div>
+  <div class="nav-item">Dashboard</div>
+  <div class="nav-item">Agents</div>
+  <div class="nav-item">Build</div>
+  <div class="nav-item active">Workflow</div>
+  <div class="nav-item">Routing</div>
+  <div class="nav-item">Ticket History</div>
+</div>
+
+<!-- History sidebar - COLLAPSED -->
+<div class="history-collapsed">
+  <div class="expand-btn" title="Expand history">&#x276F;</div>
+  <div style="writing-mode: vertical-rl; text-orientation: mixed; color: #4a5568; font-size: 10px; margin-top: 16px; letter-spacing: 1px;">WORKFLOWS</div>
+</div>
+
+<!-- Pipeline area - takes full width -->
+<div class="pipeline" style="position: relative;">
+  <div class="pipeline-header">Pipeline Visualization</div>
+
+  <div class="phases">
+    <!-- Phase 1: Intake (with enhancements) -->
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-icon green">1</div>
+        <div class="phase-name">Intake</div>
+        <div class="phase-status">Complete</div>
+      </div>
+      <!-- Epic badge (NEW) -->
+      <div class="epic-badge">
+        <span class="epic-id">TEAM-259</span> Collapsible History Sidebar + Intake Card
+      </div>
+      <!-- Expandable items (NEW) -->
+      <div class="action-item expanded">
+        Upload PRD / Mockup <span class="chevron">&#x276F;</span>
+      </div>
+      <div class="source-list">
+        <div>prd.md</div>
+        <div>sidebar-mockup.png</div>
+      </div>
+      <div class="action-item">
+        S3 Artifact Storage <span class="chevron">&#x276F;</span>
+      </div>
+      <div class="action-item expanded">
+        Source Context <span class="chevron">&#x276F;</span>
+      </div>
+      <div class="source-list">
+        <div>page.tsx</div>
+        <div>WorkflowBoard.tsx</div>
+        <div>types.ts</div>
+      </div>
+    </div>
+
+    <div class="connector">&#x2192;</div>
+
+    <!-- Phase 2: Requirements -->
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-icon blue">2</div>
+        <div class="phase-name">Requirements</div>
+        <div class="phase-status">Complete</div>
+      </div>
+      <div class="action-item">requirements_analyst <span style="color:#22c55e">&#x2713;</span></div>
+    </div>
+
+    <div class="connector">&#x2192;</div>
+
+    <!-- Phase 3: Design -->
+    <div class="phase">
+      <div class="phase-header">
+        <div class="phase-icon purple">3</div>
+        <div class="phase-name">Design</div>
+        <div class="phase-status" style="color: #f59e0b;">In Progress</div>
+      </div>
+      <div class="action-item">ios_designer <span style="color:#f59e0b">&#x25CF;</span></div>
+      <div class="action-item">security_reviewer <span style="color:#22c55e">&#x2713;</span></div>
+      <div class="action-item">analytics_designer <span style="color:#4a5568">&#x25CB;</span></div>
+    </div>
+  </div>
+
+  <!-- Annotations showing what changed -->
+  <div style="position: absolute; top: 8px; right: 24px; background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 8px; padding: 12px 16px; max-width: 280px;">
+    <div style="font-size: 11px; font-weight: 600; color: #fbbf24; margin-bottom: 6px;">MOCKUP: Desired State</div>
+    <div style="font-size: 11px; color: #8899a6; line-height: 1.5;">
+      1. Sidebar auto-collapsed (chevron to expand)<br>
+      2. Pipeline gets full width<br>
+      3. Intake card shows epic title badge<br>
+      4. Source items expandable with chevrons<br>
+      5. Expanded items show actual file names
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
