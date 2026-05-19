@@ -7,7 +7,8 @@ A web console for Amazon Bedrock AgentCore that dynamically discovers and intera
 - **Dashboard** — Real metrics from CloudWatch and OTEL traces: invocations, per-agent token usage, latency, sessions
 - **Agents** — Card grid of harnesses and runtimes; click for detail + invoke
 - **Agent Detail** — Model, tools, memory, logs + live chat with sessions and full OTEL execution trace
-- **Builder** — Chat-based agent creation via Bedrock Converse API
+- **Builder** — Chat-based agent creation (harness with code_interpreter + MCP)
+- **Workflow** — Autonomous development pipeline: submit a feature request, 13 agents produce a PR
 
 ## Prerequisites
 
@@ -35,8 +36,10 @@ cp .env.example .env.local
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `AWS_REGION` | No | Defaults to `us-east-1` |
-| `HARNESS_EXECUTION_ROLE_ARN` | **Yes (for Deploy)** | IAM role ARN assigned to newly created harness agents. Must have Bedrock model invoke permissions. Without this, the Deploy button on the Build page won't work. |
-| `BUILDER_AGENT_ID` | No | Harness ID of a deployed builder agent. Enables tool-powered builder chat. Without it, Build page uses direct Converse API (no tools/memory). |
+| `HARNESS_EXECUTION_ROLE_ARN` | **Yes (for Deploy)** | IAM role ARN assigned to newly created harness agents. Must have Bedrock model invoke permissions. |
+| `BUILDER_AGENT_ID` | No | Harness ID of a deployed builder agent. Enables tool-powered builder chat. |
+| `GITHUB_PAT` | No | GitHub Personal Access Token. Pipeline agents use this to connect to GitHub's hosted MCP server. |
+| `MCP_SERVERS` | No | JSON array of MCP server configs: `[{"url":"...","headers":{...}}]`. For custom tooling beyond GitHub. |
 
 The app uses the standard AWS credential chain — no secrets in env files.
 
@@ -144,166 +147,121 @@ That's it — the console will now use your custom format for that agent on ever
 
 ## Builder Agent (Agent that Creates Agents)
 
-The Build tab is powered by a real AgentCore harness agent that can:
-- **See all deployed agents** — calls `list_agents` to inspect your account
-- **Discover available tools** — calls `list_gateway_tools` to see what's on your gateways
-- **Check memories** — calls `list_memories` to find available memory resources
-- **Create new agents** — calls `create_harness` to deploy agents with the right config
-- **Inspect agents** — calls `get_agent_detail` to show full config of any agent
-
-The builder has **persistent memory** so it remembers what it's previously created and can suggest modifications.
+The Build tab is powered by a real AgentCore harness agent that can create other agents. It uses:
+- **code_interpreter** — runs Python/boto3 to call AgentCore APIs (CreateHarness, ListAgentRuntimes, etc.)
+- **Remote MCP** (optional) — connects to your MCP servers so the builder can discover available tools and wire them into agents it creates
 
 ### Deploying the Builder Agent
 
-The builder agent needs visibility into your tools/skills infrastructure. Choose the method that matches your setup:
-
-#### Option A: AgentCore Gateway (Lambda-backed tools)
-
-Best if you already have an AgentCore IAM gateway. Deploys a Lambda with 5 management tools and registers them as gateway targets.
-
 ```bash
+# Minimal — builder with code_interpreter only
 node deploy/setup-builder-agent.mjs \
-  --gateway-id <your-iam-gateway-id> \
+  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole
+
+# With MCP servers for tool discovery
+node deploy/setup-builder-agent.mjs \
   --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \
-  --memory-id <your-memory-id>
+  --mcp-url https://api.githubcopilot.com/mcp/ \
+  --mcp-url https://my-tools.example.com/mcp
+
+# With memory for persistent context
+node deploy/setup-builder-agent.mjs \
+  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \
+  --mcp-url https://my-tools.example.com/mcp \
+  --memory-id my-builder-memory
 ```
 
 **What this creates:**
-1. **Builder-tools Lambda** — 5 management tools (list agents, tools, memories, create agent, inspect agent)
-2. **Gateway targets** — exposes all 5 tools on your IAM gateway
-3. **Builder Agent harness** — with memory and gateway tools attached
+1. **Builder Agent harness** (`agentis_builder`) with code_interpreter + any MCP servers you specify
 
-**Prerequisites:**
-- IAM-auth AgentCore gateway
-- IAM execution role for the harness (Bedrock model access)
-- Lambda execution role (auto-created) with AgentCore control plane permissions
-
-#### Option B: Remote MCP Server(s)
-
-Best if you expose your tool catalog via MCP servers (e.g., a centralized tool registry, custom MCP endpoint, or third-party MCP service). No Lambda needed.
-
-```bash
-node deploy/setup-builder-agent.mjs \
-  --mcp-url https://your-mcp-server.example.com/sse \
-  --mcp-url https://another-mcp.example.com/sse \
-  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \
-  --memory-id <your-memory-id>
-```
-
-**What this creates:**
-1. **Builder Agent harness** — connected to your MCP server(s) for tool discovery
-
-**Prerequisites:**
-- MCP server(s) accessible from the harness runtime (public URL or VPC-connected)
-- MCP server must implement the standard MCP protocol (SSE transport)
-- IAM execution role for the harness (Bedrock model access)
-
-#### Option C: Both Gateway + MCP
-
-Combine gateway tools (for AgentCore management) with MCP servers (for additional tool catalogs):
-
-```bash
-node deploy/setup-builder-agent.mjs \
-  --gateway-id <your-iam-gateway-id> \
-  --mcp-url https://your-tool-registry.example.com/sse \
-  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole \
-  --memory-id <your-memory-id>
-```
-
-#### Output
-
-All options produce:
+**Output:**
 ```bash
 BUILDER_AGENT_ID=agentis_builder-xxxxxxxxxx
 ```
 
 Add to `.env.local` — the Build page will use the real harness agent instead of direct Converse.
 
-### Prerequisites for Builder Agent
+### Prerequisites
 
-**All options require:**
-1. **IAM execution role** for the harness — needs Bedrock model access
-2. **Harness role** — needs memory access if using memory (`ListEvents`, `CreateEvent`, `ListSessions`)
-3. **(Optional) AgentCore Memory** — for persistent context across sessions:
-   ```bash
-   # Via AgentCore MCP tools or SDK:
-   # memory_create({ name: "my_builder_memory" })
-   ```
-
-**Gateway option (A/C) additionally requires:**
-4. **IAM-auth AgentCore gateway**
-5. **Lambda execution role** (auto-created) with control plane permissions:
-   ```json
-   {
-     "Effect": "Allow",
-     "Action": [
-       "bedrock-agentcore:ListHarnesses",
-       "bedrock-agentcore:ListAgentRuntimes",
-       "bedrock-agentcore:ListMemories",
-       "bedrock-agentcore:ListGateways",
-       "bedrock-agentcore:ListGatewayTargets",
-       "bedrock-agentcore:GetHarness",
-       "bedrock-agentcore:GetAgentRuntime",
-       "bedrock-agentcore:CreateHarness"
-     ],
-     "Resource": "*"
-   }
-   ```
-6. **`iam:PassRole`** on the harness execution role so the builder can assign it to new agents:
-   ```json
-   {
-     "Effect": "Allow",
-     "Action": "iam:PassRole",
-     "Resource": "arn:aws:iam::ACCOUNT_ID:role/YOUR_HARNESS_EXECUTION_ROLE",
-     "Condition": {
-       "StringEquals": {
-         "iam:PassedToService": "bedrock-agentcore.amazonaws.com"
-       }
-     }
-   }
-   ```
-
-**MCP option (B/C) additionally requires:**
-6. MCP server URL(s) reachable from the harness runtime
-7. MCP server must serve tools via standard SSE transport
+1. **IAM execution role** for the harness — needs Bedrock model access + AgentCore control plane permissions (CreateHarness, ListHarnesses, ListAgentRuntimes, etc.)
+2. **(Optional) MCP server URL(s)** — any MCP server the builder should discover tools from. The builder can then wire these into child agents it creates.
+3. **(Optional) AgentCore Memory ID** — for persistent context across sessions
 
 ### How It Works
 
-**Gateway path:**
 ```
 User (Build page) → InvokeHarness(agentis_builder)
                          ↓
-              Builder Agent (Claude Sonnet)
+              Builder Agent (Claude Sonnet 4.5)
                     ↓ tool calls ↓
     ┌────────────────────────────────────────┐
-    │ Gateway Target: BuilderTools (Lambda)  │
-    │  • list_agents → ListHarnesses API    │
-    │  • list_gateway_tools → ListGateways  │
-    │  • create_harness → CreateHarness API │
-    │  • list_memories → ListMemories API   │
-    │  • get_agent_detail → GetHarness API  │
-    └────────────────────────────────────────┘
-                    ↓
-              Streams response back with agent data
-```
-
-**MCP path:**
-```
-User (Build page) → InvokeHarness(agentis_builder)
-                         ↓
-              Builder Agent (Claude Sonnet)
-                    ↓ tool calls ↓
-    ┌────────────────────────────────────────┐
-    │ Remote MCP Server(s)                   │
+    │ code_interpreter (boto3)               │
+    │  • CreateHarness → deploy new agents  │
+    │  • ListHarnesses → see existing       │
+    │  • ListGateways → find tools          │
+    │  • ListMemories → find memories       │
+    ├────────────────────────────────────────┤
+    │ Remote MCP Server(s) (optional)        │
     │  • Tools auto-discovered via MCP      │
-    │  • Agent calls tools as needed        │
-    │  • Supports any MCP-compatible server │
+    │  • Any provider: GitHub, GitLab, Jira │
+    │  • Builder wires these into children  │
     └────────────────────────────────────────┘
                     ↓
-              Streams response back with tool results
+              Streams response back
 ```
 
 Without `BUILDER_AGENT_ID`, the Build page falls back to a direct Converse API call (no tools, no memory — just config generation).
+
+---
+
+## Development Pipeline (13 Agents)
+
+The Workflow tab runs an autonomous software development pipeline. Submit a feature request and 13 specialized agents (requirements, design, development, QA) produce a pull request.
+
+### Architecture
+
+- **Agents:** 13 Strands agents deployed on AgentCore Runtime (configurable 600s timeout)
+- **Orchestration:** DynamoDB Streams cascade — ticket status changes trigger the next phase
+- **Tools:** Agents connect to external tools via MCP (GitHub, GitLab, Jira, etc.) — configurable per deployment
+- **Model:** Claude Opus 4.6 (default, configurable via `MODEL_ID` env var)
+
+### Deploying the Agent Fleet
+
+```bash
+# Deploy all 13 agents (requires agentcore CLI configured)
+cd deploy/runtime-agent
+./deploy-fleet.sh
+
+# With GitHub MCP tools attached
+GITHUB_PAT=ghp_xxx ./deploy-fleet.sh
+
+# With any MCP servers (JSON array)
+MCP_SERVERS='[{"url":"https://api.githubcopilot.com/mcp/","headers":{"Authorization":"Bearer ghp_xxx"}}]' \
+  ./deploy-fleet.sh
+```
+
+### MCP Flexibility
+
+Each customer plugs in their own tooling via the `MCP_SERVERS` environment variable — a JSON array of `{url, headers}` objects. Examples:
+- **GitHub:** `https://api.githubcopilot.com/mcp/` + Bearer token
+- **GitLab:** Your GitLab MCP server URL
+- **Jira/Linear/Asana:** Any project management MCP server
+- **Custom tools:** Any MCP-compatible server
+
+`GITHUB_PAT` is supported as a shorthand for the common GitHub case.
+
+### Pipeline Phases
+
+| Phase | Agents | Function |
+|-------|--------|----------|
+| Requirements | 1 (Requirements Analyst) | Analyze PRD, create tickets, skip irrelevant agents |
+| Design | 7 (iOS, Android, Backend, Security, Legal, Localization, Analytics) | Parallel design docs |
+| Development | 3 (Backend Dev, API Dev, Frontend Dev) | Parallel code generation + PR |
+| QA | 2 (QA Verifier, CI Agent) | Test verification + code review |
+
+### Known Limitation: Harness Agents
+
+An alternative deployment path (`deploy/setup-team-agents.mjs`) deploys agents as AgentCore Harnesses instead of Runtimes. Harness agents currently have an internal ~120s boto3 read timeout that cannot be configured, causing failures with complex agents. This is an open item with the AgentCore team. Use Runtime agents (the default) until resolved.
 
 ---
 
