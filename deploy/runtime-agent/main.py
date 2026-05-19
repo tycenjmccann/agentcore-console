@@ -378,6 +378,36 @@ LAMBDA_TOOLS = [
 
 logger.info(f"Loaded {len(LAMBDA_TOOLS)} Lambda-backed tools + GitHub MCP (built-in tools loaded at invocation time)")
 
+# --- DynamoDB client for real-time event publishing ---
+_ddb_events_client = boto3.client("dynamodb", region_name=REGION)
+_EVENTS_TABLE = os.getenv("EVENTS_TABLE", "agentis-events")
+
+
+def _publish_agent_started(workflow_id: str, agent_id: str):
+    """Publish agent.started event so UI immediately shows this agent as running."""
+    import time, random, string
+    try:
+        event_id = f"{int(time.time() * 1000)}-{''.join(random.choices(string.ascii_lowercase, k=4))}"
+        _ddb_events_client.put_item(
+            TableName=_EVENTS_TABLE,
+            Item={
+                "workflowId": {"S": workflow_id},
+                "eventId": {"S": event_id},
+                "type": {"S": "agent.started"},
+                "detail": {"M": {
+                    "agentId": {"S": agent_id},
+                    "workflowId": {"S": workflow_id},
+                    "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
+                }},
+                "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
+                "ttl": {"N": str(int(time.time()) + 3600)},
+            },
+        )
+        logger.info(f"[{agent_id}] Published agent.started event")
+    except Exception as e:
+        logger.warning(f"[{agent_id}] Failed to publish agent.started: {e}")
+
+
 # --- App entrypoint (streaming enabled) ---
 app = BedrockAgentCoreApp()
 
@@ -404,6 +434,9 @@ async def agent_invocation(payload, context):
 
     logger.info(f"[{agent_id}] Starting invocation for workflow {workflow_id}")
     logger.info(f"[{agent_id}] Model: {model_override or MODEL_ID}, read_timeout: {READ_TIMEOUT}s")
+
+    # Publish "agent started" event so UI immediately shows this agent as running/pulsing
+    _publish_agent_started(workflow_id, agent_id)
 
     # Use model override if provided (orchestrator can specify per-agent)
     active_model = model
@@ -433,11 +466,53 @@ async def agent_invocation(payload, context):
     else:
         logger.warning(f"[{agent_id}] No MCP servers configured — external tools unavailable")
 
+    # Collect tool_use events via callback handler AND publish them in real-time to the
+    # events table so the UI can flash tool icons as they happen (not just at the end).
+    tool_events = []
+
+    class ToolTrackingHandler:
+        """Callback handler that records tool invocations and publishes them to DynamoDB for real-time UI."""
+        def __init__(self):
+            self.previous_tool_use = None
+
+        def __call__(self, **kwargs):
+            current_tool_use = kwargs.get("current_tool_use", {})
+            if current_tool_use and current_tool_use.get("name"):
+                if self.previous_tool_use != current_tool_use:
+                    self.previous_tool_use = current_tool_use
+                    tool_name = current_tool_use["name"]
+                    tool_events.append(tool_name)
+                    logger.info(f"[{agent_id}] Tool call: {tool_name}")
+                    # Publish real-time tool_use event to DynamoDB events table
+                    try:
+                        import time, random, string
+                        event_id = f"{int(time.time() * 1000)}-{''.join(random.choices(string.ascii_lowercase, k=4))}"
+                        _ddb_events_client.put_item(
+                            TableName=_EVENTS_TABLE,
+                            Item={
+                                "workflowId": {"S": workflow_id},
+                                "eventId": {"S": event_id},
+                                "type": {"S": "agent.streaming"},
+                                "detail": {"M": {
+                                    "agentId": {"S": agent_id},
+                                    "type": {"S": "trace"},
+                                    "toolName": {"S": tool_name},
+                                    "workflowId": {"S": workflow_id},
+                                    "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
+                                }},
+                                "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
+                                "ttl": {"N": str(int(time.time()) + 3600)},
+                            },
+                        )
+                    except Exception as e:
+                        logger.warning(f"[{agent_id}] Failed to publish tool event: {e}")
+
     # Create agent with role-specific system prompt and all tools
     agent = Agent(
         model=active_model,
         system_prompt=system_prompt,
         tools=all_tools,
+        callback_handler=ToolTrackingHandler(),
     )
 
     # Use non-streaming call to avoid idle timeout on SSE connection during tool calls.
@@ -454,9 +529,14 @@ async def agent_invocation(payload, context):
             if isinstance(block, dict) and "text" in block:
                 final_text += block["text"]
 
-    logger.info(f"[{agent_id}] Invocation complete for workflow {workflow_id}, output: {len(final_text)} chars")
+    logger.info(f"[{agent_id}] Invocation complete for workflow {workflow_id}, output: {len(final_text)} chars, tools used: {len(tool_events)}")
 
-    # Yield the final text as a single contentBlockDelta event (matches agent-invoker's SSE parser)
+    # Emit tool_use events FIRST so the agent-invoker can publish them for real-time UI flashing.
+    # Format matches what agent-invoker.mjs parses: event.event.contentBlockStart.start.toolUse.name
+    for tool_name in tool_events:
+        yield {"event": {"contentBlockStart": {"start": {"toolUse": {"name": tool_name}}}}}
+
+    # Then emit the final text as a single contentBlockDelta event
     yield {"event": {"contentBlockDelta": {"delta": {"text": final_text}}}}
 
 

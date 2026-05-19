@@ -408,10 +408,10 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                         <div className="sec-label">Agents ({phase.agents.length})</div>
                         {phase.agents.map((agent) => {
                           const agentTask = state?.agentTasks[agent.id];
-                          const isStreaming = !!(streamingText[agent.id] && agentTask?.status === "running");
+                          // Agent pulses ("working") whenever it's running — streaming text is optional
                           const agentItemClass = agentTask
                             ? agentTask.status === "running" || agentTask.status === "waiting_response"
-                              ? isStreaming ? "working" : "active-glow"
+                              ? "working"
                               : agentTask.status === "complete"
                               ? "done"
                               : agentTask.status === "error"

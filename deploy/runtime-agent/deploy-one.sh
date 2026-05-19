@@ -39,6 +39,7 @@ OUTPUT=$(agentcore deploy \
   --env "MODEL_ID=us.anthropic.claude-opus-4-6-v1" \
   --env "READ_TIMEOUT=600" \
   --env "AWS_REGION=us-east-1" \
+  --env "EVENTS_TABLE=agentis-events" \
   ${MCP_ENV} 2>&1)
 
 ARN=$(echo "$OUTPUT" | grep -o 'arn:aws:bedrock-agentcore:[^"]*runtime/[^"[:space:]]*' | head -1)
