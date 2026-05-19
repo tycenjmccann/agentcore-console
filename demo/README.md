@@ -13,37 +13,56 @@ Open `agentis-v1-pipeline.html` directly in any modern browser — no server nee
 ## Pipeline Architecture (5 Phases)
 
 ### Phase 1: Intake (Web Application)
-- **Type:** Next.js 14 App Router (not an agent)
+- **Type:** Next.js 15 App Router (not an agent)
 - **Function:** User uploads PRD/mockup/Figma, sets target repo, artifacts stored in S3
 - **Trigger:** Creates epic + pre-creates ALL 13 agent ticket skeletons with dependency chains in DynamoDB. Requirements ticket starts as "todo" (no blockers), all others start "blocked". DynamoDB Stream triggers orchestrator.
 
 ### Phase 2: Requirements (1 Agent)
 - **Agent:** Requirements Analyst
-- **Model:** Claude Opus 4 via Bedrock (`us.anthropic.claude-opus-4-0-v1`)
-- **Tools:** S3 Read/Write, Jira (list_tickets, transition_ticket, update_ticket, add_comment), SkillLoader, Browser
-- **Skill loaded:** `requirements-analysis`
-- **Process:** Load skill -> Read PRD from S3 -> Analyze requirements -> List pre-created ticket skeletons under epic -> Skip irrelevant agents (transition "skip" with reason) -> Update relevant tickets with detailed requirements -> Transition own ticket to "done" -> DynamoDB Stream cascade unblocks design phase
+- **Model:** Claude Opus 4.6 via Bedrock (`us.anthropic.claude-opus-4-6-v1`)
+- **Built-in Tools:** S3 Read/Write, Jira (list_tickets, transition_ticket, update_ticket, add_comment), image_reader, http_request, current_time
+- **MCP Tools:** GitHub (`get_file_contents`, `search_code`) + any customer-configured MCP servers
+- **Process:** Read PRD from S3 → Analyze requirements → List pre-created ticket skeletons under epic → Skip irrelevant agents (transition "skip" with reason) → Update relevant tickets with detailed requirements → Transition own ticket to "done" → DynamoDB Stream cascade unblocks design phase
 
 ### Phase 3: Design (7 Agents in Parallel)
 - **Agents:** iOS Designer, Backend Designer, Android Designer, Security Reviewer, Legal & Compliance, Localization, Analytics Designer
-- **Model:** Claude Opus 4 via Bedrock
-- **Tools:** S3 Read/Write, A2A, GitHub, SkillLoader, Browser
-- **Skills loaded:** `ios-architecture`, `android-architecture`, `backend-systems`, `privacy-compliance`, `threat-modeling`, `localization`, `general-design`
-- **Process:** Unblocked by requirements completion -> All non-skipped agents wake simultaneously -> Read requirements from S3 -> Load skills -> Produce design docs in parallel -> Write artifacts to S3 -> Agent-invoker marks ticket "done" -> DynamoDB Stream cascade unblocks dev phase
+- **Model:** Claude Opus 4.6 via Bedrock
+- **Built-in Tools:** S3 Read/Write, Agent-to-Agent invoke, image_reader, http_request, current_time
+- **MCP Tools:** GitHub (`get_file_contents`, `search_code`) + any customer-configured MCP servers
+- **Process:** Unblocked by requirements completion → All non-skipped agents wake simultaneously → Read requirements from S3 → Produce design docs in parallel → Write artifacts to S3 → Orchestrator marks ticket "done" → DynamoDB Stream cascade unblocks dev phase
 
 ### Phase 4: Development (3 Agents in Parallel)
 - **Agents:** Backend Developer, API Developer, Frontend Developer
-- **Model:** Claude Opus 4 via Bedrock
-- **Tools:** S3 Read, Code Interpreter, GitHub (commit, branch, PR), SkillLoader, A2A
-- **Skills loaded:** `node-typescript` (backend + API), `full-stack`, `swift-development`
-- **Process:** Unblocked by ALL design tickets completing -> Orchestrator creates shared feature branch -> Code in parallel using Code Interpreter sandboxes -> Commit to feature branch + push PR -> Agent-invoker marks ticket "done" -> DynamoDB Stream cascade unblocks QA
+- **Model:** Claude Opus 4.6 via Bedrock
+- **Built-in Tools:** S3 Read/Write, Code Interpreter, Agent-to-Agent invoke, image_reader, http_request, current_time
+- **MCP Tools:** GitHub (`get_file_contents`, `create_or_update_file`, `create_branch`, `create_pull_request`, `search_code`) + any customer-configured MCP servers
+- **Process:** Unblocked by ALL design tickets completing → Code in parallel → Commit to feature branch + push PR via GitHub MCP → Orchestrator marks ticket "done" → DynamoDB Stream cascade unblocks QA
 
 ### Phase 5: QA & Ship (2 Agents)
-- **Agents:** QA Verifier, CI Agent
-- **Model:** Claude Opus 4 via Bedrock
-- **Tools:** GitHub, Code Interpreter, A2A, SkillLoader
-- **Skill loaded:** `qa-verification`
-- **Process:** Unblocked by ALL dev tickets completing -> Read feature branch via GitHub tools -> Run tests in Code Interpreter sandbox -> Code review + test verification -> Workflow complete
+- **Agents:** QA Verifier, CI Validation Agent
+- **Model:** Claude Opus 4.6 via Bedrock
+- **Built-in Tools:** S3 Read/Write, Code Interpreter, Agent-to-Agent invoke, image_reader, http_request, current_time
+- **MCP Tools:** GitHub (`get_file_contents`, `create_or_update_file`, `create_branch`, `create_pull_request`) + any customer-configured MCP servers
+- **Process:** Unblocked by ALL dev tickets completing → Read feature branch via GitHub MCP tools → Run tests in Code Interpreter sandbox → Code review + test verification → Workflow complete
+
+## Tool Delivery: MCP (Model Context Protocol)
+
+All external tools (GitHub, GitLab, Jira, Asana, etc.) are delivered to agents via **MCP** — the universal protocol for connecting AI agents to tools. Each agent connects to configured MCP servers at invocation time using Strands MCPClient.
+
+**Configuration:**
+- `GITHUB_PAT` env var — shorthand for GitHub's hosted MCP (`https://api.githubcopilot.com/mcp/`)
+- `MCP_SERVERS` env var — JSON array for any MCP server: `[{"url":"...","headers":{...}}]`
+
+This means agents are **tool-agnostic** — customers plug in their own infrastructure (GitHub, GitLab, Bitbucket, Jira, Linear, Asana, internal tools) without changing agent code.
+
+## Agent Runtime
+
+Agents are deployed on **AgentCore Runtime** (not Harness) using Strands Agents SDK (Python). Key details:
+- **Deploy type:** `direct_code_deploy` (CodeZip, no Docker)
+- **Runtime:** Python 3.10
+- **Timeout:** 600s botocore read_timeout (configurable via `READ_TIMEOUT` env var)
+- **Source:** `deploy/runtime-agent/main.py`
+- **Deploy script:** `deploy/runtime-agent/deploy-fleet.sh`
 
 ## Animation Behavior
 
@@ -73,8 +92,8 @@ All icons are from the official **AWS Architecture Icons** package (version 0430
 
 | Icon | Service | Used For |
 |------|---------|----------|
-| `Arch_Amazon-Bedrock_48.png` | Amazon Bedrock | Model provider (Claude Opus 4) |
-| `Arch_Amazon-Bedrock-AgentCore_48.png` | Bedrock AgentCore | Agent runtime + memory |
+| `Arch_Amazon-Bedrock_48.png` | Amazon Bedrock | Model provider (Claude Opus 4.6) |
+| `Arch_Amazon-Bedrock-AgentCore_48.png` | Bedrock AgentCore | Agent runtime |
 | `Arch_Amazon-Simple-Storage-Service_48.png` | Amazon S3 | Artifact storage |
 | `Arch_Amazon-EventBridge_48.png` | Amazon EventBridge | Intake trigger |
 | `Arch_AWS-CodeBuild_48.png` | (repurposed) | Code Interpreter sandbox |
@@ -126,15 +145,14 @@ The file is a single HTML document with:
 
 - **Pre-created ticket skeletons** — ALL 13 tickets are created at workflow start with dependency chains. Requirements agent SKIPs irrelevant ones (transitions to "done"). No runtime ticket creation needed.
 - **DynamoDB Streams cascade** — the SOLE orchestration mechanism. Ticket status changes fire stream events → orchestrator Lambda unblocks dependents → next agents invoke.
-- **Agent-invoker Lambda** — async fire-and-forget. Invokes AgentCore harness, streams output, marks ticket "done" as fallback after agent completes.
-- **Agents own the logic** — agents use their Jira MCP tools to skip/update/transition tickets. No application-layer parsing of agent output.
-- **EventBridge** is used for real-time UI notifications (agent.streaming, agent.complete events), not for orchestration.
+- **Orchestrator Lambda** — async fire-and-forget. Invokes AgentCore Runtime agents, streams output via SSE to UI, marks ticket "done" after agent completes.
+- **Agents own the logic** — agents use their Jira tools to skip/update/transition tickets. No application-layer parsing of agent output.
+- **SSE** is used for real-time UI notifications (agent streaming output, phase transitions, tool use events).
 - **Code Interpreter** is the actual Bedrock AgentCore tool (not AWS CodeBuild, but we use that icon as a visual stand-in)
-- **Git operations** use GitHub MCP tools via the gateway, not a separate CI service
-- **A2A** (Agent-to-Agent) allows cross-agent queries within the same phase
-- **Skills** are loaded dynamically via `SkillLoader___load_skill` gateway tool at agent initialization
+- **Git operations** use GitHub MCP tools directly (via MCPClient + streamable HTTP transport), not a separate gateway target
+- **Agent-to-Agent** (`invoke_team_agent`) allows cross-agent queries within the same workflow
+- **MCP servers** are connected per-invocation by the Runtime agent code — each agent gets the same set of MCP tools configured via environment variables
 
 ## File Location
 
 - **Canonical copy:** `/Users/tycenj/Desktop/tinder-agentis-mvp/demo/agentis-v1-pipeline.html`
-- **Temp copy:** `/private/tmp/agentis-v1-pipeline.html` (may be cleaned up by OS)
