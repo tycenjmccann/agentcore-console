@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Globe, ChevronDown } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { Globe, ChevronDown, User } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 import { invalidateCachePrefix } from "@/lib/client-cache";
 import ThemeToggle from "./ThemeToggle";
 
@@ -10,10 +10,12 @@ const pageTitles: Record<string, string> = {
   "/": "Dashboard",
   "/agents": "Agents",
   "/build": "Build",
+  "/settings": "Settings",
 };
 
 export default function Header() {
   const pathname = usePathname();
+  const router = useRouter();
   const title = pathname.startsWith("/agents/") && pathname !== "/agents"
     ? "Agent Detail"
     : pageTitles[pathname] || "AgentCore Console";
@@ -26,6 +28,7 @@ export default function Header() {
   });
   const [regions, setRegions] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     // Fetch available regions from the server (just the list, no mutable state)
@@ -40,7 +43,33 @@ export default function Header() {
         }
       })
       .catch(() => {});
+
+    // Fetch avatar on mount
+    fetchAvatar();
+    
+    // Listen for avatar updates
+    const handleAvatarUpdate = () => fetchAvatar();
+    window.addEventListener('avatar-updated', handleAvatarUpdate);
+    
+    return () => {
+      window.removeEventListener('avatar-updated', handleAvatarUpdate);
+    };
   }, []);
+
+  const fetchAvatar = async () => {
+    try {
+      const res = await fetch('/api/profile/avatar');
+      if (res.ok) {
+        const data = await res.json();
+        setAvatarUrl(data.avatarUrl);
+        if (data.avatarUrl) {
+          localStorage.setItem('user-avatar-url', data.avatarUrl);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch avatar:', error);
+    }
+  };
 
   const switchRegion = (newRegion: string) => {
     if (newRegion === region) {
@@ -95,6 +124,19 @@ export default function Header() {
             </div>
           )}
         </div>
+
+        {/* Avatar */}
+        <button
+          onClick={() => router.push('/settings')}
+          className="w-8 h-8 rounded-full bg-surface-2 border border-surface-4 hover:border-brand-500/50 transition-colors flex items-center justify-center overflow-hidden"
+          title="Go to Settings"
+        >
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+          ) : (
+            <User className="w-4 h-4 text-[var(--color-text-muted)]" />
+          )}
+        </button>
       </div>
     </header>
   );
