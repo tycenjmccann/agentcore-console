@@ -1,15 +1,15 @@
 {
   "agentis_requirements_analyst": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_requirements_analyst-QGqEkp772T",
-  "agentis_ios_designer": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_ios_designer-kq73SxGWyJ",
   "agentis_backend_designer": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_backend_designer-4I8OlKEngT",
+  "agentis_ios_designer": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_ios_designer-kq73SxGWyJ",
   "agentis_android_designer": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_android_designer-S1lfoCHiYC",
   "agentis_legal_compliance": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_legal_compliance-Rh0pLXE5yJ",
   "agentis_security_reviewer": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_security_reviewer-mV12zOFfQt",
-  "agentis_backend_dev": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_backend_dev-8ShTN279bQ",
   "agentis_localization": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_localization-9KEekuEblb",
   "agentis_analytics_designer": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_analytics_designer-J6YRFrEcBh",
-  "agentis_qa_verifier": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_qa_verifier-O2HHzuFqkS",
+  "agentis_backend_dev": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_backend_dev-8ShTN279bQ",
   "agentis_frontend_dev": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_frontend_dev-gD69HA2weN",
+  "agentis_qa_verifier": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_qa_verifier-O2HHzuFqkS",
   "agentis_api_dev": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_api_dev-alexdi7nNG",
   "agentis_ci_agent": "arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/agentis_ci_agent-7oeq6xGTuh"
 }

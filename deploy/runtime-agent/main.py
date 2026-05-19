@@ -21,6 +21,17 @@ from strands.models import BedrockModel
 from botocore.config import Config as BotocoreConfig
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
+# Built-in Strands tools — lazy import to stay under 30s init limit
+# NOTE: shell, editor, file_write, python_repl need writable /var/task which Runtime doesn't allow
+def _load_builtin_tools():
+    """Import strands_tools at invocation time, not module load time."""
+    from strands_tools import (
+        image_reader,
+        http_request,
+        current_time,
+    )
+    return [image_reader, http_request, current_time]
+
 # --- Configuration ---
 REGION = os.getenv("AWS_REGION", "us-east-1")
 MODEL_ID = os.getenv("MODEL_ID", "us.anthropic.claude-opus-4-6-v1")
@@ -73,11 +84,35 @@ def _invoke_lambda(function_name: str, tool_name: str, arguments: dict) -> str:
     return json.dumps(result)
 
 
+# ─── S3 File Download (for image_reader integration) ─────────────────────────
+
+s3_client = boto3.client("s3", region_name=REGION)
+
+@tool
+def download_s3_file(bucket: str, key: str) -> str:
+    """Download a file from S3 to local /tmp directory so it can be read by image_reader or other tools.
+    Use this for images (PNG, JPG, etc.) that need visual analysis.
+
+    Args:
+        bucket: S3 bucket name
+        key: Object key/path in the bucket
+
+    Returns:
+        Local file path where the file was saved (e.g., /tmp/filename.png)
+    """
+    import os
+    filename = os.path.basename(key)
+    local_path = f"/tmp/{filename}"
+    s3_client.download_file(bucket, key, local_path)
+    size = os.path.getsize(local_path)
+    return f"Downloaded to {local_path} ({size} bytes). Use image_reader tool with this path to view the image."
+
+
 # ─── S3 Storage Tools ─────────────────────────────────────────────────────────
 
 @tool
 def S3Storage___read_object(bucket: str, key: str) -> str:
-    """Read an object from S3. Returns the object content as text.
+    """Read a TEXT object from S3. Returns the object content as text. For images/binary files, use download_s3_file instead.
 
     Args:
         bucket: S3 bucket name
@@ -343,25 +378,27 @@ def GitHubIntegration___create_pull_request(owner: str, repo: str, title: str, b
 
 # ─── All pipeline tools ───────────────────────────────────────────────────────
 
-PIPELINE_TOOLS = [
-    # S3
+LAMBDA_TOOLS = [
+    # S3 file download (for images → image_reader)
+    download_s3_file,
+    # S3 (Lambda-backed)
     S3Storage___read_object,
     S3Storage___write_object,
     S3Storage___list_objects,
-    # Jira
+    # Jira (Lambda-backed)
     JiraIntegration___create_ticket,
     JiraIntegration___transition_ticket,
     JiraIntegration___update_ticket,
     JiraIntegration___list_tickets,
     JiraIntegration___add_comment,
     JiraIntegration___search_issues,
-    # Workflow
+    # Workflow (Lambda-backed)
     WorkflowOutput___report_completion,
     WorkflowOutput___save_design_doc,
     WorkflowOutput___submit_ticket_plan,
-    # Skills
+    # Skills (Lambda-backed)
     SkillLoader___load_skill,
-    # GitHub
+    # GitHub (Lambda-backed)
     GitHubIntegration___get_file_contents,
     GitHubIntegration___search_code,
     GitHubIntegration___create_branch,
@@ -369,7 +406,7 @@ PIPELINE_TOOLS = [
     GitHubIntegration___create_pull_request,
 ]
 
-logger.info(f"Loaded {len(PIPELINE_TOOLS)} pipeline tools via Lambda invocation")
+logger.info(f"Loaded {len(LAMBDA_TOOLS)} Lambda-backed tools (built-in tools loaded at invocation time)")
 
 # --- App entrypoint (streaming enabled) ---
 app = BedrockAgentCoreApp()
@@ -413,11 +450,15 @@ async def agent_invocation(payload, context):
             streaming=True,
         )
 
-    # Create agent with role-specific system prompt and all pipeline tools
+    # Load built-in tools (lazy — avoids 30s init timeout)
+    builtin_tools = _load_builtin_tools()
+    all_tools = builtin_tools + LAMBDA_TOOLS
+
+    # Create agent with role-specific system prompt and all tools
     agent = Agent(
         model=active_model,
         system_prompt=system_prompt,
-        tools=PIPELINE_TOOLS,
+        tools=all_tools,
     )
 
     # Use non-streaming call to avoid idle timeout on SSE connection during tool calls.
