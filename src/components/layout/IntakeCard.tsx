@@ -13,7 +13,6 @@ import {
   ChevronDown,
   Copy,
   Check,
-  ExternalLink,
   Clock,
   Zap,
 } from "lucide-react";
@@ -100,7 +99,8 @@ export default function IntakeCard({ agent }: IntakeCardProps) {
           </div>
           {/* Quick stats row */}
           <div className="flex items-center gap-3 mt-1">
-            <span className="text-[10px] text-[var(--color-text-muted)] font-mono flex items-center gap-1 group cursor-pointer hover:text-[var(--color-text-secondary)] transition-colors"
+            <button
+              className="text-[10px] text-[var(--color-text-muted)] font-mono flex items-center gap-1 group cursor-pointer hover:text-[var(--color-text-secondary)] transition-colors"
               onClick={() => handleCopy(agent.arn, "arn")}
               title="Click to copy ARN"
             >
@@ -110,7 +110,7 @@ export default function IntakeCard({ agent }: IntakeCardProps) {
               ) : (
                 <Copy className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
               )}
-            </span>
+            </button>
             {agent.model && (
               <span className="text-[10px] text-[var(--color-text-muted)] flex items-center gap-1">
                 <Bot className="w-2.5 h-2.5" />
@@ -149,7 +149,7 @@ export default function IntakeCard({ agent }: IntakeCardProps) {
 
       {/* Expanded details */}
       {expanded && (
-        <div className="mt-3 pt-3 border-t border-surface-4 space-y-4 animate-in slide-in-from-top-1 duration-200">
+        <div className="mt-3 pt-3 border-t border-surface-4 space-y-4">
           {/* Key info grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
             {agent.model && (
