@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { ChevronDown, ChevronRight, ExternalLink, Copy, Ticket } from "lucide-react";
 import type {
   WorkflowState,
   WorkflowEvent,
+  IntakeSource,
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
@@ -43,6 +45,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const toolFlashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const eventSourceRef = useRef<EventSource | null>(null);
   const pipelineRef = useRef<HTMLDivElement>(null);
+
+  // Intake card expandable items state
+  const [expandedIntakeItems, setExpandedIntakeItems] = useState<Record<string, boolean>>({});
 
   // Fetch initial state + poll every 3s
   useEffect(() => {
@@ -193,6 +198,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     }
   }, []);
 
+  // Toggle intake item expansion
+  const toggleIntakeItem = useCallback((key: string) => {
+    setExpandedIntakeItems((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
   // Derive visual states from workflow state
   const currentPhaseIndex = state ? (PHASE_ORDER[state.phase] ?? -1) : -1;
   const isComplete = state?.phase === "complete";
@@ -247,6 +257,32 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       return "active";
     }
     return "";
+  };
+
+  // Helper: get filename from S3 URI or URL
+  const getSourceLabel = (source: IntakeSource): string => {
+    if (source.label) return source.label;
+    if (source.type === "s3") {
+      // s3://bucket/path/to/file.ext → file.ext
+      const parts = source.value.replace(/^s3:\/\//, "").split("/");
+      return parts[parts.length - 1] || source.value;
+    }
+    if (source.type === "url") {
+      try {
+        const url = new URL(source.value);
+        // Show domain + path (truncated)
+        const path = url.pathname.length > 30 ? url.pathname.slice(0, 30) + "..." : url.pathname;
+        return `${url.hostname}${path}`;
+      } catch {
+        return source.value.slice(0, 40);
+      }
+    }
+    return source.value.slice(0, 40);
+  };
+
+  // Copy S3 URI to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).catch(() => {});
   };
 
   if (!state) {
@@ -333,150 +369,262 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
           {/* Pipeline phases */}
           <div className="pipeline-phases">
-            {PIPELINE_PHASES.map((phase, idx) => (
-              <div
-                key={phase.id}
-                className={`phase ${getPhaseClass(idx)}`}
-              >
-                <div className={`agent-box ${getBoxClass(idx)}`}>
-                  <div className="phase-num">Phase {phase.num}</div>
-                  <div className="phase-name">{phase.name}</div>
-                  <div className={`phase-type ${phase.type}`}>{phase.typeLabel}</div>
+            {PIPELINE_PHASES.map((phase, idx) => {
+              const isIntakePhase = phase.id === "intake";
 
-                  {/* Identity */}
-                  <div className="identity">
-                    {phase.identity.length === 1 && !phase.identity[0].icon ? (
-                      <div className="id-label" style={{ textAlign: "center", height: "auto", lineHeight: 1.4 }}>
-                        {phase.identity[0].label}
-                      </div>
-                    ) : (
-                      <div className="id-row">
-                        <div className="id-icon-col">
-                          {phase.identity.map((id, i) => (
-                            id.icon && <img key={i} className="id-icon" src={(awsIcons as Record<string, string>)[id.icon]} alt={id.icon} />
-                          ))}
-                        </div>
-                        <div className="id-labels">
-                          {phase.identity.map((id, i) => (
-                            <div key={i} className="id-label">{id.label}</div>
-                          ))}
-                        </div>
+              return (
+                <div
+                  key={phase.id}
+                  className={`phase ${getPhaseClass(idx)}`}
+                >
+                  <div className={`agent-box ${getBoxClass(idx)}`}>
+                    <div className="phase-num">Phase {phase.num}</div>
+                    <div className="phase-name">{phase.name}</div>
+
+                    {/* Epic title badge for Intake phase */}
+                    {isIntakePhase && state.input?.title && (
+                      <div
+                        className="intake-epic-badge"
+                        title={state.input.title}
+                      >
+                        {state.input.title.length > 40
+                          ? state.input.title.slice(0, 40) + "…"
+                          : state.input.title}
                       </div>
                     )}
-                  </div>
 
-                  {/* Config */}
-                  <div className="config-detail">
-                    {phase.config.map((c, i) => (
-                      <div key={i} className="cfg-row">
-                        <span className="cfg-key">{c.key}</span>
-                        <span className="cfg-val">{c.val}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                    <div className={`phase-type ${phase.type}`}>{phase.typeLabel}</div>
 
-                {/* Work area */}
-                <div className="work-area">
-                  {/* Tools */}
-                  {phase.tools.length > 0 && (
-                    <>
-                      <div className="sec-label">{phase.id === "intake" ? "User Actions" : "Tools"}</div>
-                      {phase.tools.map((tool, i) => {
-                        const iconKey = tool.icon || tool.dot || "ext";
-                        const isFlashing = toolFlashes[`${phase.id}:${iconKey}`];
-                        const itemClass = isFlashing ? "trigger" : getItemClass(idx);
-                        return (
-                          <div key={i} className={`item ${itemClass}`}>
-                            {tool.icon ? (
-                              <img className="svc-icon" src={(awsIcons as Record<string, string>)[tool.icon]} alt={tool.icon} />
-                            ) : (
-                              <span className={`item-dot ${tool.dot || "ext"}`} />
-                            )}
-                            <span className="item-label">{tool.label}</span>
-                            <span className="item-status" />
+                    {/* Identity */}
+                    <div className="identity">
+                      {phase.identity.length === 1 && !phase.identity[0].icon ? (
+                        <div className="id-label" style={{ textAlign: "center", height: "auto", lineHeight: 1.4 }}>
+                          {phase.identity[0].label}
+                        </div>
+                      ) : (
+                        <div className="id-row">
+                          <div className="id-icon-col">
+                            {phase.identity.map((id, i) => (
+                              id.icon && <img key={i} className="id-icon" src={(awsIcons as Record<string, string>)[id.icon]} alt={id.icon} />
+                            ))}
                           </div>
-                        );
-                      })}
-                    </>
-                  )}
+                          <div className="id-labels">
+                            {phase.identity.map((id, i) => (
+                              <div key={i} className="id-label">{id.label}</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Individual Agents */}
-                  {phase.type === "agent" && phase.agents.length > 0 && (() => {
-                    return (
+                    {/* Config */}
+                    <div className="config-detail">
+                      {phase.config.map((c, i) => (
+                        <div key={i} className="cfg-row">
+                          <span className="cfg-key">{c.key}</span>
+                          <span className="cfg-val">{c.val}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Work area */}
+                  <div className="work-area">
+                    {/* Tools */}
+                    {phase.tools.length > 0 && (
                       <>
-                        <div className="sec-label">Agents ({phase.agents.length})</div>
-                        {phase.agents.map((agent) => {
-                          const agentTask = state?.agentTasks[agent.id];
-                          // Agent pulses ("working") whenever it's running — streaming text is optional
-                          const agentItemClass = agentTask
-                            ? agentTask.status === "running" || agentTask.status === "waiting_response"
-                              ? "working"
-                              : agentTask.status === "complete"
-                              ? "done"
-                              : agentTask.status === "error"
-                              ? "error"
-                              : getItemClass(idx)
-                            : getItemClass(idx);
+                        <div className="sec-label">{phase.id === "intake" ? "User Actions" : "Tools"}</div>
+                        {phase.tools.map((tool, i) => {
+                          const iconKey = tool.icon || tool.dot || "ext";
+                          const isFlashing = toolFlashes[`${phase.id}:${iconKey}`];
+                          const itemClass = isFlashing ? "trigger" : getItemClass(idx);
+                          const toolKey = `tool-${phase.id}-${i}`;
+                          const isToolExpanded = isIntakePhase && expandedIntakeItems[toolKey];
+
+                          // Determine which sources to show for this tool item
+                          const toolSources: IntakeSource[] = isIntakePhase && state.input?.sources
+                            ? (() => {
+                                const label = tool.label.toLowerCase();
+                                if (label.includes("prd") || label.includes("mockup") || label.includes("figma")) {
+                                  return state.input.sources.filter((s) => s.type === "url" || s.type === "upload");
+                                }
+                                if (label.includes("s3")) {
+                                  return state.input.sources.filter((s) => s.type === "s3");
+                                }
+                                if (label.includes("git") || label.includes("repo")) {
+                                  return []; // repo info handled separately
+                                }
+                                return [];
+                              })()
+                            : [];
+
                           return (
-                            <div
-                              key={agent.id}
-                              className={`item ${isSettled ? "done settled" : agentItemClass} cursor-pointer`}
-                              onClick={() => setExpandedAgent(expandedAgent === agent.id ? null : agent.id)}
-                            >
-                              <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
-                              <span className="item-label">{agent.displayName}</span>
+                            <div key={i} className="intake-expandable-wrapper">
+                              <div
+                                className={`item ${itemClass} ${isIntakePhase && toolSources.length > 0 ? "cursor-pointer" : ""}`}
+                                onClick={isIntakePhase && toolSources.length > 0 ? () => toggleIntakeItem(toolKey) : undefined}
+                              >
+                                {isIntakePhase && toolSources.length > 0 && (
+                                  <span className="expand-chevron">
+                                    {isToolExpanded
+                                      ? <ChevronDown style={{ width: 10, height: 10, color: "#64748b" }} />
+                                      : <ChevronRight style={{ width: 10, height: 10, color: "#64748b" }} />
+                                    }
+                                  </span>
+                                )}
+                                {tool.icon ? (
+                                  <img className="svc-icon" src={(awsIcons as Record<string, string>)[tool.icon]} alt={tool.icon} />
+                                ) : (
+                                  <span className={`item-dot ${tool.dot || "ext"}`} />
+                                )}
+                                <span className="item-label">{tool.label}</span>
+                                <span className="item-status" />
+                              </div>
+
+                              {/* Expanded source links */}
+                              {isToolExpanded && toolSources.length > 0 && (
+                                <div className="intake-sources">
+                                  {toolSources.map((source, si) => (
+                                    <div key={si} className="intake-source-item">
+                                      {source.type === "url" ? (
+                                        <a
+                                          href={source.value}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="intake-source-link"
+                                          title={source.value}
+                                        >
+                                          <ExternalLink style={{ width: 9, height: 9, flexShrink: 0 }} />
+                                          <span>{getSourceLabel(source)}</span>
+                                        </a>
+                                      ) : (
+                                        <button
+                                          onClick={() => copyToClipboard(source.value)}
+                                          className="intake-source-link"
+                                          title={`Copy: ${source.value}`}
+                                        >
+                                          <Copy style={{ width: 9, height: 9, flexShrink: 0 }} />
+                                          <span>{getSourceLabel(source)}</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+
+                    {/* Individual Agents */}
+                    {phase.type === "agent" && phase.agents.length > 0 && (() => {
+                      return (
+                        <>
+                          <div className="sec-label">Agents ({phase.agents.length})</div>
+                          {phase.agents.map((agent) => {
+                            const agentTask = state?.agentTasks[agent.id];
+                            // Agent pulses ("working") whenever it's running — streaming text is optional
+                            const agentItemClass = agentTask
+                              ? agentTask.status === "running" || agentTask.status === "waiting_response"
+                                ? "working"
+                                : agentTask.status === "complete"
+                                ? "done"
+                                : agentTask.status === "error"
+                                ? "error"
+                                : getItemClass(idx)
+                              : getItemClass(idx);
+                            return (
+                              <div
+                                key={agent.id}
+                                className={`item ${isSettled ? "done settled" : agentItemClass} cursor-pointer`}
+                                onClick={() => setExpandedAgent(expandedAgent === agent.id ? null : agent.id)}
+                              >
+                                <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
+                                <span className="item-label">{agent.displayName}</span>
+                                <span className="item-status" />
+                              </div>
+                            );
+                          })}
+                        </>
+                      );
+                    })()}
+
+                    {/* Skills */}
+                    {phase.skills.length > 0 && (
+                      <>
+                        <div className="sec-label">Skills</div>
+                        {phase.skills.map((skill, i) => {
+                          const isSkillFlashing = toolFlashes[`${phase.id}:skill`];
+                          const itemClass = isSkillFlashing ? "trigger" : getItemClass(idx);
+                          return (
+                            <div key={i} className={`item ${itemClass}`}>
+                              <span className="item-dot skill" />
+                              <span className="item-label">{skill}</span>
                               <span className="item-status" />
                             </div>
                           );
                         })}
                       </>
-                    );
-                  })()}
+                    )}
 
-                  {/* Skills */}
-                  {phase.skills.length > 0 && (
-                    <>
-                      <div className="sec-label">Skills</div>
-                      {phase.skills.map((skill, i) => {
-                        const isSkillFlashing = toolFlashes[`${phase.id}:skill`];
-                        const itemClass = isSkillFlashing ? "trigger" : getItemClass(idx);
-                        return (
-                          <div key={i} className={`item ${itemClass}`}>
-                            <span className="item-dot skill" />
-                            <span className="item-label">{skill}</span>
-                            <span className="item-status" />
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
+                    {/* Outputs */}
+                    {phase.outputs.length > 0 && (
+                      <>
+                        <div className="sec-label">{phase.id === "intake" ? "Trigger" : "Output"}</div>
+                        {phase.outputs.map((out, i) => {
+                          const outIconKey = out.icon || out.dot || "ext";
+                          const isOutFlashing = toolFlashes[`${phase.id}:${outIconKey}`];
+                          const itemClass = isOutFlashing ? "trigger" : getItemClass(idx);
+                          const outputKey = `output-${phase.id}-${i}`;
+                          const isOutputExpanded = isIntakePhase && expandedIntakeItems[outputKey];
 
-                  {/* Outputs */}
-                  {phase.outputs.length > 0 && (
-                    <>
-                      <div className="sec-label">{phase.id === "intake" ? "Trigger" : "Output"}</div>
-                      {phase.outputs.map((out, i) => {
-                        const outIconKey = out.icon || out.dot || "ext";
-                        const isOutFlashing = toolFlashes[`${phase.id}:${outIconKey}`];
-                        const itemClass = isOutFlashing ? "trigger" : getItemClass(idx);
-                        return (
-                          <div key={i} className={`item ${itemClass}`}>
-                            {out.icon ? (
-                              <img className="svc-icon" src={(awsIcons as Record<string, string>)[out.icon]} alt={out.icon} />
-                            ) : (
-                              <span className={`item-dot ${out.dot || "ext"}`} />
-                            )}
-                            <span className="item-label">{out.label}</span>
-                            <span className="item-status" />
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
+                          // For Intake Trigger section, show epic ID
+                          const showEpicId = isIntakePhase && out.label.toLowerCase().includes("jira") && state.epicId;
+
+                          return (
+                            <div key={i} className="intake-expandable-wrapper">
+                              <div
+                                className={`item ${itemClass} ${showEpicId ? "cursor-pointer" : ""}`}
+                                onClick={showEpicId ? () => toggleIntakeItem(outputKey) : undefined}
+                              >
+                                {showEpicId && (
+                                  <span className="expand-chevron">
+                                    {isOutputExpanded
+                                      ? <ChevronDown style={{ width: 10, height: 10, color: "#64748b" }} />
+                                      : <ChevronRight style={{ width: 10, height: 10, color: "#64748b" }} />
+                                    }
+                                  </span>
+                                )}
+                                {out.icon ? (
+                                  <img className="svc-icon" src={(awsIcons as Record<string, string>)[out.icon]} alt={out.icon} />
+                                ) : (
+                                  <span className={`item-dot ${out.dot || "ext"}`} />
+                                )}
+                                <span className="item-label">{out.label}</span>
+                                <span className="item-status" />
+                              </div>
+
+                              {/* Expanded epic ID */}
+                              {isOutputExpanded && showEpicId && (
+                                <div className="intake-sources">
+                                  <div className="intake-source-item">
+                                    <span className="intake-epic-id">
+                                      <Ticket style={{ width: 9, height: 9, flexShrink: 0, color: "#38bdf8" }} />
+                                      <span>{state.epicId}</span>
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -547,6 +695,9 @@ const PIPELINE_STYLES = `
 .agent-box .phase-type.app{background:#0ea5e910;color:#38bdf8;border:1px solid #0ea5e925}
 .agent-box .phase-type.agent{background:#a855f710;color:#c084fc;border:1px solid #a855f725}
 
+/* Intake epic badge */
+.intake-epic-badge{margin-top:4px;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:500;color:#94a3b8;background:#0f141980;border:1px solid #1e293b;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4}
+
 .identity{display:flex;flex-direction:column;gap:0;margin-top:8px;align-items:center}
 .id-row{display:flex;align-items:center;gap:8px}
 .id-icon-col{display:flex;flex-direction:column;align-items:center;gap:4px}
@@ -591,6 +742,16 @@ const PIPELINE_STYLES = `
 .item.active .item-label{color:#e2e8f0}
 .item-status{width:6px;height:6px;border-radius:50%;background:#1e293b;margin-left:auto;flex-shrink:0;transition:background .3s}
 .item.active .item-status{background:#0ea5e9;box-shadow:0 0 5px #0ea5e9}
+
+/* Intake expandable items */
+.intake-expandable-wrapper{display:flex;flex-direction:column;gap:0}
+.expand-chevron{display:flex;align-items:center;justify-content:center;width:12px;flex-shrink:0}
+.intake-sources{padding:3px 7px 5px 30px;display:flex;flex-direction:column;gap:2px}
+.intake-source-item{display:flex;align-items:center}
+.intake-source-link{display:flex;align-items:center;gap:4px;font-size:9px;color:#38bdf8;text-decoration:none;background:none;border:none;cursor:pointer;padding:2px 4px;border-radius:3px;transition:background .2s;max-width:100%;overflow:hidden}
+.intake-source-link:hover{background:#0ea5e910;text-decoration:underline}
+.intake-source-link span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.intake-epic-id{display:flex;align-items:center;gap:4px;font-size:10px;color:#38bdf8;font-weight:600;font-family:"JetBrains Mono",monospace;padding:2px 4px}
 
 .pipeline-status{text-align:center;margin-top:16px;min-height:44px}
 .status-phase{font-size:11px;color:#0ea5e9;letter-spacing:2px;text-transform:uppercase;margin-bottom:2px}
