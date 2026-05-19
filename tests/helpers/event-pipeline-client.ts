@@ -44,17 +44,18 @@ export class EventPipelineClient {
    * Sends an InvokeHarnessCommand through the event pipeline.
    */
   async invokeHarness(command: InvokeHarnessCommand): Promise<HarnessInvocationResponse> {
-    // Validate ARN before attempting invocation (fixes v1/v2 silent failures)
-    validateHarnessArn(command.harnessArn);
-
-    const parsed = parseHarnessArn(command.harnessArn);
-    const startTime = Date.now();
-
-    console.log(`[EventPipelineClient] Invoking harness: ${command.harnessArn}`);
-    console.log(`[EventPipelineClient] Harness ID: ${parsed.harnessId}`);
-    console.log(`[EventPipelineClient] Region: ${parsed.region}`);
-
     try {
+      // Validate ARN before attempting invocation (fixes v1/v2 silent failures)
+      // MUST be inside try/catch so validation errors return { status: 'failure' }
+      validateHarnessArn(command.harnessArn);
+
+      const parsed = parseHarnessArn(command.harnessArn);
+      const startTime = Date.now();
+
+      console.log(`[EventPipelineClient] Invoking harness: ${command.harnessArn}`);
+      console.log(`[EventPipelineClient] Harness ID: ${parsed.harnessId}`);
+      console.log(`[EventPipelineClient] Region: ${parsed.region}`);
+
       const result = await Promise.race([
         this.invokeWithSdk(command, parsed.harnessId),
         this.createTimeoutPromise(command.harnessArn),
@@ -65,9 +66,8 @@ export class EventPipelineClient {
 
       return result;
     } catch (error) {
-      const duration = Date.now() - startTime;
-      console.error(`[EventPipelineClient] Invocation failed after ${duration}ms:`, error);
-      return this.mapErrorToResponse(error, command.harnessArn);
+      console.error(`[EventPipelineClient] Invocation failed:`, error);
+      return this.mapErrorToResponse(error, command.harnessArn ?? '');
     }
   }
 
@@ -141,7 +141,7 @@ export class EventPipelineClient {
         attemptedArn,
         details: message,
       };
-    } else if (message.includes('ValidationError') || message.includes('ValidationException')) {
+    } else if (message.includes('ValidationError') || message.includes('ValidationException') || message.includes('null or undefined') || message.includes('non-empty string') || message.includes('bedrock-runtime') || message.includes('arn:aws:')) {
       errorDetails = {
         code: 'VALIDATION_ERROR',
         message,
