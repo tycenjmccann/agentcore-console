@@ -9,7 +9,7 @@
 
 ## Summary
 
-The AgentCore Harness runtime has a hardcoded **60-second `read_timeout`** on the botocore HTTP connection to `bedrock-runtime.us-east-1.amazonaws.com`. This timeout is **not configurable** by the customer. When a Bedrock model (particularly Claude Opus 4) takes longer than 60 seconds to produce the first token after receiving a large context (accumulated tool results), the connection is killed by urllib3's `ReadTimeoutError`.
+The AgentCore Harness runtime has a hardcoded **120-second `read_timeout`** on the botocore HTTP connection to `bedrock-runtime.us-east-1.amazonaws.com`. This timeout is **not configurable** by the customer. When a Bedrock model (particularly Claude Opus 4) takes longer than 120 seconds to produce the first token after receiving a large context (accumulated tool results), the connection is killed by urllib3's `ReadTimeoutError`.
 
 This consistently breaks agents that require more than ~3-5 tool call cycles. The issue is **context accumulation**, not model speed — even Sonnet 4.5 times out once enough tool results are in the conversation.
 
@@ -35,7 +35,7 @@ Call chain:
 2. Tool result is appended to conversation context
 3. `recurse_event_loop` calls the model again with the full accumulated context
 4. Bedrock model begins thinking (Opus 4 TTFT can exceed 60s with large context)
-5. **urllib3 kills the connection at exactly 60 seconds** — before any response token arrives
+5. **urllib3 kills the connection at exactly 120 seconds** — before any response token arrives
 
 The `read_timeout` is set internally by the harness runtime's botocore client configuration. There is no customer-facing parameter to override it.
 
@@ -113,7 +113,7 @@ The same harness has failed with `ReadTimeoutError` across 7 separate workflow i
    - System prompt ~2000 tokens
 2. Invoke the harness with a prompt that requires 4+ tool calls in sequence
 3. Agent will execute first 2-3 tool calls successfully
-4. On the 4th+ model invocation (with accumulated tool results in context), the connection times out at exactly 60s
+4. On the 4th+ model invocation (with accumulated tool results in context), the connection times out at exactly 120s
 
 ## Workaround
 
@@ -126,7 +126,7 @@ Potential mitigations (all have downsides):
 
 ## Requested Fix
 
-1. **Increase `read_timeout`** on the internal botocore client to at least 300 seconds (5 min). Opus 4 can legitimately take 90-120s for first token on large context windows.
+1. **Increase `read_timeout`** on the internal botocore client to at least 300 seconds (5 min). Opus 4 can legitimately exceed 120s for first token on large context windows.
 2. **Expose `read_timeout` as a configurable parameter** on the Harness/Runtime resource so customers can tune it per-agent.
 3. **Add internal retry with exponential backoff** for `ReadTimeoutError` within the event loop (the current behavior is single-attempt → crash).
 

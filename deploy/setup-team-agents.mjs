@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 /**
- * setup-team-agents.mjs
+ * setup-team-agents.mjs (HARNESS DEPLOYMENT — SECONDARY OPTION)
+ *
+ * ⚠️  KNOWN LIMITATION: AgentCore Harness agents have an internal ~170s boto3
+ *     read timeout that cannot be configured. When agents make many tool calls
+ *     (especially with Opus), the harness times out before completion. This is
+ *     an open item with the AgentCore team.
+ *
+ *     RECOMMENDED: Use deploy/runtime-agent/deploy-fleet.sh instead, which
+ *     deploys agents on AgentCore Runtime with configurable timeouts (600s+).
  *
  * Deploys all 13 pipeline agents defined in src/config/agents.json
  * as AgentCore harness agents.

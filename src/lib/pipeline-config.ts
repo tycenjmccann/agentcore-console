@@ -26,13 +26,14 @@ export const TOOL_ICON_MAP: Record<string, { icon: string; label: string }> = {
   // Skill loader
   "SkillLoader___load_skill": { icon: "skill", label: "Load Skill" },
 
-  // GitHub integration
-  "GitHubIntegration___get_file": { icon: "ext", label: "GitHub Read" },
-  "GitHubIntegration___list_files": { icon: "ext", label: "GitHub List" },
-  "GitHubIntegration___commit_file": { icon: "ext", label: "GitHub Commit" },
-  "GitHubIntegration___create_branch": { icon: "ext", label: "GitHub Branch" },
-  "GitHubIntegration___create_pr": { icon: "ext", label: "GitHub PR" },
-  "GitHubIntegration___search_code": { icon: "ext", label: "GitHub Search" },
+  // GitHub integration (via hosted MCP)
+  "get_file_contents": { icon: "ext", label: "GitHub Read" },
+  "create_or_update_file": { icon: "ext", label: "GitHub Commit" },
+  "create_branch": { icon: "ext", label: "GitHub Branch" },
+  "create_pull_request": { icon: "ext", label: "GitHub PR" },
+  "search_code": { icon: "ext", label: "GitHub Search" },
+  "push_files": { icon: "ext", label: "GitHub Push" },
+  "list_commits": { icon: "ext", label: "GitHub Commits" },
 
   // Workflow output
   "WorkflowOutput___submit_ticket_plan": { icon: "agentcore", label: "Submit Plan" },

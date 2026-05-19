@@ -64,6 +64,39 @@ BUILDER_TOOLS_LAMBDA = os.getenv("BUILDER_TOOLS_LAMBDA", "agentis-builder-tools"
 WORKFLOW_OUTPUT_LAMBDA = os.getenv("WORKFLOW_OUTPUT_LAMBDA", "agentis-workflow-output")
 SKILL_LOADER_LAMBDA = os.getenv("SKILL_LOADER_LAMBDA", "agentis-skill-loader")
 
+# MCP Servers — connect agents to external tools (GitHub, GitLab, Jira, Asana, etc.)
+# Configured via MCP_SERVERS env var (JSON array) or legacy GITHUB_PAT shorthand.
+#
+# Format: [{"url": "https://...", "headers": {"Authorization": "Bearer xxx"}}]
+#
+# Examples:
+#   GitHub:   {"url": "https://api.githubcopilot.com/mcp/", "headers": {"Authorization": "Bearer ghp_xxx"}}
+#   GitLab:   {"url": "https://gitlab.com/-/mcp", "headers": {"PRIVATE-TOKEN": "glpat-xxx"}}
+#   Custom:   {"url": "https://my-tools.company.com/mcp"}
+#
+MCP_SERVERS_JSON = os.getenv("MCP_SERVERS", "")
+
+# Legacy shorthand: GITHUB_PAT auto-creates a GitHub MCP entry
+GITHUB_PAT = os.getenv("GITHUB_PAT", "")
+GITHUB_MCP_URL = os.getenv("GITHUB_MCP_URL", "https://api.githubcopilot.com/mcp/")
+
+def _parse_mcp_servers():
+    """Parse MCP server config from env. Returns list of {url, headers} dicts."""
+    servers = []
+    # Parse JSON config if provided
+    if MCP_SERVERS_JSON:
+        try:
+            servers = json.loads(MCP_SERVERS_JSON)
+        except json.JSONDecodeError:
+            logger.warning("MCP_SERVERS env var is not valid JSON — ignoring")
+    # Legacy: GITHUB_PAT shorthand adds GitHub MCP automatically
+    if GITHUB_PAT and not any(s.get("url", "").startswith("https://api.githubcopilot.com") for s in servers):
+        servers.append({
+            "url": GITHUB_MCP_URL,
+            "headers": {"Authorization": f"Bearer {GITHUB_PAT}"},
+        })
+    return servers
+
 
 def _invoke_lambda(function_name: str, tool_name: str, arguments: dict) -> str:
     """Invoke a Lambda-backed tool and return its response text."""
@@ -294,86 +327,28 @@ def SkillLoader___load_skill(skill_name: str) -> str:
     return _invoke_lambda(SKILL_LOADER_LAMBDA, "SkillLoader___load_skill", {"skill_name": skill_name})
 
 
-# ─── GitHub Integration Tools ────────────────────────────────────────────────
+# ─── External Tool Integration (via MCP — GitHub, GitLab, Jira, etc.) ────────
 
-@tool
-def GitHubIntegration___get_file_contents(owner: str, repo: str, path: str, branch: str = "main") -> str:
-    """Get the contents of a file from a GitHub repository.
+def _create_mcp_clients():
+    """Create MCPClient instances for each configured MCP server."""
+    from strands.tools.mcp import MCPClient
+    from mcp.client.streamable_http import streamablehttp_client
 
-    Args:
-        owner: Repository owner
-        repo: Repository name
-        path: File path in the repository
-        branch: Branch name (default: main)
-    """
-    return _invoke_lambda(BUILDER_TOOLS_LAMBDA, "GitHubIntegration___get_file_contents", {
-        "owner": owner, "repo": repo, "path": path, "branch": branch
-    })
+    servers = _parse_mcp_servers()
+    clients = []
 
+    for server in servers:
+        url = server.get("url", "")
+        headers = server.get("headers", {})
+        if not url:
+            continue
+        # Capture url/headers in closure
+        clients.append(MCPClient(
+            (lambda u, h: lambda: streamablehttp_client(url=u, headers=h, timeout=60))(url, headers)
+        ))
+        logger.info(f"MCP server configured: {url}")
 
-@tool
-def GitHubIntegration___search_code(owner: str, repo: str, query: str) -> str:
-    """Search for code in a GitHub repository.
-
-    Args:
-        owner: Repository owner
-        repo: Repository name
-        query: Search query
-    """
-    return _invoke_lambda(BUILDER_TOOLS_LAMBDA, "GitHubIntegration___search_code", {
-        "owner": owner, "repo": repo, "query": query
-    })
-
-
-@tool
-def GitHubIntegration___create_branch(owner: str, repo: str, branch_name: str, from_branch: str = "main") -> str:
-    """Create a new branch in a GitHub repository.
-
-    Args:
-        owner: Repository owner
-        repo: Repository name
-        branch_name: Name for the new branch
-        from_branch: Branch to fork from
-    """
-    return _invoke_lambda(BUILDER_TOOLS_LAMBDA, "GitHubIntegration___create_branch", {
-        "owner": owner, "repo": repo, "branch_name": branch_name, "from_branch": from_branch
-    })
-
-
-@tool
-def GitHubIntegration___create_or_update_file(owner: str, repo: str, path: str, content: str, message: str, branch: str) -> str:
-    """Create or update a file in a GitHub repository.
-
-    Args:
-        owner: Repository owner
-        repo: Repository name
-        path: File path
-        content: File content
-        message: Commit message
-        branch: Branch to commit to
-    """
-    return _invoke_lambda(BUILDER_TOOLS_LAMBDA, "GitHubIntegration___create_or_update_file", {
-        "owner": owner, "repo": repo, "path": path, "content": content,
-        "message": message, "branch": branch
-    })
-
-
-@tool
-def GitHubIntegration___create_pull_request(owner: str, repo: str, title: str, body: str, head: str, base: str = "main") -> str:
-    """Create a pull request.
-
-    Args:
-        owner: Repository owner
-        repo: Repository name
-        title: PR title
-        body: PR description
-        head: Head branch (source)
-        base: Base branch (target)
-    """
-    return _invoke_lambda(BUILDER_TOOLS_LAMBDA, "GitHubIntegration___create_pull_request", {
-        "owner": owner, "repo": repo, "title": title, "body": body,
-        "head": head, "base": base
-    })
+    return clients
 
 
 # ─── All pipeline tools ───────────────────────────────────────────────────────
@@ -398,15 +373,10 @@ LAMBDA_TOOLS = [
     WorkflowOutput___submit_ticket_plan,
     # Skills (Lambda-backed)
     SkillLoader___load_skill,
-    # GitHub (Lambda-backed)
-    GitHubIntegration___get_file_contents,
-    GitHubIntegration___search_code,
-    GitHubIntegration___create_branch,
-    GitHubIntegration___create_or_update_file,
-    GitHubIntegration___create_pull_request,
+    # GitHub tools come from MCPClient (remote MCP) — not Lambda-backed
 ]
 
-logger.info(f"Loaded {len(LAMBDA_TOOLS)} Lambda-backed tools (built-in tools loaded at invocation time)")
+logger.info(f"Loaded {len(LAMBDA_TOOLS)} Lambda-backed tools + GitHub MCP (built-in tools loaded at invocation time)")
 
 # --- App entrypoint (streaming enabled) ---
 app = BedrockAgentCoreApp()
@@ -453,6 +423,15 @@ async def agent_invocation(payload, context):
     # Load built-in tools (lazy — avoids 30s init timeout)
     builtin_tools = _load_builtin_tools()
     all_tools = builtin_tools + LAMBDA_TOOLS
+
+    # External tools via MCP (GitHub, GitLab, Jira, Asana, etc.)
+    # Strands Agent manages MCPClient lifecycle internally (start/stop)
+    mcp_clients = _create_mcp_clients()
+    if mcp_clients:
+        all_tools.extend(mcp_clients)
+        logger.info(f"[{agent_id}] {len(mcp_clients)} MCP server(s) attached")
+    else:
+        logger.warning(f"[{agent_id}] No MCP servers configured — external tools unavailable")
 
     # Create agent with role-specific system prompt and all tools
     agent = Agent(
