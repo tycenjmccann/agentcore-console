@@ -11,6 +11,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { streamAgentInvocation, AgentInfo, TraceEvent } from "@/lib/agentcore-stream";
 import { cachedFetch, getCached, getClientRegion } from "@/lib/client-cache";
+import CollapsibleHistorySidebar from "@/components/layout/CollapsibleHistorySidebar";
+import IntakeCard from "@/components/layout/IntakeCard";
 
 interface AgentDetail {
   id: string;
@@ -100,112 +102,11 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
       {/* Account-wide trace pipeline health */}
       <TraceHealthBanner />
 
-      {/* Compact Agent Info Header */}
-      <AgentInfoHeader agent={agent} />
+      {/* Enhanced Intake Card */}
+      <IntakeCard agent={agent} />
 
       {/* Invoke UI - Sessions | Chat | Logs */}
       <InvokeUI agent={agent} />
-    </div>
-  );
-}
-
-function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
-  const [expanded, setExpanded] = useState(false);
-
-
-  return (
-    <div className="card !py-3 !px-4">
-      <div className="flex items-center gap-4">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-          agent.type === "harness" ? "bg-brand-600/20" : "bg-purple-600/20"
-        }`}>
-          {agent.type === "harness" ? (
-            <Brain className="w-5 h-5 text-brand-400" />
-          ) : (
-            <Cpu className="w-5 h-5 text-purple-400" />
-          )}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold text-white">{agent.name}</h2>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
-              agent.type === "harness"
-                ? "bg-brand-600/10 text-brand-400 border-brand-600/30"
-                : "bg-purple-600/10 text-purple-400 border-purple-600/30"
-            }`}>
-              {agent.type.toUpperCase()}
-            </span>
-            <span className={`text-xs px-2 py-0.5 rounded-full border ${
-              agent.status === "ACTIVE" || agent.status === "READY"
-                ? "bg-green-400/10 text-green-400 border-green-400/30"
-                : "bg-gray-400/10 text-gray-400 border-gray-400/30"
-            }`}>
-              {agent.status}
-            </span>
-          </div>
-          <p className="text-[10px] text-gray-600 font-mono">{agent.arn}</p>
-        </div>
-
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1"
-        >
-          {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          Details
-        </button>
-      </div>
-
-
-      {expanded && (
-        <div className="mt-3 pt-3 border-t border-surface-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-          {agent.model && (
-            <div>
-              <span className="text-gray-500 flex items-center gap-1"><Bot className="w-3 h-3" /> Model</span>
-              <p className="text-gray-300 mt-0.5 font-mono text-[10px]">{agent.model}</p>
-            </div>
-          )}
-          {agent.memoryId && (
-            <div>
-              <span className="text-gray-500 flex items-center gap-1"><Database className="w-3 h-3" /> Memory</span>
-              <p className="text-gray-300 mt-0.5 font-mono text-[10px] truncate">{agent.memoryId}</p>
-            </div>
-          )}
-          {agent.logGroup && (
-            <div>
-              <span className="text-gray-500 flex items-center gap-1"><Terminal className="w-3 h-3" /> Log Group</span>
-              <p className="text-gray-300 mt-0.5 font-mono text-[10px] truncate">{agent.logGroup}</p>
-            </div>
-          )}
-          {agent.createdAt && (
-            <div>
-              <span className="text-gray-500">Created</span>
-              <p className="text-gray-300 mt-0.5">{new Date(agent.createdAt).toLocaleDateString()}</p>
-            </div>
-          )}
-          {agent.tools && agent.tools.length > 0 && (
-            <div className="col-span-full">
-              <span className="text-gray-500 flex items-center gap-1 mb-1.5"><Wrench className="w-3 h-3" /> Tools ({agent.tools.length})</span>
-              <div className="flex flex-wrap gap-1.5">
-                {agent.tools.map((tool, i) => (
-                  <span key={i} className="text-[10px] px-2 py-0.5 bg-surface-3 rounded border border-surface-4 text-gray-300">
-                    <Server className="w-2.5 h-2.5 inline mr-0.5" />
-                    {tool.name || tool.type}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {agent.systemPrompt && (
-            <div className="col-span-full">
-              <span className="text-gray-500">System Prompt</span>
-              <pre className="text-[10px] text-gray-400 mt-1 bg-surface-0 rounded p-2 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">
-                {agent.systemPrompt}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -681,15 +582,6 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
     }
   }, [agent.id]);
 
-  function timeAgo(dateStr: string): string {
-    if (!dateStr) return "";
-    const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
-    if (seconds < 60) return "just now";
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-    return `${Math.floor(seconds / 86400)}d ago`;
-  }
-
   const traceEventConfig: Record<string, { icon: typeof Terminal; color: string; label: string }> = {
     // Real OTEL span events from aws/spans
     agent_invoke: { icon: Bot, color: "text-brand-400", label: "Agent Invoke" },
@@ -714,105 +606,22 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
 
   return (
     <div className="flex h-[calc(100vh-16rem)] gap-4 overflow-hidden">
-      {/* Left — Sessions */}
-      <div className="w-52 flex-shrink-0 flex flex-col border-r border-surface-4 pr-3">
-        <button
-          onClick={startNewSession}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600/20 border border-brand-600/30 text-brand-400 text-xs font-medium hover:bg-brand-600/30 transition-colors mb-3"
-        >
-          <Plus className="w-3 h-3" />
-          New Session
-        </button>
-
-        {/* Source Toggle */}
-        <div className="flex items-center gap-1 mb-2 p-0.5 bg-surface-3 rounded-lg">
-          <button
-            onClick={() => setSessionSource("memory")}
-            className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
-              sessionSource === "memory"
-                ? "bg-surface-1 text-brand-400 shadow-sm"
-                : "text-gray-500 hover:text-gray-300"
-            }`}
-          >
-            <Database className="w-2.5 h-2.5" />
-            Memory
-          </button>
-          <button
-            onClick={() => setSessionSource("traces")}
-            className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
-              sessionSource === "traces"
-                ? "bg-surface-1 text-brand-400 shadow-sm"
-                : "text-gray-500 hover:text-gray-300"
-            }`}
-          >
-            <Terminal className="w-2.5 h-2.5" />
-            Traces
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto space-y-1">
-          <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium mb-1">
-            {sessionSource === "memory" ? "History" : "Trace Sessions"}
-          </p>
-          {loadingSessions ? (
-            <div className="flex items-center gap-2 text-xs text-gray-500 py-2">
-              <Loader2 className="w-3 h-3 animate-spin" /> Loading...
-            </div>
-          ) : (sessionSource === "memory" ? sessions : traceSessions).length === 0 ? (
-            <p className="text-xs text-gray-600 py-2">
-              {sessionSource === "memory" ? "No previous sessions" : "No trace sessions found"}
-            </p>
-          ) : (
-            (sessionSource === "memory" ? sessions : traceSessions).map((session) => (
-              <button
-                key={session.sessionId}
-                onClick={() => sessionSource === "memory" ? resumeSession(session) : resumeTraceSession(session)}
-                className={`w-full text-left px-2 py-1.5 rounded-lg text-xs transition-colors ${
-                  sessionId === session.sessionId
-                    ? "bg-brand-600/20 border border-brand-600/30 text-brand-300"
-                    : "hover:bg-surface-3 text-gray-400"
-                }`}
-              >
-                <div className="flex items-center gap-1.5">
-                  {sessionSource === "memory"
-                    ? <MessageSquare className="w-2.5 h-2.5 flex-shrink-0" />
-                    : <Terminal className="w-2.5 h-2.5 flex-shrink-0" />
-                  }
-                  <span className="truncate font-mono text-[10px]">
-                    {session.sessionId.length > 16 ? session.sessionId.slice(0, 16) + "..." : session.sessionId}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 mt-0.5 text-gray-600 text-[10px]">
-                  <Clock className="w-2 h-2" />
-                  <span>{timeAgo(session.createdAt)}</span>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-
-        {/* Memory Selector */}
-        <div className="mt-3 pt-3 border-t border-surface-4">
-          <label className="text-[10px] text-gray-500 uppercase tracking-wide font-medium flex items-center gap-1 mb-1.5">
-            <Database className="w-3 h-3" /> Memory
-          </label>
-          <select
-            value={linkedMemory}
-            onChange={(e) => handleMemoryChange(e.target.value)}
-            className="w-full bg-surface-3 border border-surface-4 rounded-lg px-2 py-1.5 text-[10px] text-gray-300 font-mono focus:outline-none focus:border-brand-600/50"
-          >
-            <option value="">None</option>
-            {availableMemories.map((mem) => (
-              <option key={mem.id} value={mem.id}>
-                {mem.id.replace(/-[A-Za-z0-9]{10,}$/, "")}
-              </option>
-            ))}
-          </select>
-          {linkedMemory && (
-            <p className="text-[9px] text-gray-600 mt-1 truncate">{linkedMemory}</p>
-          )}
-        </div>
-      </div>
+      {/* Left — Collapsible Sessions Sidebar */}
+      <CollapsibleHistorySidebar
+        sessions={sessions}
+        traceSessions={traceSessions}
+        sessionSource={sessionSource}
+        setSessionSource={setSessionSource}
+        loadingSessions={loadingSessions}
+        currentSessionId={sessionId}
+        linkedMemory={linkedMemory}
+        availableMemories={availableMemories}
+        hasMemory={!!agent.memoryId || availableMemories.length > 0}
+        onNewSession={startNewSession}
+        onResumeSession={resumeSession}
+        onResumeTraceSession={resumeTraceSession}
+        onMemoryChange={handleMemoryChange}
+      />
 
       {/* Center — Chat / Playground */}
       <div className="flex-1 flex flex-col min-w-0">
