@@ -6,7 +6,7 @@
       "role": "Parse PRD/mockup input, extract structured requirements, define acceptance criteria, determine which team agents need tickets",
       "phase": "requirements",
       "harnessName": "team_requirements_analyst",
-      "tools": ["gateway", "browser", "S3Storage___read_object", "S3Storage___write_object", "S3Storage___list_objects", "SkillLoader___load_skill", "WorkflowOutput___submit_ticket_plan"],
+      "tools": ["gateway", "browser", "S3Storage___read_object", "S3Storage___write_object", "S3Storage___list_objects", "SkillLoader___load_skill", "JiraIntegration___create_ticket", "JiraIntegration___transition_ticket", "JiraIntegration___update_ticket", "JiraIntegration___list_tickets", "JiraIntegration___add_comment", "JiraIntegration___search_issues", "WorkflowOutput___report_completion"],
       "canQueryAgents": [],
       "keywords": ["requirements", "requirementsanalyst", "productanalyst", "prd", "analysis"]
     },

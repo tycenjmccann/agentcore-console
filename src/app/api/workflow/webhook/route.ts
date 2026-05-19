@@ -1,20 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
-import { handleAgentCompletion, handleJiraWebhook, handleQaFixRequest } from "@/lib/workflow/engine";
-import { ensureRehydrated } from "@/lib/workflow/store";
+/**
+ * POST /api/workflow/webhook — EVENT-DRIVEN VERSION
+ *
+ * This is the THIN webhook handler. It does NOT orchestrate anything.
+ * It simply writes status changes to DynamoDB. The DynamoDB Stream
+ * triggers the Orchestration Lambda which handles all downstream logic.
+ *
+ * To switch to this version, rename this file to route.ts and delete the old one.
+ */
 
+import { NextRequest, NextResponse } from "next/server";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
+
+const REGION = process.env.AWS_REGION || "us-east-1";
+const TICKETS_TABLE = process.env.JIRA_TABLE_NAME || "agentis-tickets";
+const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "dev-secret";
 
-/**
- * POST /api/workflow/webhook
- *
- * Event-driven completion handler. Receives signals from:
- * 1. workflow-output Lambda — agent called report_completion tool
- * 2. Jira Cloud webhook — ticket transitioned to "Done" externally
- *
- * This is the primary mechanism that drives workflow forward after agents finish.
- */
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
+  marshallOptions: { removeUndefinedValues: true },
+});
+
 export async function POST(req: NextRequest) {
-  // Validate webhook secret (skip in dev if not configured)
+  // Validate webhook secret
   const secret = req.headers.get("x-webhook-secret");
   if (WEBHOOK_SECRET !== "dev-secret" && secret !== WEBHOOK_SECRET) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -27,122 +35,184 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  await ensureRehydrated();
-
   const eventType = body.event_type as string;
 
   try {
     switch (eventType) {
-      // ─── Agent Completion (from workflow-output Lambda) ──────────────────
+      // ─── Agent Completion → just write "done" to DynamoDB ──────────────────
       case "agent_completion": {
         const workflowId = body.workflow_id as string;
         const agentId = body.agent_id as string;
 
         if (!workflowId || !agentId) {
-          return NextResponse.json(
-            { error: "workflow_id and agent_id are required" },
-            { status: 400 }
-          );
+          return NextResponse.json({ error: "workflow_id and agent_id required" }, { status: 400 });
         }
 
-        const result = await handleAgentCompletion(workflowId, agentId, {
-          output: body.output as string | undefined,
-          summary: body.summary as string | undefined,
-          branch: body.branch as string | undefined,
-          commitSha: body.commit_sha as string | undefined,
-          prUrl: body.pr_url as string | undefined,
-          artifacts: body.artifacts as Array<{ name: string; type: string }> | undefined,
-          source: "webhook",
-        });
-
-        if (!result.success) {
-          console.warn(`[webhook] Agent completion failed: ${result.error}`);
-          // Still return 200 to prevent retries for non-transient errors
-          return NextResponse.json({ received: true, warning: result.error });
+        // Find the ticket for this agent
+        const ticketId = await findTicketForAgent(workflowId, agentId);
+        if (!ticketId) {
+          return NextResponse.json({ received: true, warning: "Ticket not found" });
         }
 
-        console.log(`[webhook] Agent ${agentId} completion processed for workflow ${workflowId}`);
-        return NextResponse.json({ received: true, processed: true });
+        // Write "done" to DynamoDB — the Stream handles the rest
+        await ddb.send(new UpdateCommand({
+          TableName: TICKETS_TABLE,
+          Key: { ticketId },
+          UpdateExpression: "SET #s = :s, #u = :u",
+          ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+          ExpressionAttributeValues: { ":s": "done", ":u": new Date().toISOString() },
+        }));
+
+        // Optionally store completion metadata on the workflow
+        if (body.branch || body.commit_sha || body.pr_url) {
+          await updateWorkflowTaskMetadata(workflowId, agentId, {
+            branch: body.branch as string,
+            commitSha: body.commit_sha as string,
+            prUrl: body.pr_url as string,
+            output: (body.output as string)?.slice(0, 10000),
+          });
+        }
+
+        console.log(`[webhook] Wrote "done" for ${ticketId} (agent: ${agentId}). Stream will handle cascade.`);
+        return NextResponse.json({ received: true, ticketId });
       }
 
-      // ─── QA Fix Request (QA agent found issues) ───────────────────────
+      // ─── QA Fix Request → create fix ticket in DynamoDB (stream handles invocation) ─
       case "request_fix": {
         const workflowId = body.workflow_id as string;
         const targetAgent = body.target_agent as string;
         const findings = body.findings as string;
-        const severity = (body.severity as string) || "blocking";
         const qaTicketId = body.qa_ticket_id as string;
 
         if (!workflowId || !targetAgent || !findings || !qaTicketId) {
-          return NextResponse.json(
-            { error: "workflow_id, target_agent, findings, and qa_ticket_id are required" },
-            { status: 400 }
-          );
+          return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
-        const result = await handleQaFixRequest(workflowId, {
-          targetAgent,
-          findings,
-          severity: severity as "blocking" | "cosmetic",
-          qaTicketId,
-        });
+        // Mark QA ticket as blocked
+        await ddb.send(new UpdateCommand({
+          TableName: TICKETS_TABLE,
+          Key: { ticketId: qaTicketId },
+          UpdateExpression: "SET #s = :s, #u = :u",
+          ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+          ExpressionAttributeValues: { ":s": "blocked", ":u": new Date().toISOString() },
+        }));
 
-        if (!result.success) {
-          console.warn(`[webhook] QA fix request failed: ${result.error}`);
-          return NextResponse.json({ received: true, warning: result.error });
-        }
+        // Create fix ticket (status=todo, no blockers → stream will invoke the dev agent)
+        const fixTicketId = await nextTicketId();
+        const workflow = await getWorkflow(workflowId);
+        const epicId = workflow?.epicId;
 
-        console.log(`[webhook] QA fix request processed: ${targetAgent} for workflow ${workflowId}`);
-        return NextResponse.json({ received: true, processed: true });
+        await ddb.send(new UpdateCommand({
+          TableName: TICKETS_TABLE,
+          Key: { ticketId: fixTicketId },
+          UpdateExpression: "SET #t = :t, #title = :title, #desc = :desc, #s = :s, #a = :a, #pid = :pid, #wid = :wid, #bb = :bb, #c = :c, #art = :art, #ca = :ca, #u = :u",
+          ExpressionAttributeNames: {
+            "#t": "type", "#title": "title", "#desc": "description", "#s": "status",
+            "#a": "assignee", "#pid": "parentId", "#wid": "workflowId",
+            "#bb": "blockedBy", "#c": "comments", "#art": "artifacts", "#ca": "createdAt", "#u": "updatedAt",
+          },
+          ExpressionAttributeValues: {
+            ":t": "task",
+            ":title": `Fix: QA findings`,
+            ":desc": `## Fix Required\n\n### QA Findings:\n${findings}\n\n### Instructions:\n1. Fix the issues on the feature branch\n2. Push the fix commit\n3. Call report_completion when done`,
+            ":s": "todo",
+            ":a": targetAgent,
+            ":pid": epicId,
+            ":wid": workflowId,
+            ":bb": [],
+            ":c": [],
+            ":art": [],
+            ":ca": new Date().toISOString(),
+            ":u": new Date().toISOString(),
+          },
+        }));
+
+        console.log(`[webhook] Created fix ticket ${fixTicketId} for ${targetAgent}. Stream will invoke.`);
+        return NextResponse.json({ received: true, fixTicketId });
       }
 
-      // ─── Jira Webhook (ticket status change) ────────────────────────────
-      case "jira_transition": {
-        const issueKey = body.issue_key as string || (body.issue as { key?: string })?.key as string;
-        const status = body.status as string ||
-          (body.changelog as { items?: Array<{ field: string; toString: string }> })
-            ?.items?.find((i) => i.field === "status")?.toString?.toLowerCase();
-
-        if (!issueKey) {
-          return NextResponse.json({ error: "issue_key required" }, { status: 400 });
-        }
-
-        const result = await handleJiraWebhook(issueKey, status || "done");
-
-        if (!result.success) {
-          console.warn(`[webhook] Jira webhook failed: ${result.error}`);
-        }
-
-        return NextResponse.json({ received: true, processed: result.success });
-      }
-
-      // ─── Jira native webhook format (issue_updated) ─────────────────────
+      // ─── Jira webhook (native format) → write status to DynamoDB ───────────
+      case "jira_transition":
       case undefined: {
-        // Jira sends webhooks without our event_type field
-        // Detect by presence of Jira-specific fields
-        if (body.webhookEvent === "jira:issue_updated" || body.issue) {
-          const issueKey = (body.issue as { key?: string })?.key;
-          const changelog = body.changelog as { items?: Array<{ field: string; toString: string }> };
-          const statusChange = changelog?.items?.find((i) => i.field === "status");
+        const issueKey = (body.issue_key as string) || (body.issue as { key?: string })?.key;
+        const changelog = body.changelog as { items?: Array<{ field: string; toString: string }> };
+        const statusChange = changelog?.items?.find((i: { field: string }) => i.field === "status");
 
-          if (issueKey && statusChange) {
-            const newStatus = statusChange.toString.toLowerCase();
-            const result = await handleJiraWebhook(issueKey, newStatus);
-            return NextResponse.json({ received: true, processed: result.success });
-          }
+        if (issueKey && statusChange) {
+          const newStatus = statusChange.toString.toLowerCase();
+          const mappedStatus = mapJiraStatus(newStatus);
+
+          await ddb.send(new UpdateCommand({
+            TableName: TICKETS_TABLE,
+            Key: { ticketId: issueKey },
+            UpdateExpression: "SET #s = :s, #u = :u",
+            ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+            ExpressionAttributeValues: { ":s": mappedStatus, ":u": new Date().toISOString() },
+          }));
+
+          console.log(`[webhook] Jira: ${issueKey} → ${mappedStatus}. Stream handles cascade.`);
+          return NextResponse.json({ received: true, processed: true });
         }
 
         return NextResponse.json({ received: true, ignored: true });
       }
 
       default:
-        return NextResponse.json({ received: true, ignored: true, reason: `Unknown event_type: ${eventType}` });
+        return NextResponse.json({ received: true, ignored: true });
     }
   } catch (err) {
-    console.error("[webhook] Error processing webhook:", err);
-    return NextResponse.json(
-      { error: `Internal error: ${(err as Error).message}` },
-      { status: 500 }
-    );
+    console.error("[webhook] Error:", err);
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+async function findTicketForAgent(workflowId: string, agentId: string): Promise<string | null> {
+  const wf = await getWorkflow(workflowId);
+  return wf?.agentTasks?.[agentId]?.ticketId || null;
+}
+
+async function getWorkflow(workflowId: string) {
+  const result = await ddb.send(new GetCommand({ TableName: WORKFLOWS_TABLE, Key: { workflowId } }));
+  return result.Item || null;
+}
+
+async function updateWorkflowTaskMetadata(workflowId: string, agentId: string, metadata: Record<string, unknown>) {
+  const wf = await getWorkflow(workflowId);
+  if (!wf) return;
+  const tasks = wf.agentTasks || {};
+  tasks[agentId] = { ...tasks[agentId], ...metadata, status: "complete", completedAt: new Date().toISOString() };
+
+  await ddb.send(new UpdateCommand({
+    TableName: WORKFLOWS_TABLE,
+    Key: { workflowId },
+    UpdateExpression: "SET #at = :at, #u = :u",
+    ExpressionAttributeNames: { "#at": "agentTasks", "#u": "updatedAt" },
+    ExpressionAttributeValues: { ":at": tasks, ":u": new Date().toISOString() },
+  }));
+}
+
+async function nextTicketId(): Promise<string> {
+  const projectKey = process.env.PROJECT_KEY || "TEAM";
+  const result = await ddb.send(new UpdateCommand({
+    TableName: TICKETS_TABLE,
+    Key: { ticketId: "__COUNTER__" },
+    UpdateExpression: "SET #n = if_not_exists(#n, :zero) + :one",
+    ExpressionAttributeNames: { "#n": "nextNum" },
+    ExpressionAttributeValues: { ":zero": 0, ":one": 1 },
+    ReturnValues: "UPDATED_NEW",
+  }));
+  return `${projectKey}-${result.Attributes!.nextNum}`;
+}
+
+function mapJiraStatus(jiraStatus: string): string {
+  const map: Record<string, string> = {
+    "to do": "todo",
+    "in progress": "in_progress",
+    "done": "done",
+    "blocked": "blocked",
+    "in review": "in_review",
+  };
+  return map[jiraStatus] || jiraStatus;
 }

@@ -27,10 +27,10 @@ const FEATURE_REQUEST = {
 - Persist the user's preference in localStorage
 - Default to dark mode (current state) but respect system preference via prefers-color-scheme
 - Ensure smooth transition between themes (0.2s transition on background-color and color)`,
-  repoUrl: "https://github.com/tycenjmccann/agentcore-console",
+  repoUrl: "https://github.com/tycenjmccann/agentcore-console", // already default in form
 };
 
-test.setTimeout(360000); // 6 minutes
+test.setTimeout(900000); // 15 minutes (real pipeline takes time)
 
 test("Record Agentis Hub demo v2", async ({ browser }) => {
   fs.mkdirSync(RECORDING_DIR, { recursive: true });
@@ -81,9 +81,8 @@ test("Record Agentis Hub demo v2", async ({ browser }) => {
 
   // ─── Scene 2: Ticket History (show established usage) — 8s ────────
   console.log("[00:08] Scene 2: Ticket History");
-  await page.click('[data-testid="nav-ticket history"]');
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(2000);
+  await page.click('[data-testid="nav-ticket history"]', { timeout: 10000 });
+  await page.waitForTimeout(3000);
 
   // Scroll down slightly to show more sessions
   await page.evaluate(() => window.scrollBy(0, 200));
@@ -91,14 +90,23 @@ test("Record Agentis Hub demo v2", async ({ browser }) => {
 
   // ─── Scene 3: Navigate to Workflow — 3s ────────────────────────────
   console.log("[00:16] Scene 3: Navigate to Workflow");
-  await page.click('[data-testid="nav-workflow"]');
-  await page.waitForLoadState("networkidle");
+  await page.click('[data-testid="nav-workflow"]', { timeout: 10000 });
+  // Don't use networkidle — workflow page polls every 5s so network never goes idle
   await page.waitForTimeout(3000);
+  console.log("[00:16] Scene 3: Workflow page loaded");
 
   // ─── Scene 4: Fill the Intake Form — 15s ──────────────────────────
   console.log("[00:19] Scene 4: Fill Intake Form");
 
+  // Click "+" (New Workflow) button in sidebar to show intake form
+  await page.evaluate(() => {
+    const btn = document.querySelector('button[title="New Workflow"]') as HTMLButtonElement;
+    if (btn) btn.click();
+  });
+  await page.waitForTimeout(2000);
+
   const titleInput = page.locator('input[placeholder*="profile photo"]');
+  await titleInput.waitFor({ state: "visible", timeout: 10000 });
   await titleInput.click();
   await page.waitForTimeout(300);
   await titleInput.type(FEATURE_REQUEST.title, { delay: 40 });
@@ -110,9 +118,7 @@ test("Record Agentis Hub demo v2", async ({ browser }) => {
   await descInput.type(FEATURE_REQUEST.description, { delay: 15 });
   await page.waitForTimeout(800);
 
-  const repoInput = page.locator('input[placeholder*="github.com"]');
-  await repoInput.click();
-  await repoInput.fill(FEATURE_REQUEST.repoUrl);
+  // Repo URL is pre-filled with the default — skip it
   await page.waitForTimeout(500);
 
   const modelSelect = page.locator("#model-select");
@@ -134,7 +140,7 @@ test("Record Agentis Hub demo v2", async ({ browser }) => {
   console.log("[00:37] Scene 6-8: Agents working...");
 
   const startTime = Date.now();
-  const MAX_WAIT = 120000;
+  const MAX_WAIT = 600000; // 10 minutes for real pipeline
   let completed = false;
 
   while (Date.now() - startTime < MAX_WAIT) {

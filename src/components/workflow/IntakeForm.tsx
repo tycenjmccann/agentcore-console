@@ -16,7 +16,7 @@ export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
   const [sources, setSources] = useState<IntakeSource[]>([]);
   const [newSourceUrl, setNewSourceUrl] = useState("");
   const [repoLayout, setRepoLayout] = useState<RepoLayout>("monorepo");
-  const [repoUrl, setRepoUrl] = useState("");
+  const [repoUrl, setRepoUrl] = useState("https://github.com/tycenjmccann/agentcore-console");
   const [defaultBranch, setDefaultBranch] = useState("main");
 
   // Model selection state

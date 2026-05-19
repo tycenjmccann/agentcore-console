@@ -85,13 +85,45 @@ const DEFAULT_REGION = process.env.AWS_REGION || "us-east-1";
 const ARTIFACT_BUCKET = process.env.TEAM_WORKFLOW_S3_BUCKET || "";
 
 /**
+ * Sync tickets from DynamoDB into the in-memory store.
+ * Called after the requirements agent finishes in DynamoDB mode.
+ * The agent created tickets via JiraIntegration___create_ticket (Lambda → DynamoDB),
+ * and we need the in-memory store to reflect that so processReadyTickets works.
+ */
+async function syncDynamoTicketsToStore(epicId: string): Promise<void> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { DynamoDBProvider } = require("./ticket-provider-dynamodb");
+    const dynamo = new DynamoDBProvider();
+
+    // Get the epic itself
+    const epic = await dynamo.getTicket(epicId);
+    if (epic) setTicket(epic);
+
+    // Get all child tickets
+    const children = await dynamo.getChildTickets(epicId);
+    console.log(`[engine] Synced ${children.length} tickets from DynamoDB for epic ${epicId}`);
+
+    for (const ticket of children) {
+      // Map DynamoDB "todo" status to the in-memory "ready" status the engine expects
+      if (ticket.status === "todo" && (!ticket.blockedBy || ticket.blockedBy.length === 0)) {
+        ticket.status = "ready";
+      }
+      setTicket(ticket);
+    }
+  } catch (err) {
+    console.error(`[engine] Failed to sync DynamoDB tickets:`, err);
+  }
+}
+
+/**
  * Read the ticket plan from S3 (written by the requirements agent via WorkflowOutput tool).
  */
 async function readTicketPlanFromS3(workflowId: string): Promise<TicketPlan | null> {
   try {
     const content = await readArtifact({
       workflowId,
-      agentId: "shared",
+      shared: true,
       filename: "ticket-plan.json",
     });
     if (!content) return null;
@@ -108,7 +140,8 @@ async function readTicketPlanFromS3(workflowId: string): Promise<TicketPlan | nu
       };
     }
     return null;
-  } catch {
+  } catch (err) {
+    console.warn(`[engine] Failed to read ticket-plan.json from S3 for ${workflowId}:`, err);
     return null;
   }
 }
@@ -206,8 +239,9 @@ async function processIntakeAndStart(
     ? buildRequirementsContext(input, processedSources)
     : buildIntakeContext(input);
 
-  // Inject workflow_id so the agent can use it in tool calls
-  intakeContext += `\n\n## Workflow Context\nworkflow_id: ${workflowId}\n`;
+  // Inject workflow_id and epic_id so the agent can use them in tool calls
+  intakeContext += `\n\n## Workflow Context\nworkflow_id: ${workflowId}\nepic_id: ${epicId}\n\n`;
+  intakeContext += `## CRITICAL INSTRUCTION: Epic Already Exists\nThe epic "${epicId}" has ALREADY been created for this workflow. Do NOT create another epic.\nUse "${epicId}" as the parent_key for ALL child tickets you create.\n`;
 
   // FIX: Inline directory structure and types directly so requirements agent
   // doesn't need Gateway tools (which fail silently on managed harness)
@@ -365,21 +399,43 @@ export async function handleRequirementsCompletion(
 
   emitEvent(workflowId, { type: "agent_complete", agentId: reqAgent.id, output });
 
-  // Read ticket plan from S3 (agent should have called submit_ticket_plan tool)
-  // Falls back to parsing text response if S3 artifact not found
-  const ticketPlan = await readTicketPlanFromS3(workflowId) || parseRequirementsOutput(output);
-  await tickets().markDone(epicId, workflowId);
+  const providerType = process.env.TICKET_PROVIDER || "memory";
 
-  // Store requirements as artifact
-  await tickets().addArtifact(epicId, {
-    type: "requirements",
-    title: "Requirements Document",
-    content: ticketPlan.requirements,
-    producedBy: reqAgent.id,
-  });
+  if (providerType === "dynamodb") {
+    // ─── DynamoDB path: tickets already exist (agent created them via JiraIntegration tools) ───
+    // The agent called JiraIntegration___create_ticket for each ticket during its run.
+    // We just need to mark the epic done and sync DynamoDB state into the in-memory store.
+    console.log(`[engine] DynamoDB mode — tickets already created by agent via gateway tools`);
+    await tickets().markDone(epicId, workflowId);
 
-  // Create child tickets based on requirements agent's plan
-  await createTicketsFromPlan(ticketPlan, epicId, workflowId);
+    // Store requirements text as an artifact on the epic
+    await tickets().addArtifact(epicId, {
+      type: "requirements",
+      title: "Requirements Document",
+      content: output,
+      producedBy: reqAgent.id,
+    });
+
+    // Sync: pull tickets from DynamoDB into in-memory store so processReadyTickets works
+    await syncDynamoTicketsToStore(epicId);
+  } else {
+    // ─── Legacy path: read ticket plan from S3 or parse text, then create tickets ───
+    const s3Plan = await readTicketPlanFromS3(workflowId);
+    const ticketPlan = s3Plan || parseRequirementsOutput(output);
+    console.log(`[engine] Ticket plan source: ${s3Plan ? "S3 artifact" : "text parsing fallback"}, tickets: ${ticketPlan.tickets.length}, assignees: [${ticketPlan.tickets.map(t => t.assignee).join(", ")}]`);
+    await tickets().markDone(epicId, workflowId);
+
+    // Store requirements as artifact
+    await tickets().addArtifact(epicId, {
+      type: "requirements",
+      title: "Requirements Document",
+      content: ticketPlan.requirements,
+      producedBy: reqAgent.id,
+    });
+
+    // Create child tickets based on requirements agent's plan
+    await createTicketsFromPlan(ticketPlan, epicId, workflowId);
+  }
 
   // Transition to next phase after requirements — driven by ticket readiness
   const nextWorkflowPhase = nextPhase("requirements");
@@ -519,6 +575,9 @@ async function invokeAgentForTicket(
   setWorkflow(state);
 
   await tickets().markInProgress(ticket.id, workflowId);
+  // Sync in-memory store
+  const inMemTicketStart = getTicket(ticket.id);
+  if (inMemTicketStart) { inMemTicketStart.status = "in_progress"; setTicket(inMemTicketStart); }
   emitEvent(workflowId, { type: "agent_status", agentId: agentDef.id, status: "running", ticketId: ticket.id });
 
   // Multimodal: Prepend image viewing instructions for requirements/design agents
@@ -572,8 +631,9 @@ async function invokeAgentBackground(
     if (typeof modelOverride === "string") {
       // Map shorthand to proper bedrockModelConfig format
       const MODEL_ID_MAP: Record<string, string> = {
-        "claude-opus-46": "global.anthropic.claude-opus-4-6-v1",
-        "claude-sonnet-45": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "claude-opus-47": "us.anthropic.claude-opus-4-7",
+        "claude-opus-46": "us.anthropic.claude-opus-4-6-v1",
+        "claude-sonnet-45": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
       };
       const fullModelId = MODEL_ID_MAP[modelOverride as string] || (modelOverride as string);
       modelOverride = { bedrockModelConfig: { modelId: fullModelId } };
@@ -786,6 +846,24 @@ export async function handleAgentCompletion(
 
   // Mark ticket done → may unblock downstream tickets
   const newlyReady = await tickets().markDone(task.ticketId, workflowId);
+
+  // Sync in-memory store so shouldCreateQaTicket / isWorkflowComplete see current state
+  const inMemTicket = getTicket(task.ticketId);
+  if (inMemTicket) {
+    inMemTicket.status = "done";
+    setTicket(inMemTicket);
+  }
+
+  // Sync newly-unblocked tickets to "ready" in memory (DynamoDB sets them to "todo")
+  for (const readyId of newlyReady) {
+    const readyTicket = getTicket(readyId);
+    if (readyTicket) {
+      readyTicket.status = "ready";
+      readyTicket.blockedBy = [];
+      setTicket(readyTicket);
+    }
+  }
+
   persistWorkflow(workflowId);
 
   console.log(`[engine] Agent ${agentId} completed (source: ${payload.source || "unknown"}). Newly ready: [${newlyReady.join(", ")}]`);
@@ -801,10 +879,11 @@ export async function handleAgentCompletion(
   // If new tickets became ready, process them
   if (newlyReady.length > 0) {
     await processReadyTickets(workflowId, state.epicId);
+  } else if (shouldCreateQaTicket(workflowId, state.epicId)) {
+    // QA check BEFORE workflow completion — ensures verification runs
+    await createQaVerificationTicket(workflowId, state.epicId);
   } else if (await tickets().isWorkflowComplete(state.epicId)) {
     await completeWorkflow(workflowId);
-  } else if (shouldCreateQaTicket(workflowId, state.epicId)) {
-    await createQaVerificationTicket(workflowId, state.epicId);
   }
 
   return { success: true };
@@ -1346,7 +1425,10 @@ async function buildAgentContext(ticket: JiraTicket, state: WorkflowState): Prom
     for (const repo of state.repoConfig.repos) {
       context += `- ${repo.platform}: ${repo.url} (branch: ${repo.defaultBranch}${repo.pathPrefix ? `, path: ${repo.pathPrefix}` : ""})\n`;
     }
+    const baseBranch = state.featureBranch || state.repoConfig.repos[0]?.defaultBranch || "main";
     context += `\nBranch name: feature/${ticket.id}-${agentDef.id.replace("team-", "")}\n`;
+    context += `Base branch (fork FROM this): ${baseBranch}\n`;
+    context += `IMPORTANT: When calling create_branch, use from_branch: "${baseBranch}" — do NOT fork from main directly.\n`;
     context += `\n`;
 
     // Enrich with codebase context from Knowledge Base (if indexed)
@@ -1640,7 +1722,7 @@ function parseRequirementsOutput(output: string): TicketPlan {
         {
           title: "Frontend Implementation",
           description: "Implement the frontend component based on requirements and design reference",
-          assignee: getDefaultDevAgent().id,
+          assignee: "team-frontend-dev",
           blockedBy: [],
         },
       ],
@@ -2147,6 +2229,16 @@ async function invokeAgentWithRetry(
       return output;
     } catch (err) {
       lastError = err as Error;
+      const errMsg = lastError.message || "";
+
+      // Model validation failure — fallback to default model instead of retrying with same bad ID
+      if (errMsg.includes("ValidationException") && modelOverride) {
+        console.warn(`[retry] Agent ${agentId} model override failed ("${modelOverride.bedrockModelConfig?.modelId || modelOverride.openAiModelConfig?.modelId}"): ${errMsg.slice(0, 120)}. Falling back to default model.`);
+        modelOverride = undefined; // Clear override, use harness default
+        sessionId = `${sessionId}_fallback`;
+        continue;
+      }
+
       if (attempt < MAX_RETRIES) {
         console.warn(`[retry] Agent ${agentId} failed (attempt ${attempt + 1}): ${lastError.message}. Retrying...`);
         // Wait before retry (exponential backoff)

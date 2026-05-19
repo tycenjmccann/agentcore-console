@@ -154,10 +154,10 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             if (toolFlashTimers.current[flashKey]) {
               clearTimeout(toolFlashTimers.current[flashKey]);
             }
-            // Auto-clear after 800ms
+            // Auto-clear after 1600ms
             toolFlashTimers.current[flashKey] = setTimeout(() => {
               setToolFlashes((prev) => ({ ...prev, [flashKey]: false }));
-            }, 800);
+            }, 1600);
           }
         }
         break;
@@ -199,10 +199,24 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   // "settled" = loaded a completed workflow (not a live completion animation)
   const isSettled = isComplete && !celebrating;
 
+  // Check if a pipeline phase still has running agents (for parallel execution across phases)
+  const phaseHasRunningAgents = (phaseIndex: number): boolean => {
+    if (!state) return false;
+    const phase = PIPELINE_PHASES[phaseIndex];
+    if (!phase) return false;
+    return phase.agents.some((a) => {
+      const task = state.agentTasks[a.id];
+      return task && (task.status === "running" || task.status === "waiting_response");
+    });
+  };
+
   const getPhaseClass = (phaseIndex: number) => {
     if (currentPhaseIndex === -1) return "";
     if (isSettled) return "active done settled";
-    if (phaseIndex < currentPhaseIndex || isComplete) return "active done";
+    if (isComplete) return "active done";
+    // Phase still has running agents — show as active, not done
+    if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "active";
+    if (phaseIndex < currentPhaseIndex) return "active done";
     if (phaseIndex === currentPhaseIndex) return "active";
     return "";
   };
@@ -210,7 +224,10 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const getBoxClass = (phaseIndex: number) => {
     if (currentPhaseIndex === -1) return "";
     if (isSettled) return "done settled";
-    if (phaseIndex < currentPhaseIndex || isComplete) return "done";
+    if (isComplete) return "done";
+    // Phase still has running agents — show as awake, not done
+    if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "awake";
+    if (phaseIndex < currentPhaseIndex) return "done";
     if (phaseIndex === currentPhaseIndex) return "awake";
     return "";
   };
@@ -218,12 +235,15 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const getItemClass = (phaseIndex: number): string => {
     if (!state) return "";
     if (isSettled) return "done settled";
-    if (phaseIndex < currentPhaseIndex || isComplete) return "done";
+    if (isComplete) return "done";
+    // Phase still has running agents — steady glow (not pulsating)
+    if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "active-glow";
+    if (phaseIndex < currentPhaseIndex) return "done";
     if (phaseIndex === currentPhaseIndex) {
       const hasRunning = Object.values(state.agentTasks).some(
         (t) => t.status === "running" || t.status === "waiting_response"
       );
-      if (hasRunning) return "working";
+      if (hasRunning) return "active-glow";
       return "active";
     }
     return "";
@@ -388,9 +408,10 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                         <div className="sec-label">Agents ({phase.agents.length})</div>
                         {phase.agents.map((agent) => {
                           const agentTask = state?.agentTasks[agent.id];
+                          const isStreaming = !!(streamingText[agent.id] && agentTask?.status === "running");
                           const agentItemClass = agentTask
                             ? agentTask.status === "running" || agentTask.status === "waiting_response"
-                              ? "working"
+                              ? isStreaming ? "working" : "active-glow"
                               : agentTask.status === "complete"
                               ? "done"
                               : agentTask.status === "error"
@@ -549,9 +570,17 @@ const PIPELINE_STYLES = `
 .item.trigger{border-color:#f97316;background:#f9731610;animation:pulse .6s}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.02)}}
 @keyframes agentPulse{0%{border-color:#0ea5e960;box-shadow:0 0 8px rgba(14,165,233,.3)}50%{border-color:#0ea5e9;box-shadow:0 0 16px rgba(14,165,233,.5)}100%{border-color:#0ea5e960;box-shadow:0 0 8px rgba(14,165,233,.3)}}
+.item.active-glow{border-color:#0ea5e940;background:#0ea5e906;box-shadow:0 0 6px rgba(14,165,233,.15)}
+.item.active-glow .item-label{color:#cbd5e1}
+.item.active-glow .item-status{background:#0ea5e980}
 .item.working{border-color:#0ea5e960;background:#0ea5e908;animation:agentPulse 1s ease-in-out infinite}
 .item.working .item-label{color:#e2e8f0}
 .item.working .item-status{background:#0ea5e9;box-shadow:0 0 5px #0ea5e9}
+
+@keyframes errorPulse{0%{border-color:#ef444460;box-shadow:0 0 8px rgba(239,68,68,.3)}50%{border-color:#ef4444;box-shadow:0 0 16px rgba(239,68,68,.5)}100%{border-color:#ef444460;box-shadow:0 0 8px rgba(239,68,68,.3)}}
+.item.error{border-color:#ef444460;background:#ef444408;animation:errorPulse 2s ease-in-out infinite}
+.item.error .item-label{color:#fca5a5}
+.item.error .item-status{background:#ef4444;box-shadow:0 0 5px #ef4444}
 
 .svc-icon{width:16px;height:16px;border-radius:2px;object-fit:contain;flex-shrink:0}
 .item-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}

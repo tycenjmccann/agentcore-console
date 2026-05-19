@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Agentis Hub Orchestrator — Event-driven workflow engine via DynamoDB Streams.
+  Replaces the in-process Next.js orchestration with Lambda + Streams.
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 900  # 15 min max for long agent invocations
+    MemorySize: 512
+    Environment:
+      Variables:
+        AWS_REGION_OVERRIDE: !Ref AWS::Region
+        TICKETS_TABLE: !Ref TicketsTableName
+        WORKFLOWS_TABLE: !Ref WorkflowsTable
+        EVENTS_TABLE: !Ref EventsTable
+        ARTIFACT_BUCKET: !Ref ArtifactBucket
+        GITHUB_LAMBDA: !Ref GitHubLambdaName
+        EVENT_BUS: !Ref EventBus
+        PROJECT_KEY: TEAM
+
+Parameters:
+  TicketsTableName:
+    Type: String
+    Default: agentis-tickets
+    Description: Existing DynamoDB table for tickets (must have Streams enabled)
+
+  ArtifactBucket:
+    Type: String
+    Default: ""
+    Description: S3 bucket for workflow artifacts
+
+  GitHubLambdaName:
+    Type: String
+    Default: agentis-github-mcp
+    Description: Lambda function name for GitHub API calls
+
+  EventBus:
+    Type: String
+    Default: default
+    Description: EventBridge bus name for publishing workflow events
+
+Resources:
+  # ─── Workflows Table (new — stores workflow metadata) ──────────────────────────
+  WorkflowsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: agentis-workflows
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: workflowId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: workflowId
+          KeyType: HASH
+
+  # ─── Events Table (new — stores events for dashboard polling, with TTL) ───────
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: agentis-events
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: workflowId
+          AttributeType: S
+        - AttributeName: eventId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: workflowId
+          KeyType: HASH
+        - AttributeName: eventId
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ─── Orchestration Lambda ──────────────────────────────────────────────────────
+  OrchestratorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentis-orchestrator
+      Handler: index.handler
+      CodeUri: .
+      Timeout: 60  # Orchestrator is fast — just DynamoDB reads/writes + async invoke
+      MemorySize: 256
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TicketsTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WorkflowsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EventsTable
+        - DynamoDBStreamReadPolicy:
+            TableName: !Ref TicketsTableName
+            StreamName: "*"
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GitHubLambdaName
+        - LambdaInvokePolicy:
+            FunctionName: !Ref AgentInvokerFunction
+        - S3ReadPolicy:
+            BucketName: !Ref ArtifactBucket
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+      Events:
+        DynamoDBStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TicketsTableName}/stream/*"
+            StartingPosition: LATEST
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 1
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["INSERT","MODIFY"]}'
+
+  # ─── Agent Invoker Lambda (async, long-running) ────────────────────────────────
+  AgentInvokerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentis-agent-invoker
+      Handler: agent-invoker.handler
+      CodeUri: .
+      Timeout: 900  # 15 min for long agent runs
+      MemorySize: 512
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TicketsTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WorkflowsTable
+        - S3CrudPolicy:
+            BucketName: !Ref ArtifactBucket
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - bedrock-agent-runtime:*
+                - bedrock-agentcore:*
+              Resource: "*"
+
+  # ─── EventBridge Rule (route events to dashboard) ──────────────────────────────
+  WorkflowEventsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: agentis-workflow-events
+      EventBusName: !Ref EventBus
+      EventPattern:
+        source:
+          - agentis.orchestrator
+          - agentis.agent-invoker
+      State: ENABLED
+      Targets:
+        - Id: EventsTableWriter
+          Arn: !GetAtt EventsWriterFunction.Arn
+
+  # ─── Lightweight Lambda to write EventBridge events to DynamoDB for polling ────
+  EventsWriterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentis-events-writer
+      Handler: events-writer.handler
+      CodeUri: .
+      Timeout: 10
+      MemorySize: 128
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EventsTable
+
+  EventsWriterPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EventsWriterFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt WorkflowEventsRule.Arn
+
+Outputs:
+  OrchestratorFunctionArn:
+    Description: Orchestrator Lambda ARN
+    Value: !GetAtt OrchestratorFunction.Arn
+
+  AgentInvokerFunctionArn:
+    Description: Agent Invoker Lambda ARN
+    Value: !GetAtt AgentInvokerFunction.Arn
+
+  WorkflowsTableName:
+    Description: Workflows metadata table
+    Value: !Ref WorkflowsTable
+
+  EventsTableName:
+    Description: Events table for dashboard polling
+    Value: !Ref EventsTable

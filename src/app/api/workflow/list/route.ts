@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { listWorkflows, ensureRehydrated } from "@/lib/workflow/store";
+import { listWorkflowsFromDynamo } from "@/lib/workflow/dynamo-read";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  await ensureRehydrated();
-  const workflows = listWorkflows();
+  const workflows = await listWorkflowsFromDynamo();
   return NextResponse.json({ workflows });
 }

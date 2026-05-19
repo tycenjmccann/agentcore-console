@@ -362,6 +362,20 @@
   }
 }
 
+.pipeline-item.active-glow {
+  border-color: #0ea5e940;
+  background: #0ea5e906;
+  box-shadow: 0 0 6px rgba(14, 165, 233, 0.15);
+}
+
+.pipeline-item.active-glow .item-label {
+  color: #cbd5e1;
+}
+
+.pipeline-item.active-glow .item-status {
+  background: #0ea5e980;
+}
+
 .pipeline-item.working {
   border-color: #0ea5e960;
   background: #0ea5e908;

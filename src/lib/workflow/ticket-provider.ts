@@ -59,8 +59,14 @@ export function getTicketProvider(): TicketProvider {
 
   const providerType = process.env.TICKET_PROVIDER || "memory";
 
-  if (providerType === "jira") {
-    // Lazy-load Jira provider to avoid importing when not needed
+  if (providerType === "dynamodb") {
+    // DynamoDB provider — same table as the mock Jira Lambda MCP server.
+    // Agents write via Lambda tool calls, engine reads/manages via this provider.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { DynamoDBProvider } = require("./ticket-provider-dynamodb");
+    _provider = new DynamoDBProvider() as TicketProvider;
+  } else if (providerType === "jira") {
+    // Real Jira Cloud provider (stub — swap gateway target for real Jira MCP)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { JiraCloudProvider } = require("./ticket-provider-jira");
     _provider = new JiraCloudProvider() as TicketProvider;

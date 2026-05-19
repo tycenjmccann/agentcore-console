@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: ".",
-  timeout: 300000, // 5 minutes (demo mode completes in ~90s)
+  timeout: 900000, // 15 minutes (real pipeline)
   use: {
     baseURL: "http://localhost:3000",
     browserName: "chromium",

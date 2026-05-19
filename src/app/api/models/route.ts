@@ -16,11 +16,18 @@ const BEDROCK_MODELS: ModelOption[] = [
     isDefault: true,
   },
   {
+    id: "claude-opus-47",
+    label: "Claude Opus 4.7",
+    provider: "bedrock",
+    modelId: "us.anthropic.claude-opus-4-7",
+    description: "Latest and most capable model. Best for complex reasoning and code generation.",
+  },
+  {
     id: "claude-opus-46",
     label: "Claude Opus 4.6",
     provider: "bedrock",
-    modelId: "global.anthropic.claude-opus-4-6-v1",
-    description: "Most capable model. Best for complex reasoning and code generation.",
+    modelId: "us.anthropic.claude-opus-4-6-v1",
+    description: "Highly capable model. Great for complex reasoning and code generation.",
   },
 ];
 

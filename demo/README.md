@@ -15,35 +15,35 @@ Open `agentis-v1-pipeline.html` directly in any modern browser — no server nee
 ### Phase 1: Intake (Web Application)
 - **Type:** Next.js 14 App Router (not an agent)
 - **Function:** User uploads PRD/mockup/Figma, sets target repo, artifacts stored in S3
-- **Trigger:** Jira Epic creation fires EventBridge event
+- **Trigger:** Creates epic + pre-creates ALL 13 agent ticket skeletons with dependency chains in DynamoDB. Requirements ticket starts as "todo" (no blockers), all others start "blocked". DynamoDB Stream triggers orchestrator.
 
 ### Phase 2: Requirements (1 Agent)
 - **Agent:** Requirements Analyst
 - **Model:** Claude Opus 4 via Bedrock (`us.anthropic.claude-opus-4-0-v1`)
-- **Tools:** S3 Read/Write, Memory, Gateway (Figma, Browser)
+- **Tools:** S3 Read/Write, Jira (list_tickets, transition_ticket, update_ticket, add_comment), SkillLoader, Browser
 - **Skill loaded:** `requirements-analysis`
-- **Process:** Read PRD from S3 -> Parse & analyze -> Generate acceptance criteria -> Decompose into vertical-slice tickets -> Write artifacts to S3 -> Gateway `report_completion` creates Jira tickets
+- **Process:** Load skill -> Read PRD from S3 -> Analyze requirements -> List pre-created ticket skeletons under epic -> Skip irrelevant agents (transition "skip" with reason) -> Update relevant tickets with detailed requirements -> Transition own ticket to "done" -> DynamoDB Stream cascade unblocks design phase
 
 ### Phase 3: Design (7 Agents in Parallel)
 - **Agents:** iOS Designer, Backend Designer, Android Designer, Security Reviewer, Legal & Compliance, Localization, Analytics Designer
 - **Model:** Claude Opus 4 via Bedrock
-- **Tools:** S3 Read/Write, Memory, A2A, Gateway, Figma
+- **Tools:** S3 Read/Write, A2A, GitHub, SkillLoader, Browser
 - **Skills loaded:** `ios-architecture`, `android-architecture`, `backend-systems`, `privacy-compliance`, `threat-modeling`, `localization`, `general-design`
-- **Process:** All 7 agents wake simultaneously -> Read requirements from S3 -> Load skills -> Produce design docs in parallel -> Write artifacts to S3 -> Gateway `report_completion` creates dev tickets
+- **Process:** Unblocked by requirements completion -> All non-skipped agents wake simultaneously -> Read requirements from S3 -> Load skills -> Produce design docs in parallel -> Write artifacts to S3 -> Agent-invoker marks ticket "done" -> DynamoDB Stream cascade unblocks dev phase
 
 ### Phase 4: Development (3 Agents in Parallel)
 - **Agents:** Backend Developer, API Developer, Frontend Developer
 - **Model:** Claude Opus 4 via Bedrock
-- **Tools:** S3 Read, Code Interpreter, Git CLI, Memory, A2A, Gateway
+- **Tools:** S3 Read, Code Interpreter, GitHub (commit, branch, PR), SkillLoader, A2A
 - **Skills loaded:** `node-typescript` (backend + API), `full-stack`, `swift-development`
-- **Process:** Read design artifacts from S3 -> Clone repo, create shared feature branch -> Code in parallel using Code Interpreter sandboxes -> Self-verification (visual compare) -> Commit to feature branch + push PR -> Gateway `report_completion` creates QA ticket
+- **Process:** Unblocked by ALL design tickets completing -> Orchestrator creates shared feature branch -> Code in parallel using Code Interpreter sandboxes -> Commit to feature branch + push PR -> Agent-invoker marks ticket "done" -> DynamoDB Stream cascade unblocks QA
 
 ### Phase 5: QA & Ship (2 Agents)
 - **Agents:** QA Verifier, CI Agent
 - **Model:** Claude Opus 4 via Bedrock
-- **Tools:** Git CLI, Code Interpreter, Memory, A2A, Gateway
+- **Tools:** GitHub, Code Interpreter, A2A, SkillLoader
 - **Skill loaded:** `qa-verification`
-- **Process:** Read feature branch via Git CLI -> Run tests in Code Interpreter sandbox -> Code review + test verification -> Git CLI merge checks pass + Pull request auto-merge
+- **Process:** Unblocked by ALL dev tickets completing -> Read feature branch via GitHub tools -> Run tests in Code Interpreter sandbox -> Code review + test verification -> Workflow complete
 
 ## Animation Behavior
 
@@ -124,12 +124,14 @@ The file is a single HTML document with:
 
 ## Architectural Accuracy Notes
 
-- **No Lambda in the pipeline** — ticket creation uses Gateway tools (`WorkflowOutput___report_completion`), not Lambda functions
-- **EventBridge** is used only for the initial intake trigger (epic creation -> agent wake)
+- **Pre-created ticket skeletons** — ALL 13 tickets are created at workflow start with dependency chains. Requirements agent SKIPs irrelevant ones (transitions to "done"). No runtime ticket creation needed.
+- **DynamoDB Streams cascade** — the SOLE orchestration mechanism. Ticket status changes fire stream events → orchestrator Lambda unblocks dependents → next agents invoke.
+- **Agent-invoker Lambda** — async fire-and-forget. Invokes AgentCore harness, streams output, marks ticket "done" as fallback after agent completes.
+- **Agents own the logic** — agents use their Jira MCP tools to skip/update/transition tickets. No application-layer parsing of agent output.
+- **EventBridge** is used for real-time UI notifications (agent.streaming, agent.complete events), not for orchestration.
 - **Code Interpreter** is the actual Bedrock AgentCore tool (not AWS CodeBuild, but we use that icon as a visual stand-in)
-- **Git operations** use the `git` tool type on the AgentCore harness, not a separate CI service
+- **Git operations** use GitHub MCP tools via the gateway, not a separate CI service
 - **A2A** (Agent-to-Agent) allows cross-agent queries within the same phase
-- **Memory** is built into AgentCore runtime (short-term context for the invocation)
 - **Skills** are loaded dynamically via `SkillLoader___load_skill` gateway tool at agent initialization
 
 ## File Location
