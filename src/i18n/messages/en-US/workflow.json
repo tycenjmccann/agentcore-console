@@ -1,0 +1,54 @@
+{
+  "sidebar": {
+    "title": "Workflows",
+    "newWorkflow": "New Workflow",
+    "search": {
+      "placeholder": "Search epics..."
+    },
+    "sections": {
+      "active": "Active",
+      "completed": "Completed"
+    },
+    "empty": {
+      "noResults": "No matching workflows",
+      "noWorkflows": "No workflows yet"
+    },
+    "status": {
+      "running": "{phase}",
+      "error": "Error",
+      "complete": "Complete"
+    },
+    "time": {
+      "justNow": "just now",
+      "minutesAgo": "{count}m ago",
+      "hoursAgo": "{count}h ago",
+      "daysAgo": "{count}d ago"
+    },
+    "collapse": {
+      "expand": "Show sidebar",
+      "collapse": "Hide sidebar",
+      "expandTooltip": "Show workflow history",
+      "collapseTooltip": "Hide workflow history",
+      "ariaLabel": "Toggle workflow history sidebar",
+      "ariaExpanded": "Workflow history sidebar, expanded",
+      "ariaCollapsed": "Workflow history sidebar, collapsed"
+    }
+  },
+  "main": {
+    "emptyState": {
+      "title": "Select a workflow or start a new one",
+      "description": "Choose a past run from the sidebar to view its pipeline state, or create a new workflow to watch agents work in real-time.",
+      "cta": "New Workflow"
+    }
+  },
+  "board": {
+    "loading": "Loading pipeline...",
+    "status": {
+      "complete": "Complete",
+      "error": "Error",
+      "processing": "Processing phase {current} of {total}",
+      "allComplete": "All agents have completed their work",
+      "errorOccurred": "An error occurred"
+    }
+  }
+}

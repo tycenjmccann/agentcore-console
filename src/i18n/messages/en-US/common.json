@@ -1,0 +1,34 @@
+{
+  "status": {
+    "active": "Active",
+    "complete": "Complete",
+    "error": "Error",
+    "loading": "Loading...",
+    "idle": "Idle"
+  },
+  "actions": {
+    "search": "Search",
+    "cancel": "Cancel",
+    "submit": "Submit",
+    "add": "Add",
+    "remove": "Remove",
+    "close": "Close",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "new": "New"
+  },
+  "time": {
+    "relative": {
+      "justNow": "just now",
+      "minutes": "{count, plural, one {# minute ago} other {# minutes ago}}",
+      "hours": "{count, plural, one {# hour ago} other {# hours ago}}",
+      "days": "{count, plural, one {# day ago} other {# days ago}}",
+      "weeks": "{count, plural, one {# week ago} other {# weeks ago}}"
+    }
+  },
+  "aria": {
+    "navigation": "Main navigation",
+    "sidebar": "Sidebar",
+    "mainContent": "Main content"
+  }
+}

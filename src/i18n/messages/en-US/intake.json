@@ -1,0 +1,46 @@
+{
+  "form": {
+    "heading": "Start Team Workflow",
+    "subheading": "Provide product input and the agent team will handle requirements, design, and implementation.",
+    "title": {
+      "label": "Feature Title",
+      "placeholder": "e.g., Add profile photo carousel"
+    },
+    "description": {
+      "label": "Description / PRD",
+      "placeholder": "Describe the feature, user stories, or paste your PRD content..."
+    },
+    "sources": {
+      "label": "Input Sources",
+      "hint": "Add URLs to mockups, one-pagers, demo sites, or S3 locations",
+      "placeholder": "https://... or s3://bucket/key",
+      "addButton": "Add",
+      "removeAriaLabel": "Remove source {url}"
+    },
+    "repo": {
+      "label": "Target Repository",
+      "layout": {
+        "monorepo": "Monorepo",
+        "multiRepo": "Multi-repo"
+      },
+      "urlPlaceholder": "https://github.com/org/repo.git",
+      "branchPlaceholder": "main"
+    },
+    "model": {
+      "label": "Model Selection (Optional)",
+      "hint": "Select AI model for development agents. Defaults to Claude Sonnet 4.5.",
+      "loading": "Loading models...",
+      "ariaLabel": "Select AI model for development agents",
+      "recommended": "(Recommended)"
+    },
+    "submit": {
+      "idle": "Start Team Workflow",
+      "loading": "Starting workflow..."
+    },
+    "validation": {
+      "titleRequired": "Feature title is required",
+      "titleMinLength": "Title must be at least {min} characters",
+      "invalidUrl": "Please enter a valid URL or S3 path"
+    }
+  }
+}
