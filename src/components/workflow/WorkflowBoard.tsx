@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { ChevronDown, ChevronRight, ExternalLink, Copy, Check } from "lucide-react";
 import type {
   WorkflowState,
   WorkflowEvent,
+  IntakeSource,
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
@@ -43,6 +45,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const toolFlashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const eventSourceRef = useRef<EventSource | null>(null);
   const pipelineRef = useRef<HTMLDivElement>(null);
+
+  // Expandable intake items
+  const [expandedIntakeItems, setExpandedIntakeItems] = useState<Record<number, boolean>>({});
+  const [expandedOutputItems, setExpandedOutputItems] = useState<Record<number, boolean>>({});
+  const [copiedUri, setCopiedUri] = useState<string | null>(null);
 
   // Fetch initial state + poll every 3s
   useEffect(() => {
@@ -249,6 +256,24 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     return "";
   };
 
+  // Copy to clipboard helper
+  const handleCopyS3Uri = useCallback((uri: string) => {
+    navigator.clipboard.writeText(uri).then(() => {
+      setCopiedUri(uri);
+      setTimeout(() => setCopiedUri(null), 2000);
+    }).catch(() => {});
+  }, []);
+
+  // Toggle intake tool item expansion
+  const toggleIntakeItem = useCallback((index: number) => {
+    setExpandedIntakeItems((prev) => ({ ...prev, [index]: !prev[index] }));
+  }, []);
+
+  // Toggle output item expansion
+  const toggleOutputItem = useCallback((index: number) => {
+    setExpandedOutputItems((prev) => ({ ...prev, [index]: !prev[index] }));
+  }, []);
+
   if (!state) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -256,6 +281,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       </div>
     );
   }
+
+  // Extract intake data from workflow state
+  const intakeTitle = state.input?.title || "";
+  const intakeSources: IntakeSource[] = state.input?.sources || [];
+  const epicId = state.epicId || "";
 
   return (
     <div className={celebrating ? "celebrate-wrapper" : ""}>
@@ -341,6 +371,19 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                 <div className={`agent-box ${getBoxClass(idx)}`}>
                   <div className="phase-num">Phase {phase.num}</div>
                   <div className="phase-name">{phase.name}</div>
+
+                  {/* Intake Card: Show epic/feature title as subtitle */}
+                  {phase.id === "intake" && intakeTitle && (
+                    <div
+                      className="intake-title-badge"
+                      title={intakeTitle}
+                    >
+                      {intakeTitle.length > 40
+                        ? intakeTitle.slice(0, 37) + "..."
+                        : intakeTitle}
+                    </div>
+                  )}
+
                   <div className={`phase-type ${phase.type}`}>{phase.typeLabel}</div>
 
                   {/* Identity */}
@@ -378,7 +421,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
                 {/* Work area */}
                 <div className="work-area">
-                  {/* Tools */}
+                  {/* Tools — with expandable sources for intake phase */}
                   {phase.tools.length > 0 && (
                     <>
                       <div className="sec-label">{phase.id === "intake" ? "User Actions" : "Tools"}</div>
@@ -386,15 +429,46 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                         const iconKey = tool.icon || tool.dot || "ext";
                         const isFlashing = toolFlashes[`${phase.id}:${iconKey}`];
                         const itemClass = isFlashing ? "trigger" : getItemClass(idx);
+                        const isIntakePhase = phase.id === "intake";
+                        const isExpanded = isIntakePhase && expandedIntakeItems[i];
+                        const hasSources = isIntakePhase && intakeSources.length > 0;
+
                         return (
-                          <div key={i} className={`item ${itemClass}`}>
-                            {tool.icon ? (
-                              <img className="svc-icon" src={(awsIcons as Record<string, string>)[tool.icon]} alt={tool.icon} />
-                            ) : (
-                              <span className={`item-dot ${tool.dot || "ext"}`} />
+                          <div key={i} className="intake-expandable-wrapper">
+                            <div
+                              className={`item ${itemClass} ${isIntakePhase && hasSources ? "cursor-pointer" : ""}`}
+                              onClick={isIntakePhase && hasSources ? () => toggleIntakeItem(i) : undefined}
+                            >
+                              {isIntakePhase && hasSources && (
+                                <span className="expand-chevron">
+                                  {isExpanded
+                                    ? <ChevronDown className="w-2.5 h-2.5 text-[#64748b]" />
+                                    : <ChevronRight className="w-2.5 h-2.5 text-[#64748b]" />
+                                  }
+                                </span>
+                              )}
+                              {tool.icon ? (
+                                <img className="svc-icon" src={(awsIcons as Record<string, string>)[tool.icon]} alt={tool.icon} />
+                              ) : (
+                                <span className={`item-dot ${tool.dot || "ext"}`} />
+                              )}
+                              <span className="item-label">{tool.label}</span>
+                              <span className="item-status" />
+                            </div>
+
+                            {/* Expanded source links */}
+                            {isExpanded && (
+                              <div className="intake-sources">
+                                {intakeSources.map((source, si) => (
+                                  <IntakeSourceLink
+                                    key={si}
+                                    source={source}
+                                    copiedUri={copiedUri}
+                                    onCopy={handleCopyS3Uri}
+                                  />
+                                ))}
+                              </div>
                             )}
-                            <span className="item-label">{tool.label}</span>
-                            <span className="item-status" />
                           </div>
                         );
                       })}
@@ -452,7 +526,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                     </>
                   )}
 
-                  {/* Outputs */}
+                  {/* Outputs — with expandable epic ID for intake phase */}
                   {phase.outputs.length > 0 && (
                     <>
                       <div className="sec-label">{phase.id === "intake" ? "Trigger" : "Output"}</div>
@@ -460,15 +534,42 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                         const outIconKey = out.icon || out.dot || "ext";
                         const isOutFlashing = toolFlashes[`${phase.id}:${outIconKey}`];
                         const itemClass = isOutFlashing ? "trigger" : getItemClass(idx);
+                        const isIntakePhase = phase.id === "intake";
+                        const isOutputExpanded = isIntakePhase && expandedOutputItems[i];
+                        const hasEpicId = isIntakePhase && epicId;
+
                         return (
-                          <div key={i} className={`item ${itemClass}`}>
-                            {out.icon ? (
-                              <img className="svc-icon" src={(awsIcons as Record<string, string>)[out.icon]} alt={out.icon} />
-                            ) : (
-                              <span className={`item-dot ${out.dot || "ext"}`} />
+                          <div key={i} className="intake-expandable-wrapper">
+                            <div
+                              className={`item ${itemClass} ${hasEpicId ? "cursor-pointer" : ""}`}
+                              onClick={hasEpicId ? () => toggleOutputItem(i) : undefined}
+                            >
+                              {hasEpicId && (
+                                <span className="expand-chevron">
+                                  {isOutputExpanded
+                                    ? <ChevronDown className="w-2.5 h-2.5 text-[#64748b]" />
+                                    : <ChevronRight className="w-2.5 h-2.5 text-[#64748b]" />
+                                  }
+                                </span>
+                              )}
+                              {out.icon ? (
+                                <img className="svc-icon" src={(awsIcons as Record<string, string>)[out.icon]} alt={out.icon} />
+                              ) : (
+                                <span className={`item-dot ${out.dot || "ext"}`} />
+                              )}
+                              <span className="item-label">{out.label}</span>
+                              <span className="item-status" />
+                            </div>
+
+                            {/* Expanded epic ID */}
+                            {isOutputExpanded && epicId && (
+                              <div className="intake-sources">
+                                <div className="source-link">
+                                  <span className="source-type-badge">EPIC</span>
+                                  <span className="source-value">{epicId}</span>
+                                </div>
+                              </div>
                             )}
-                            <span className="item-label">{out.label}</span>
-                            <span className="item-status" />
                           </div>
                         );
                       })}
@@ -511,6 +612,80 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   );
 }
 
+// ─── Intake Source Link Component ────────────────────────────────────────────
+
+function IntakeSourceLink({
+  source,
+  copiedUri,
+  onCopy,
+}: {
+  source: IntakeSource;
+  copiedUri: string | null;
+  onCopy: (uri: string) => void;
+}) {
+  const isS3 = source.type === "s3" || source.value.startsWith("s3://");
+  const isUrl = source.type === "url" || source.value.startsWith("http");
+  const isCopied = copiedUri === source.value;
+
+  // Extract filename from S3 URI
+  const displayLabel = source.label || (() => {
+    if (isS3) {
+      const parts = source.value.replace("s3://", "").split("/");
+      return parts[parts.length - 1] || source.value;
+    }
+    if (isUrl) {
+      try {
+        const url = new URL(source.value);
+        return url.hostname + (url.pathname.length > 1 ? url.pathname : "");
+      } catch {
+        return source.value;
+      }
+    }
+    return source.value;
+  })();
+
+  const typeLabel = isS3 ? "S3" : isUrl ? "URL" : source.type.toUpperCase();
+
+  if (isUrl) {
+    return (
+      <a
+        href={source.value}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="source-link source-link-clickable"
+      >
+        <span className="source-type-badge">{typeLabel}</span>
+        <span className="source-value">{displayLabel}</span>
+        <ExternalLink className="w-2.5 h-2.5 text-[#64748b] flex-shrink-0" />
+      </a>
+    );
+  }
+
+  if (isS3) {
+    return (
+      <div
+        className="source-link source-link-clickable"
+        onClick={() => onCopy(source.value)}
+        title={`Click to copy: ${source.value}`}
+      >
+        <span className="source-type-badge source-type-s3">{typeLabel}</span>
+        <span className="source-value">{displayLabel}</span>
+        {isCopied
+          ? <Check className="w-2.5 h-2.5 text-green-400 flex-shrink-0" />
+          : <Copy className="w-2.5 h-2.5 text-[#64748b] flex-shrink-0" />
+        }
+      </div>
+    );
+  }
+
+  return (
+    <div className="source-link">
+      <span className="source-type-badge">{typeLabel}</span>
+      <span className="source-value">{displayLabel}</span>
+    </div>
+  );
+}
+
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const PIPELINE_STYLES = `
@@ -546,6 +721,9 @@ const PIPELINE_STYLES = `
 .agent-box .phase-type{display:inline-flex;align-items:center;gap:4px;margin-top:5px;padding:3px 8px;border-radius:5px;font-size:9px;font-weight:600;letter-spacing:0.5px}
 .agent-box .phase-type.app{background:#0ea5e910;color:#38bdf8;border:1px solid #0ea5e925}
 .agent-box .phase-type.agent{background:#a855f710;color:#c084fc;border:1px solid #a855f725}
+
+/* Intake title badge */
+.intake-title-badge{margin-top:4px;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:500;color:#94a3b8;background:#0ea5e908;border:1px solid #0ea5e920;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .identity{display:flex;flex-direction:column;gap:0;margin-top:8px;align-items:center}
 .id-row{display:flex;align-items:center;gap:8px}
@@ -591,6 +769,21 @@ const PIPELINE_STYLES = `
 .item.active .item-label{color:#e2e8f0}
 .item-status{width:6px;height:6px;border-radius:50%;background:#1e293b;margin-left:auto;flex-shrink:0;transition:background .3s}
 .item.active .item-status{background:#0ea5e9;box-shadow:0 0 5px #0ea5e9}
+
+/* Expandable intake items */
+.intake-expandable-wrapper{display:flex;flex-direction:column;gap:0}
+.expand-chevron{display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.cursor-pointer{cursor:pointer}
+.cursor-pointer:hover{background:#1a233280}
+
+/* Source links shown when expanded */
+.intake-sources{padding:3px 7px 5px 24px;display:flex;flex-direction:column;gap:2px}
+.source-link{display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:4px;font-size:9px;background:#0f141980;border:1px solid #1e293b;color:#94a3b8;transition:all .2s}
+.source-link-clickable{cursor:pointer}
+.source-link-clickable:hover{border-color:#0ea5e940;background:#0ea5e908}
+.source-type-badge{padding:1px 4px;border-radius:3px;font-size:8px;font-weight:600;letter-spacing:0.5px;background:#1e293b;color:#64748b;flex-shrink:0}
+.source-type-badge.source-type-s3{background:#f9731610;color:#f97316;border:1px solid #f9731630}
+.source-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:"JetBrains Mono",monospace;font-size:9px}
 
 .pipeline-status{text-align:center;margin-top:16px;min-height:44px}
 .status-phase{font-size:11px;color:#0ea5e9;letter-spacing:2px;text-transform:uppercase;margin-bottom:2px}

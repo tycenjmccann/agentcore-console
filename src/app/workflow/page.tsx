@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Search, Plus, Play, Radio } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Search, Plus, Play, Radio, ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
 import WorkflowBoard from "@/components/workflow/WorkflowBoard";
 import IntakeForm from "@/components/workflow/IntakeForm";
 import type { WorkflowState, WorkflowInput } from "@/lib/workflow/types";
@@ -15,12 +15,24 @@ interface WorkflowSummary {
   completedAt?: string;
 }
 
+const SIDEBAR_MIN_WIDTH = 220;
+const SIDEBAR_MAX_WIDTH = 480;
+const SIDEBAR_DEFAULT_WIDTH = 320;
+
 export default function WorkflowPage() {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showIntake, setShowIntake] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sidebar state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const resizeStartX = useRef(0);
+  const resizeStartWidth = useRef(0);
 
   // Load workflow list
   const fetchWorkflows = useCallback(async () => {
@@ -54,13 +66,14 @@ export default function WorkflowPage() {
     return () => clearInterval(interval);
   }, [fetchWorkflows]);
 
-  // Check URL for pre-selected workflow
+  // Check URL for pre-selected workflow — auto-collapse sidebar if workflow ID present
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("id");
     if (id) {
       setSelectedId(id);
       setShowIntake(false);
+      setSidebarCollapsed(true);
     }
   }, []);
 
@@ -79,9 +92,8 @@ export default function WorkflowPage() {
       if (newId) {
         setSelectedId(newId);
         setShowIntake(false);
-        // Update URL without reload
+        setSidebarCollapsed(true);
         window.history.pushState({}, "", `/workflow?id=${newId}`);
-        // Refresh list
         setTimeout(fetchWorkflows, 1000);
       }
     } catch (err) {
@@ -108,30 +120,91 @@ export default function WorkflowPage() {
   const handleSelectWorkflow = (id: string) => {
     setSelectedId(id);
     setShowIntake(false);
+    setSidebarCollapsed(true);
     window.history.pushState({}, "", `/workflow?id=${id}`);
   };
 
   const handleNewWorkflow = () => {
     setSelectedId(null);
     setShowIntake(true);
+    setSidebarCollapsed(false);
     window.history.pushState({}, "", "/workflow");
   };
 
+  // ─── Resize handlers ───────────────────────────────────────────────────────
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeStartX.current = e.clientX;
+    resizeStartWidth.current = sidebarWidth;
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const delta = e.clientX - resizeStartX.current;
+      const newWidth = Math.min(
+        SIDEBAR_MAX_WIDTH,
+        Math.max(SIDEBAR_MIN_WIDTH, resizeStartWidth.current + delta)
+      );
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    // Prevent text selection during resize
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+  }, [isResizing]);
+
   return (
-    <div className="flex h-[calc(100vh-64px)] -m-6">
-      {/* Left Sidebar — Epic History */}
-      <div className="w-72 border-r border-[var(--color-border)] bg-[var(--color-bg-secondary)] flex flex-col flex-shrink-0">
+    <div className="flex h-[calc(100vh-64px)] -m-6 relative">
+      {/* Left Sidebar — Epic History (Collapsible) */}
+      <div
+        ref={sidebarRef}
+        className="border-r border-[var(--color-border)] bg-[var(--color-bg-secondary)] flex flex-col flex-shrink-0 relative"
+        style={{
+          width: sidebarCollapsed ? 0 : sidebarWidth,
+          minWidth: sidebarCollapsed ? 0 : SIDEBAR_MIN_WIDTH,
+          maxWidth: sidebarCollapsed ? 0 : SIDEBAR_MAX_WIDTH,
+          overflow: sidebarCollapsed ? "hidden" : "visible",
+          transition: isResizing ? "none" : "width 300ms ease, min-width 300ms ease, max-width 300ms ease, overflow 0ms 300ms",
+          opacity: sidebarCollapsed ? 0 : 1,
+        }}
+      >
         {/* Header */}
         <div className="p-4 border-b border-[var(--color-border)]">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Workflows</h2>
-            <button
-              onClick={handleNewWorkflow}
-              className="p-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-colors"
-              title="New Workflow"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleNewWorkflow}
+                className="p-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+                title="New Workflow"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setSidebarCollapsed(true)}
+                className="p-1.5 rounded-md hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+                title="Collapse sidebar"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           {/* Search */}
@@ -190,7 +263,26 @@ export default function WorkflowPage() {
             </div>
           )}
         </div>
+
+        {/* Resize handle */}
+        <div
+          className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize group flex items-center justify-center hover:bg-blue-500/20 transition-colors z-10"
+          onMouseDown={handleResizeStart}
+        >
+          <GripVertical className="w-3 h-3 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100 transition-opacity" />
+        </div>
       </div>
+
+      {/* Expand button (when collapsed) */}
+      {sidebarCollapsed && (
+        <button
+          onClick={() => setSidebarCollapsed(false)}
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center w-6 h-12 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] border-l-0 rounded-r-md hover:bg-[var(--color-bg-tertiary)] transition-colors shadow-sm"
+          title="Expand sidebar"
+        >
+          <ChevronRight className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+        </button>
+      )}
 
       {/* Main Content */}
       <div className="flex-1 overflow-auto">
@@ -267,7 +359,8 @@ function WorkflowListItem({
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-[var(--color-text-primary)] truncate">
+          {/* Epic title wraps instead of truncating */}
+          <p className="text-xs font-medium text-[var(--color-text-primary)] break-words leading-snug">
             {workflow.input.title}
           </p>
           <div className="flex items-center gap-2 mt-0.5">
