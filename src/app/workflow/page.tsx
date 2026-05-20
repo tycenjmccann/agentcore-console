@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Search, Plus, Play, Radio } from "lucide-react";
+import { Search, Plus, Play, Radio, Clock } from "lucide-react";
 import WorkflowBoard from "@/components/workflow/WorkflowBoard";
 import IntakeForm from "@/components/workflow/IntakeForm";
 import type { WorkflowState, WorkflowInput } from "@/lib/workflow/types";
@@ -13,6 +13,7 @@ interface WorkflowSummary {
   input: { title: string; description: string };
   startedAt: string;
   completedAt?: string;
+  phaseStartedAt?: string;
 }
 
 export default function WorkflowPage() {
@@ -28,14 +29,22 @@ export default function WorkflowPage() {
       const res = await fetch("/api/workflow/list");
       if (!res.ok) return;
       const data = await res.json();
-      const list: WorkflowSummary[] = (data.workflows || []).map((w: WorkflowState) => ({
-        id: w.id,
-        phase: w.phase,
-        epicId: w.epicId,
-        input: { title: w.input.title, description: w.input.description },
-        startedAt: w.startedAt,
-        completedAt: w.completedAt,
-      }));
+      const list: WorkflowSummary[] = (data.workflows || []).map((w: WorkflowState) => {
+        // Derive phaseStartedAt from event log
+        const events = (w.eventLog || []) as Array<{ timestamp: string; event: { type: string; phase?: string } }>;
+        const lastPhaseChange = [...events].reverse().find(e => e.event.type === "phase_change");
+        const phaseStartedAt = lastPhaseChange?.timestamp || w.startedAt;
+
+        return {
+          id: w.id,
+          phase: w.phase,
+          epicId: w.epicId,
+          input: { title: w.input.title, description: w.input.description },
+          startedAt: w.startedAt,
+          completedAt: w.completedAt,
+          phaseStartedAt,
+        };
+      });
       // Sort: active first, then by date descending
       list.sort((a, b) => {
         const aActive = a.phase !== "complete" && a.phase !== "error";
@@ -240,6 +249,29 @@ function WorkflowListItem({
   const isRunning = workflow.phase !== "complete" && workflow.phase !== "error";
   const timeStr = formatRelativeTime(workflow.startedAt);
 
+  // Local re-render interval for smoother elapsed time display
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!isRunning) return;
+    const interval = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(interval);
+  }, [isRunning]);
+
+  // Compute elapsed time for active workflows
+  const elapsedMs = isRunning ? now - new Date(workflow.startedAt).getTime() : 0;
+  const elapsedStr = isRunning ? formatDuration(elapsedMs) : "";
+
+  // Compute phase duration for stuck detection
+  const phaseMs = isRunning && workflow.phaseStartedAt
+    ? now - new Date(workflow.phaseStartedAt).getTime()
+    : 0;
+  const isStuck = isRunning && phaseMs > 300000; // >5 minutes in same phase
+
+  // Compute total duration for completed/errored workflows
+  const completedDurationStr = !isRunning && workflow.completedAt
+    ? formatDuration(new Date(workflow.completedAt).getTime() - new Date(workflow.startedAt).getTime())
+    : "";
+
   return (
     <button
       onClick={onClick}
@@ -274,10 +306,38 @@ function WorkflowListItem({
             <span className="text-[10px] text-blue-400 font-mono">{workflow.epicId}</span>
             <span className="text-[10px] text-[var(--color-text-muted)]">{timeStr}</span>
           </div>
+
+          {/* R2: Completed/Error duration */}
+          {!isRunning && completedDurationStr && (
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-0.5">
+              {workflow.phase === "error"
+                ? `Errored after ${completedDurationStr}`
+                : `Completed in ${completedDurationStr}`}
+            </p>
+          )}
+
+          {/* R1: Active workflow phase badge + elapsed time */}
           {isRunning && (
-            <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium uppercase tracking-wider">
-              {workflow.phase}
-            </span>
+            <>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="inline-block text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium uppercase tracking-wider">
+                  {workflow.phase}
+                </span>
+                <span className="text-[10px] text-[var(--color-text-muted)]">
+                  Running {elapsedStr}
+                </span>
+              </div>
+
+              {/* R3: Stuck indicator — amber clock when in same phase >5min */}
+              {isStuck && (
+                <div className="flex items-center gap-1 mt-1">
+                  <Clock className="w-3 h-3 text-amber-400" />
+                  <span className="text-[10px] text-amber-400">
+                    in {workflow.phase} {formatDuration(phaseMs)}
+                  </span>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -286,6 +346,15 @@ function WorkflowListItem({
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+function formatDuration(ms: number): string {
+  if (ms < 60000) return "<1m";
+  const minutes = Math.floor(ms / 60000);
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  return `${hours}h ${remainingMinutes}m`;
+}
 
 function formatRelativeTime(isoString: string): string {
   const now = Date.now();
