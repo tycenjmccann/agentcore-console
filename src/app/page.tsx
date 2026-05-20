@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cachedFetch, getCached } from "@/lib/client-cache";
+import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
 
 interface Agent {
   id: string;
@@ -41,17 +42,7 @@ interface MetricsData {
   }>;
 }
 
-// Jira metrics — real API integration coming soon
-function useJiraMetrics() {
-  return {
-    ticketsResolved: 234,
-    ticketsInProgress: 18,
-    epicsActive: 5,
-    storiesCompleted: 89,
-    storiesInProgress: 12,
-    avgResolutionTime: 4.2,
-  };
-}
+const EPIC_COLORS = ["bg-orange-500", "bg-blue-500", "bg-purple-500", "bg-green-500", "bg-cyan-500"];
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -60,8 +51,8 @@ function formatNumber(n: number): string {
 }
 
 function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
   const hours = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   if (hours < 24) return `${hours}h ${mins}m`;
@@ -74,7 +65,9 @@ export default function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>(() => getCached<Agent[]>("/api/agentcore/agents") || []);
   const [metrics, setMetrics] = useState<MetricsData | null>(() => getCached<MetricsData>("/api/agentcore/metrics"));
   const [loading, setLoading] = useState(!getCached("/api/agentcore/agents"));
-  const jira = useJiraMetrics();
+
+  // Dashboard metrics from DynamoDB (tickets, epics, agent activity)
+  const { data: dashboardData, loading: dashboardLoading, error: dashboardError } = useDashboardMetrics();
 
   useEffect(() => {
     // Fetch with cache — returns instantly if cached, revalidates in background
@@ -98,36 +91,37 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <BigMetric
             label="Invocations"
-            value={loading ? "—" : (metrics?.usage.totalInvocations ?? 0).toString()}
-            sub={`${metrics?.usage.totalSessions ?? 0} sessions`}
+            value={dashboardLoading ? "—" : (dashboardData?.agentActivity.invocations ?? 0).toString()}
+            sub={`${dashboardData?.agentActivity.sessions ?? 0} sessions`}
             icon={MessageSquare}
             color="text-brand-400"
           />
           <BigMetric
             label="Tokens"
-            value={loading ? "—" : `${formatNumber(metrics?.usage.totalTokensIn ?? 0)} / ${formatNumber(metrics?.usage.totalTokensOut ?? 0)}`}
-            sub="in / out"
+            value="—"
+            valueTitle="Coming soon"
+            sub="coming soon"
             icon={Zap}
             color="text-cyan-400"
           />
           <BigMetric
             label="Avg Duration"
-            value={loading ? "—" : formatDuration(metrics?.usage.avgSessionDuration ?? 0)}
+            value={dashboardLoading ? "—" : formatDuration(dashboardData?.agentActivity.avgDuration ?? 0)}
             sub="per session"
             icon={Timer}
             color="text-yellow-400"
           />
           <BigMetric
             label="Total Duration"
-            value={loading ? "—" : formatDuration(metrics?.usage.totalDuration ?? 0)}
+            value={dashboardLoading ? "—" : formatDuration(dashboardData?.agentActivity.totalDuration ?? 0)}
             sub="autonomous work time"
             icon={Clock}
             color="text-emerald-400"
           />
           <BigMetric
             label="Active Agents"
-            value={loading ? "—" : (metrics?.usage.activeAgents ?? agents.filter((a) => a.status === "ACTIVE" || a.status === "READY").length).toString()}
-            sub={`of ${metrics?.usage.totalAgents ?? agents.length} total`}
+            value={dashboardLoading ? "—" : (dashboardData?.agentActivity.activeAgents ?? 0).toString()}
+            sub={`${dashboardData?.agentActivity.sessions ?? 0} sessions`}
             icon={Bot}
             color="text-brand-400"
           />
@@ -140,42 +134,42 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <BigMetric
             label="Tickets Resolved"
-            value={loading ? "—" : jira.ticketsResolved.toString()}
-            sub={`${jira.ticketsInProgress} in progress`}
+            value={dashboardLoading ? "—" : (dashboardData?.tickets.resolved ?? 0).toString()}
+            sub={`${dashboardData?.tickets.inProgress ?? 0} in progress`}
             icon={CheckCircle2}
             color="text-green-400"
           />
           <BigMetric
             label="Active Epics"
-            value={loading ? "—" : jira.epicsActive.toString()}
+            value={dashboardLoading ? "—" : (dashboardData?.tickets.activeEpics ?? 0).toString()}
             sub="in progress"
             icon={Layers}
             color="text-orange-400"
           />
           <BigMetric
             label="Stories Done"
-            value={loading ? "—" : jira.storiesCompleted.toString()}
-            sub={`${jira.storiesInProgress} active`}
+            value={dashboardLoading ? "—" : (dashboardData?.tickets.storiesDone ?? 0).toString()}
+            sub={`${dashboardData?.tickets.storiesActive ?? 0} active`}
             icon={Ticket}
             color="text-blue-400"
           />
           <BigMetric
             label="Avg Resolution"
-            value={loading ? "—" : `${jira.avgResolutionTime}m`}
+            value={dashboardLoading ? "—" : `${dashboardData?.tickets.avgResolutionMinutes ?? 0}m`}
             sub="per ticket"
             icon={Timer}
             color="text-emerald-400"
           />
           <BigMetric
             label="Throughput"
-            value={loading ? "—" : `${Math.round(jira.ticketsResolved / 7)}/day`}
+            value={dashboardLoading ? "—" : `${dashboardData?.tickets.throughputPerDay ?? 0}/day`}
             sub="avg this week"
             icon={TrendingUp}
             color="text-purple-400"
           />
           <BigMetric
             label="Automation Rate"
-            value={loading ? "—" : "92%"}
+            value={dashboardLoading ? "—" : `${dashboardData?.tickets.automationRate ?? 0}%`}
             sub="no human needed"
             icon={Activity}
             color="text-brand-400"
@@ -186,24 +180,24 @@ export default function DashboardPage() {
         <div className="mt-5 pt-4 border-t border-surface-4">
           <p className="text-xs text-[var(--color-text-muted)] mb-3">Epic Progress</p>
           <div className="space-y-2.5">
-            {[
-              { epic: "Customer Onboarding Automation", stories: 12, done: 9, color: "bg-orange-500" },
-              { epic: "Support Ticket Resolution", stories: 24, done: 21, color: "bg-blue-500" },
-              { epic: "Account Migration", stories: 8, done: 3, color: "bg-purple-500" },
-              { epic: "Billing Dispute Handling", stories: 15, done: 14, color: "bg-green-500" },
-              { epic: "Data Cleanup Sprint", stories: 30, done: 28, color: "bg-cyan-500" },
-            ].map((e) => (
-              <div key={e.epic} className="flex items-center gap-3">
-                <span className="text-xs text-[var(--color-text-secondary)] w-56 truncate flex-shrink-0">{e.epic}</span>
-                <div className="flex-1 h-2 bg-surface-3 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full ${e.color} rounded-full`}
-                    style={{ width: `${(e.done / e.stories) * 100}%` }}
-                  />
+            {dashboardLoading ? (
+              <p className="text-sm text-[var(--color-text-muted)]">Loading...</p>
+            ) : !dashboardData?.epics || dashboardData.epics.length === 0 ? (
+              <p className="text-sm text-[var(--color-text-muted)]">No active epics</p>
+            ) : (
+              dashboardData.epics.map((epic, index) => (
+                <div key={epic.workflowId} className="flex items-center gap-3">
+                  <span className="text-xs text-[var(--color-text-secondary)] w-56 truncate flex-shrink-0">{epic.title}</span>
+                  <div className="flex-1 h-2 bg-surface-3 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${EPIC_COLORS[index % 5]} rounded-full`}
+                      style={{ width: `${epic.totalTickets > 0 ? (epic.doneTickets / epic.totalTickets) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <span className="text-[11px] text-[var(--color-text-muted)] w-16 text-right flex-shrink-0">{epic.doneTickets}/{epic.totalTickets}</span>
                 </div>
-                <span className="text-[11px] text-[var(--color-text-muted)] w-16 text-right flex-shrink-0">{e.done}/{e.stories}</span>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -293,20 +287,21 @@ export default function DashboardPage() {
 }
 
 function BigMetric({
-  label, value, icon: Icon, color, sub,
+  label, value, icon: Icon, color, sub, valueTitle,
 }: {
   label: string;
   value: string;
   icon: typeof Bot;
   color: string;
   sub?: string;
+  valueTitle?: string;
 }) {
   return (
     <div className="flex items-start gap-3">
       <Icon className={`w-5 h-5 ${color} opacity-60 mt-1 flex-shrink-0`} />
       <div>
         <p className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wide">{label}</p>
-        <p className="text-2xl font-bold text-[var(--color-text-primary)] mt-0.5">{value}</p>
+        <p className="text-2xl font-bold text-[var(--color-text-primary)] mt-0.5" title={valueTitle}>{value}</p>
         {sub && <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">{sub}</p>}
       </div>
     </div>
