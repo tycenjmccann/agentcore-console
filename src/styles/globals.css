@@ -116,12 +116,31 @@
   .status-pending {
     @apply status-dot bg-yellow-400 animate-pulse;
   }
+
+  /* Intake card styling */
+  .intake-card {
+    background-color: var(--color-surface-2);
+    border-color: var(--color-surface-4);
+    @apply border rounded-xl p-4 shadow-sm;
+  }
+
+  .intake-card-metric {
+    background-color: var(--color-surface-3);
+    border-color: var(--color-surface-4);
+    @apply rounded-lg px-3 py-2 border border-opacity-50;
+  }
 }
 
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: var(--color-surface-4) transparent;
+  }
+
+  /* Prevent layout shift during panel resize */
+  .resize-none-during-drag {
+    pointer-events: none;
+    user-select: none;
   }
 }
 
@@ -140,4 +159,9 @@
 .prose td {
   overflow-wrap: break-word;
   word-break: break-word;
+}
+
+/* Collapsible panel resize handle hover effect */
+[data-testid^="collapsible-panel"] .group:hover > div {
+  background-color: rgba(2, 132, 199, 0.3);
 }
