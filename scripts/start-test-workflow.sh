@@ -63,20 +63,37 @@ case "${SCOPE:-}" in
     DESC="${DESC:-Add a health check endpoint at src/app/api/health/route.ts that returns {status: \"ok\", timestamp: ISO string, uptime: process.uptime()}. Single file, no dependencies.}"
     ;;
   sidebar)
-    TITLE="${TITLE:-[TEST] Collapsible History Sidebar + Intake Card Enhancements}"
-    DESC="${DESC:-Add a collapsible history sidebar to the workflow page that shows previous workflow runs.
-The sidebar should:
-- Show last 10 workflow runs with title, date, and status
-- Collapse/expand with a toggle button
-- Persist collapse state in localStorage
-- Highlight the currently active workflow
+    TITLE="${TITLE:-Collapsible Sidebar Navigation}"
+    DESC="${DESC:-Add collapse/expand functionality to the existing sidebar navigation component.
 
-Also enhance the intake card:
-- Add drag-and-drop file upload for mockup images
-- Show image previews inline
-- Add a \"paste from clipboard\" button for screenshots
+## Current State
+- Sidebar is at src/components/layout/Sidebar.tsx (60 lines, simple nav list)
+- Layout is at src/app/layout.tsx — sidebar is fixed w-64, main content uses ml-64
+- Sidebar uses lucide-react icons and the cn() utility from @/lib/utils
+- Styling uses CSS variables: --color-text-primary, --color-text-muted, --color-text-secondary, surface-1 through surface-4, brand-600/400
+- The app uses Next.js 15 App Router with a ThemeProvider context
 
-Files to modify: src/app/workflow/page.tsx, src/components/workflow/WorkflowBoard.tsx}"
+## Requirements (ONLY these — nothing else)
+1. Add a toggle button at the bottom of the sidebar (use ChevronLeft/ChevronRight from lucide-react)
+2. Collapsed state: sidebar shrinks to w-16 (icons only), expanded state: w-64 (current behavior)
+3. In collapsed mode, show tooltip on hover for each nav item (CSS-only tooltip, no library)
+4. Persist collapse state in localStorage key 'sidebar-collapsed'
+5. Main content area (ml-64 in layout.tsx) must adjust its left margin dynamically when sidebar collapses
+6. Use transition-all duration-300 for smooth animation
+7. Prevent layout flash on page load by reading localStorage in a script tag in <head>
+
+## Implementation Constraints
+- Create a SidebarContext (React context) in src/components/layout/sidebar/SidebarContext.tsx for collapse state
+- Create a MainContent client component in src/components/layout/MainContent.tsx that reads context and sets margin
+- Modify src/components/layout/Sidebar.tsx to use context and conditionally render labels
+- Modify src/app/layout.tsx to wrap with SidebarProvider and use MainContent component
+- Do NOT add new API calls, polling, or data fetching
+- Do NOT add workflow history, agent status, or any other new sections to the sidebar
+- Do NOT add quick action buttons or shortcut links
+- Do NOT add new hooks (useAgentStatus, useWorkflowHistory, etc.)
+- Do NOT create new API routes
+- Keep the existing nav items exactly as they are (Dashboard, Agents, Build, Workflow, Routing, Ticket History)
+- Total new code should be under 150 lines across all files}"
     ;;
   full)
     TITLE="${TITLE:-[TEST] Data Table with Sorting and Filtering}"
