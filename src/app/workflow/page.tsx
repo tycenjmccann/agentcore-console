@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Search, Plus, Play, Radio } from "lucide-react";
 import WorkflowBoard from "@/components/workflow/WorkflowBoard";
 import IntakeForm from "@/components/workflow/IntakeForm";
+import NotificationBanner from "@/components/workflow/NotificationBanner";
 import type { WorkflowState, WorkflowInput } from "@/lib/workflow/types";
 
 interface WorkflowSummary {
@@ -193,32 +194,38 @@ export default function WorkflowPage() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-auto">
-        {showIntake ? (
-          <div className="p-8">
-            <IntakeForm onSubmit={handleSubmit} isLoading={isSubmitting} />
-          </div>
-        ) : selectedId ? (
-          <WorkflowBoard workflowId={selectedId} />
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-center p-8">
-            <div className="w-16 h-16 rounded-full bg-blue-600/10 flex items-center justify-center mb-4">
-              <Play className="w-7 h-7 text-blue-400" />
+      <div className="flex-1 flex flex-col overflow-auto">
+        {/* Notification Permission Banner */}
+        <NotificationBanner />
+
+        {/* Page Content */}
+        <div className="flex-1">
+          {showIntake ? (
+            <div className="p-8">
+              <IntakeForm onSubmit={handleSubmit} isLoading={isSubmitting} />
             </div>
-            <h3 className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">
-              Select a workflow or start a new one
-            </h3>
-            <p className="text-sm text-[var(--color-text-muted)] max-w-md mb-4">
-              Choose a past run from the sidebar to view its pipeline state, or create a new workflow to watch agents work in real-time.
-            </p>
-            <button
-              onClick={handleNewWorkflow}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-500 transition-colors"
-            >
-              New Workflow
-            </button>
-          </div>
-        )}
+          ) : selectedId ? (
+            <WorkflowBoard workflowId={selectedId} />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-center p-8">
+              <div className="w-16 h-16 rounded-full bg-blue-600/10 flex items-center justify-center mb-4">
+                <Play className="w-7 h-7 text-blue-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">
+                Select a workflow or start a new one
+              </h3>
+              <p className="text-sm text-[var(--color-text-muted)] max-w-md mb-4">
+                Choose a past run from the sidebar to view its pipeline state, or create a new workflow to watch agents work in real-time.
+              </p>
+              <button
+                onClick={handleNewWorkflow}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-500 transition-colors"
+              >
+                New Workflow
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
