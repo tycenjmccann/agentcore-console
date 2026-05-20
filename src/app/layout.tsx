@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "@/styles/globals.css";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
+import Breadcrumb from "@/components/layout/Breadcrumb";
 import { ThemeProvider } from "@/components/theme-provider";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -44,6 +45,7 @@ export default function RootLayout({
             <Sidebar />
             <div className="flex-1 ml-64">
               <Header />
+              <Breadcrumb />
               <main className="p-6">{children}</main>
             </div>
           </div>
