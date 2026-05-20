@@ -17,9 +17,11 @@ import {
   Activity,
   Database,
   Server,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getClientRegion } from "@/lib/client-cache";
+import CollapsiblePanel from "@/components/layout/CollapsiblePanel";
 
 // --- Types ---
 
@@ -49,14 +51,6 @@ function extractTicketId(sessionId: string): string | null {
   return match ? match[1] : null;
 }
 
-function fuzzyMatch(text: string, query: string): boolean {
-  if (!text || !query) return false;
-  const lower = text.toLowerCase();
-  const q = query.toLowerCase().trim();
-  if (!q) return true;
-  return lower.includes(q);
-}
-
 function timeAgo(dateStr: string): string {
   if (!dateStr) return "";
   // Handle unix timestamps (milliseconds) or ISO date strings
@@ -67,12 +61,6 @@ function timeAgo(dateStr: string): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
-}
-
-function formatDurationMs(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
 }
 
 function getStageBadge(agentName: string | undefined): { label: string; color: string } {
@@ -232,40 +220,49 @@ export default function TicketHistoryPage() {
   }, [traceSpans]);
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] gap-0 overflow-hidden">
-      {/* Left Panel - Sessions List */}
-      <div className="w-[380px] flex-shrink-0 flex flex-col border-r border-surface-4 bg-surface-1">
-        {/* Header */}
-        <div className="p-4 border-b border-surface-4">
-          <h1 className="text-lg font-semibold text-white mb-3">Ticket History</h1>
+    <div className="flex h-[calc(100vh-6rem)] gap-0 overflow-hidden rounded-xl border border-surface-4">
+      {/* Left Panel - Collapsible Sessions List */}
+      <CollapsiblePanel
+        storageKey="ticket-history-sidebar"
+        side="left"
+        defaultWidth={380}
+        minWidth={280}
+        maxWidth={550}
+        title="Sessions"
+        collapsedIcon={
+          <History className="w-4 h-4 text-[var(--color-text-muted)]" />
+        }
+      >
+        {/* Search */}
+        <div className="p-3 border-b border-surface-4">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Filter by ticket, agent, stage..."
-              className="w-full bg-surface-2 border border-surface-4 rounded-lg pl-9 pr-4 py-2 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-brand-500/50"
+              className="w-full bg-surface-2 border border-surface-4 rounded-lg pl-9 pr-4 py-2 text-sm text-[var(--color-text-secondary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-brand-500/50"
             />
-            {searchQuery.trim() && (
-              <p className="mt-1.5 text-[10px] text-gray-500">
-                {displaySessions.length} of {sessions.length} sessions
-              </p>
-            )}
           </div>
+          {searchQuery.trim() && (
+            <p className="mt-1.5 text-[10px] text-[var(--color-text-muted)]">
+              {displaySessions.length} of {sessions.length} sessions
+            </p>
+          )}
         </div>
 
         {/* Sessions List */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin">
           {loadingSessions ? (
             <div className="flex flex-col items-center justify-center h-48">
               <Loader2 className="w-5 h-5 text-brand-400 animate-spin mb-2" />
-              <p className="text-xs text-gray-500">Loading sessions...</p>
+              <p className="text-xs text-[var(--color-text-muted)]">Loading sessions...</p>
             </div>
           ) : displaySessions.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-center px-4">
-              <Clock className="w-8 h-8 text-gray-700 mb-3" />
-              <p className="text-sm text-gray-500">
+              <Clock className="w-8 h-8 text-[var(--color-text-muted)] opacity-40 mb-3" />
+              <p className="text-sm text-[var(--color-text-muted)]">
                 {searchQuery ? "No sessions match your search." : "No sessions found."}
               </p>
             </div>
@@ -281,7 +278,7 @@ export default function TicketHistoryPage() {
                 <div key={`${session.sessionId}_${session.agentName}_${idx}`}>
                   {showGroupHeader && (
                     <div className="px-2 pt-3 pb-1">
-                      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                      <span className="text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">
                         {ticketId}
                       </span>
                     </div>
@@ -291,38 +288,38 @@ export default function TicketHistoryPage() {
                     className={cn(
                       "w-full text-left px-3 py-2.5 rounded-lg transition-all",
                       isSelected
-                        ? "bg-brand-600/20 border border-brand-600/30"
+                        ? "bg-brand-600/20 border border-brand-600/30 shadow-sm shadow-brand-600/5"
                         : "hover:bg-surface-2 border border-transparent"
                     )}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
                         {ticketId && (
-                          <span className="text-xs font-semibold text-white">{ticketId}</span>
+                          <span className="text-xs font-semibold text-[var(--color-text-primary)]">{ticketId}</span>
                         )}
                         <span className={cn("text-[10px] px-1.5 py-0.5 rounded border", stage.color)}>
                           {stage.label}
                         </span>
                       </div>
-                      <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span className="text-[10px] text-[var(--color-text-muted)] flex items-center gap-1">
                         <Clock className="w-2.5 h-2.5" />
                         {timeAgo(session.startTime)}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Bot className="w-3 h-3 text-gray-500 flex-shrink-0" />
-                      <span className="text-xs text-gray-400 truncate">
+                      <Bot className="w-3 h-3 text-[var(--color-text-muted)] flex-shrink-0" />
+                      <span className="text-xs text-[var(--color-text-secondary)] truncate">
                         {session.agentName || "Unknown Agent"}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between mt-1">
-                      <span className="text-[10px] text-gray-600 font-mono truncate max-w-[200px]">
+                      <span className="text-[10px] text-[var(--color-text-muted)] font-mono truncate max-w-[200px]">
                         {session.sessionId}
                       </span>
                       {session.spanCount > 0 && (
-                        <span className="text-[10px] text-gray-500">
+                        <span className="text-[10px] text-[var(--color-text-muted)]">
                           {session.spanCount} spans
                         </span>
                       )}
@@ -333,7 +330,7 @@ export default function TicketHistoryPage() {
             })
           )}
         </div>
-      </div>
+      </CollapsiblePanel>
 
       {/* Right Panel - Trace Detail */}
       <div className="flex-1 flex flex-col min-w-0 bg-surface-1">
@@ -341,80 +338,85 @@ export default function TicketHistoryPage() {
           // Empty state
           <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
             <div className="w-16 h-16 rounded-2xl bg-surface-2 border border-surface-4 flex items-center justify-center mb-4">
-              <Activity className="w-8 h-8 text-gray-700" />
+              <Activity className="w-8 h-8 text-[var(--color-text-muted)] opacity-40" />
             </div>
-            <p className="text-sm text-gray-400 mb-1">Select a session to view trace details</p>
-            <p className="text-xs text-gray-600">Click on a session from the left panel to inspect its execution trace.</p>
+            <p className="text-sm text-[var(--color-text-secondary)] mb-1">Select a session to view trace details</p>
+            <p className="text-xs text-[var(--color-text-muted)]">Click on a session from the left panel to inspect its execution trace.</p>
           </div>
         ) : (
           <>
-            {/* Agent Info Card */}
+            {/* Enhanced Intake Card */}
             <div className="p-4 border-b border-surface-4">
-              <div className="bg-surface-2 rounded-xl border border-surface-4 p-4">
+              <div className="bg-surface-2 rounded-xl border border-surface-4 p-4 shadow-sm">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-xl bg-brand-600/20 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-600/30 to-brand-600/10 border border-brand-600/20 flex items-center justify-center">
                     <Bot className="w-5 h-5 text-brand-400" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-semibold text-white">
+                    <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
                       {selectedSession?.agentName || "Agent"}
                     </h3>
-                    <p className="text-[10px] text-gray-500 font-mono truncate">
+                    <p className="text-[10px] text-[var(--color-text-muted)] font-mono truncate">
                       {selectedSessionId}
                     </p>
                   </div>
                   {extractTicketId(selectedSessionId) && (
-                    <span className="text-xs font-semibold text-brand-400 bg-brand-600/10 border border-brand-600/30 px-2 py-0.5 rounded">
+                    <span className="text-xs font-semibold text-brand-400 bg-brand-600/10 border border-brand-600/30 px-2.5 py-1 rounded-lg">
                       {extractTicketId(selectedSessionId)}
                     </span>
                   )}
                 </div>
 
-                <div className="grid grid-cols-4 gap-4">
-                  <div>
-                    <p className="text-[10px] text-gray-500 mb-0.5">Start Time</p>
-                    <p className="text-xs text-gray-300">
-                      {selectedSession?.startTime
+                {/* Enhanced metrics grid with visual styling */}
+                <div className="grid grid-cols-4 gap-3">
+                  <IntakeMetric
+                    label="Start Time"
+                    value={
+                      selectedSession?.startTime
                         ? new Date(parseInt(selectedSession.startTime, 10)).toLocaleString()
-                        : "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-500 mb-0.5">Duration</p>
-                    <p className="text-xs text-gray-300">
-                      {traceSummary && traceSummary.totalDuration > 0
+                        : "—"
+                    }
+                    icon={<Clock className="w-3 h-3 text-cyan-400" />}
+                  />
+                  <IntakeMetric
+                    label="Duration"
+                    value={
+                      traceSummary && traceSummary.totalDuration > 0
                         ? `${traceSummary.totalDuration.toFixed(1)}s`
-                        : "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-500 mb-0.5">Input Tokens</p>
-                    <p className="text-xs text-gray-300">
-                      {traceSummary && traceSummary.totalInputTokens > 0
+                        : "—"
+                    }
+                    icon={<Activity className="w-3 h-3 text-green-400" />}
+                  />
+                  <IntakeMetric
+                    label="Input Tokens"
+                    value={
+                      traceSummary && traceSummary.totalInputTokens > 0
                         ? traceSummary.totalInputTokens.toLocaleString()
-                        : "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-500 mb-0.5">Output Tokens</p>
-                    <p className="text-xs text-gray-300">
-                      {traceSummary && traceSummary.totalOutputTokens > 0
+                        : "—"
+                    }
+                    icon={<Zap className="w-3 h-3 text-purple-400" />}
+                  />
+                  <IntakeMetric
+                    label="Output Tokens"
+                    value={
+                      traceSummary && traceSummary.totalOutputTokens > 0
                         ? traceSummary.totalOutputTokens.toLocaleString()
-                        : "—"}
-                    </p>
-                  </div>
+                        : "—"
+                    }
+                    icon={<Zap className="w-3 h-3 text-yellow-400" />}
+                  />
                 </div>
               </div>
             </div>
 
             {/* Trace Timeline */}
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
               <div className="flex items-center gap-2 mb-3">
-                <Terminal className="w-4 h-4 text-gray-500" />
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                <Terminal className="w-4 h-4 text-[var(--color-text-muted)]" />
+                <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">
                   Trace Timeline
                 </h3>
-                <span className="text-[10px] text-gray-600">
+                <span className="text-[10px] text-[var(--color-text-muted)]">
                   {traceSpans.length} span{traceSpans.length !== 1 ? "s" : ""}
                 </span>
               </div>
@@ -422,12 +424,12 @@ export default function TicketHistoryPage() {
               {loadingTrace ? (
                 <div className="flex flex-col items-center justify-center h-48">
                   <Loader2 className="w-5 h-5 text-brand-400 animate-spin mb-2" />
-                  <p className="text-xs text-gray-500">Loading trace data...</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">Loading trace data...</p>
                 </div>
               ) : traceSpans.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-48 text-center">
-                  <Terminal className="w-8 h-8 text-gray-700 mb-3" />
-                  <p className="text-sm text-gray-500">No trace spans found for this session.</p>
+                  <Terminal className="w-8 h-8 text-[var(--color-text-muted)] opacity-40 mb-3" />
+                  <p className="text-sm text-[var(--color-text-muted)]">No trace spans found for this session.</p>
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -455,21 +457,21 @@ export default function TicketHistoryPage() {
                         >
                           {span.details ? (
                             isExpanded ? (
-                              <ChevronDown className="w-3.5 h-3.5 text-gray-600 flex-shrink-0" />
+                              <ChevronDown className="w-3.5 h-3.5 text-[var(--color-text-muted)] flex-shrink-0" />
                             ) : (
-                              <ChevronRight className="w-3.5 h-3.5 text-gray-600 flex-shrink-0" />
+                              <ChevronRight className="w-3.5 h-3.5 text-[var(--color-text-muted)] flex-shrink-0" />
                             )
                           ) : (
                             <span className="w-3.5 h-3.5 flex-shrink-0" />
                           )}
                           <Icon className={cn("w-4 h-4 flex-shrink-0", config.color)} />
                           <div className="flex-1 min-w-0">
-                            <span className="text-xs text-gray-300 truncate block">
+                            <span className="text-xs text-[var(--color-text-secondary)] truncate block">
                               {span.name || config.label}
                             </span>
                           </div>
                           {span.duration !== undefined && span.duration > 0 && (
-                            <span className="text-[10px] text-gray-500 bg-surface-3 px-2 py-0.5 rounded-full flex-shrink-0">
+                            <span className="text-[10px] text-[var(--color-text-muted)] bg-surface-3 px-2 py-0.5 rounded-full flex-shrink-0">
                               {span.duration >= 1
                                 ? `${span.duration.toFixed(1)}s`
                                 : `${Math.round(span.duration * 1000)}ms`}
@@ -479,7 +481,7 @@ export default function TicketHistoryPage() {
 
                         {isExpanded && span.details && (
                           <div className="px-4 pb-3 border-t border-surface-4/50">
-                            <pre className="text-[10px] text-gray-500 mt-2 font-mono whitespace-pre-wrap overflow-x-auto max-h-48 overflow-y-auto">
+                            <pre className="text-[10px] text-[var(--color-text-muted)] mt-2 font-mono whitespace-pre-wrap overflow-x-auto max-h-48 overflow-y-auto">
                               {JSON.stringify(span.details, null, 2)}
                             </pre>
                           </div>
@@ -493,6 +495,28 @@ export default function TicketHistoryPage() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// --- Enhanced Intake Card Metric Component ---
+
+function IntakeMetric({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="bg-surface-3/50 rounded-lg px-3 py-2 border border-surface-4/50">
+      <div className="flex items-center gap-1.5 mb-1">
+        {icon}
+        <p className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wide">{label}</p>
+      </div>
+      <p className="text-xs font-semibold text-[var(--color-text-primary)]">{value}</p>
     </div>
   );
 }
