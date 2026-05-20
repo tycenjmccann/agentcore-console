@@ -72,13 +72,13 @@ export function setWorkflow(state: WorkflowState): void {
   const last = lastPersistTime.get(state.id) || 0;
 
   // Persist immediately on phase changes; throttle for rapid updates
-  const isSignificant = state.phase === "complete" || state.phase === "error" ||
+  const isSignificant = state.phase === "complete" || state.phase === "error" || state.phase === "cancelled" ||
     state.phase === "design" || state.phase === "development" || state.phase === "requirements";
 
   if (isSignificant || now - last > 2000) {
     lastPersistTime.set(state.id, now);
     // For terminal states, await the persist to guarantee it lands
-    if (state.phase === "complete" || state.phase === "error") {
+    if (state.phase === "complete" || state.phase === "error" || state.phase === "cancelled") {
       persistWorkflowSync(state.id);
     } else {
       persistWorkflow(state.id);
