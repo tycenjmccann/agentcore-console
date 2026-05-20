@@ -4,4 +4,5 @@ export { default as AgentItem } from "./AgentItem";
 export { default as SVGConnector } from "./SVGConnector";
 export { default as AgentOutputPanel } from "./AgentOutputPanel";
 export { default as StatusBar } from "./StatusBar";
+export { default as HistorySidebar } from "./HistorySidebar";
 export { usePipelineSSE } from "./usePipelineSSE";
