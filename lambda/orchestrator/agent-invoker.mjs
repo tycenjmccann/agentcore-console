@@ -1,149 +1,84 @@
 /**
- * Agent Invoker Lambda — Async Agent Execution
+ * Agent Invoker Lambda — Fire-and-Forget Agent Kickoff
  *
  * Invoked ASYNCHRONOUSLY by the Orchestration Lambda (InvocationType: "Event").
- * Streams the AgentCore Harness agent to completion, then writes "done" to DynamoDB.
- * The DynamoDB write triggers the orchestrator again via DynamoDB Streams.
+ * Sends the invocation request to AgentCore Runtime and returns immediately once
+ * the Runtime accepts (HTTP 200). Does NOT wait for agent completion.
  *
- * This Lambda can run up to 15 minutes (Lambda max) to accommodate long agent runs.
+ * The agent is responsible for its own lifecycle:
+ * - Writes streaming events (agent.streaming) directly to DynamoDB as it works
+ * - Calls report_completion tool when done → workflow-output Lambda → marks ticket "done"
+ * - DynamoDB Stream on ticket status change → Orchestrator cascade
+ *
+ * If the agent crashes without calling report_completion, the existing nudge system
+ * detects 90s idle and triggers recovery.
  *
  * Input: { harnessArn, sessionId, prompt, workflowId, agentId, modelOverride }
- * Output: none (async fire-and-forget)
+ * Output: none (fire-and-forget)
  */
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
 const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
-const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || "";
 const EVENT_BUS = process.env.EVENT_BUS || "default";
-const AGENTCORE_ENDPOINT = process.env.AGENTCORE_ENDPOINT || `https://bedrock-agent-runtime.${REGION}.amazonaws.com`;
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },
 });
-const s3 = new S3Client({ region: REGION });
 const events = new EventBridgeClient({ region: REGION });
 
 export const handler = async (event) => {
   const { harnessArn, sessionId, prompt, workflowId, agentId, modelOverride } = event;
-  console.log(`[agent-invoker] Starting ${agentId} for workflow ${workflowId}`);
-
-  let output = "";
-  let error = null;
+  console.log(`[agent-invoker] Fire-and-forget: ${agentId} for workflow ${workflowId}`);
 
   try {
     // Determine invocation mode: Runtime (preferred) or Harness (legacy)
-    // ARN format: arn:aws:bedrock-agentcore:REGION:ACCOUNT:runtime/ID (colon before "runtime", not slash)
     const useRuntime = harnessArn.includes(":runtime/") || harnessArn.includes("/runtime/") || process.env.USE_RUNTIME === "true";
 
-    const MAX_RETRIES = 1;
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const retrySessionId = attempt === 0 ? sessionId : `${sessionId}-retry${attempt}`;
-        if (useRuntime) {
-          output = await invokeRuntimeAgent(harnessArn, retrySessionId, prompt, workflowId, agentId, modelOverride);
-        } else {
-          output = await invokeHarnessAgent(harnessArn, retrySessionId, prompt, workflowId, agentId, modelOverride);
-        }
-        break; // Success
-      } catch (invokeErr) {
-        const msg = invokeErr.message || String(invokeErr);
-        if (msg.includes("Read timed out") && attempt < MAX_RETRIES) {
-          console.warn(`[agent-invoker] ${agentId} timed out (attempt ${attempt + 1}). Retrying...`);
-          continue;
-        }
-        throw invokeErr; // Non-timeout or exhausted retries
+    if (useRuntime) {
+      await fireAndForgetRuntime(harnessArn, sessionId, prompt, workflowId, agentId, modelOverride);
+    } else {
+      // Legacy harness agents still use synchronous invocation (to be migrated)
+      const output = await invokeHarnessAgent(harnessArn, sessionId, prompt, workflowId, agentId, modelOverride);
+      // For legacy agents that don't call report_completion, write done ourselves
+      const ticketId = await findTicketForAgent(workflowId, agentId);
+      if (ticketId) {
+        await ddb.send(new UpdateCommand({
+          TableName: TICKETS_TABLE,
+          Key: { ticketId },
+          UpdateExpression: "SET #s = :s, #u = :u",
+          ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+          ExpressionAttributeValues: { ":s": "done", ":u": new Date().toISOString() },
+        }));
       }
     }
-    console.log(`[agent-invoker] ${agentId} completed. Output length: ${output.length}`);
 
-    // Check for structured completion report in S3
-    let completionData = {};
-    try {
-      const reportKey = `workflows/${workflowId}/${agentId}/completion-report.json`;
-      // Read is optional — agent may not have called report_completion
-      const { S3Client: _, GetObjectCommand: __ } = await import("@aws-sdk/client-s3");
-      const s3Read = new S3Client({ region: REGION });
-      const resp = await s3Read.send(new (await import("@aws-sdk/client-s3")).GetObjectCommand({
-        Bucket: ARTIFACT_BUCKET,
-        Key: reportKey,
-      }));
-      const body = await resp.Body.transformToString();
-      completionData = JSON.parse(body);
-      console.log(`[agent-invoker] Found completion report for ${agentId}`);
-    } catch {
-      // No completion report — that's fine
-    }
-
-    // Write output to S3 as artifact
-    if (ARTIFACT_BUCKET && output) {
-      try {
-        await s3.send(new PutObjectCommand({
-          Bucket: ARTIFACT_BUCKET,
-          Key: `workflows/${workflowId}/${agentId}/output.md`,
-          Body: output,
-          ContentType: "text/markdown",
-        }));
-      } catch { /* non-fatal */ }
-    }
-
-    // Mark the ticket as "done" in DynamoDB
-    // This triggers the DynamoDB Stream → Orchestration Lambda → cascade
-    const ticketId = await findTicketForAgent(workflowId, agentId);
-    if (ticketId) {
-      await ddb.send(new UpdateCommand({
-        TableName: TICKETS_TABLE,
-        Key: { ticketId },
-        UpdateExpression: "SET #s = :s, #u = :u",
-        ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
-        ExpressionAttributeValues: { ":s": "done", ":u": new Date().toISOString() },
-      }));
-      console.log(`[agent-invoker] Marked ${ticketId} as done`);
-    }
-
-    // Update workflow metadata with output/branch/commit
-    await updateWorkflowTask(workflowId, agentId, {
-      status: "complete",
-      output: output.slice(0, 10000), // truncate for DynamoDB item size
-      completedAt: new Date().toISOString(),
-      branch: completionData.branch,
-      commitSha: completionData.commit_sha,
-      prUrl: completionData.pr_url,
-    });
+    console.log(`[agent-invoker] ${agentId} invocation ${useRuntime ? "kicked off (fire-and-forget)" : "completed (legacy)"}`);
 
   } catch (err) {
-    error = err.message || String(err);
-    console.error(`[agent-invoker] ${agentId} failed:`, error);
+    const error = err.message || String(err);
+    console.error(`[agent-invoker] ${agentId} invocation failed:`, error);
 
-    // Mark ticket as blocked
+    // Only mark blocked if the Runtime REJECTED the request (connection refused, 4xx, etc.)
+    // If the agent was accepted but crashes later, nudge handles it.
     const ticketId = await findTicketForAgent(workflowId, agentId);
     if (ticketId) {
       await ddb.send(new UpdateCommand({
         TableName: TICKETS_TABLE,
         Key: { ticketId },
-        UpdateExpression: "SET #s = :s, #u = :u",
-        ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
-        ExpressionAttributeValues: { ":s": "blocked", ":u": new Date().toISOString() },
+        UpdateExpression: "SET #s = :s, #u = :u, #e = :e",
+        ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt", "#e": "error" },
+        ExpressionAttributeValues: { ":s": "blocked", ":u": new Date().toISOString(), ":e": error },
       }));
     }
 
-    await updateWorkflowTask(workflowId, agentId, {
-      status: "error",
-      error,
-      completedAt: new Date().toISOString(),
-    });
+    // Publish error event so UI knows immediately
+    await publishAgentEvent(workflowId, agentId, "agent.error", { error });
   }
-
-  // Publish event for real-time UI updates
-  await publishAgentEvent(workflowId, agentId, error ? "agent.error" : "agent.complete", {
-    output: output.slice(0, 1000),
-    error,
-  });
 };
 
 // ─── AgentCore Harness Invocation ──────────────────────────────────────────────
@@ -216,16 +151,100 @@ async function invokeHarnessAgent(harnessArn, sessionId, prompt, workflowId, age
   return fullOutput;
 }
 
-// ─── AgentCore Runtime Invocation (No timeout ceiling) ────────────────────────
+// ─── AgentCore Runtime: Fire-and-Forget ──────────────────────────────────────
 
 /**
- * Invoke a Strands agent deployed on AgentCore Runtime.
- * These agents control their own botocore read_timeout (set to 600s in main.py),
- * so Opus 4.7 can think as long as it needs without being killed.
- *
- * The Runtime agent expects payload: { prompt, workflow_id, agent_id, model_override }
- * Note: system_prompt is NOT passed — it's baked into the agent at deploy time via env var.
- * It returns a streaming response (SSE chunks).
+ * Send invocation to AgentCore Runtime and return as soon as HTTP 200 is received.
+ * Does NOT wait for the agent to finish. The agent manages its own lifecycle:
+ * - Writes streaming events to DynamoDB
+ * - Calls report_completion when done (triggers orchestrator cascade)
+ * - Nudge system handles crash/hang scenarios
+ */
+async function fireAndForgetRuntime(runtimeArn, sessionId, prompt, workflowId, agentId, modelOverride) {
+  const https = await import("https");
+  const { SignatureV4 } = await import("@smithy/signature-v4");
+  const { Sha256 } = await import("@aws-crypto/sha256-js");
+  const { defaultProvider } = await import("@aws-sdk/credential-provider-node");
+
+  const payload = JSON.stringify({
+    prompt,
+    workflow_id: workflowId,
+    agent_id: agentId,
+    model_override: modelOverride?.bedrockModelConfig?.modelId || modelOverride || undefined,
+  });
+
+  const runtimeId = runtimeArn.split("/").pop();
+  const accountId = runtimeArn.split(":")[4];
+  const host = `bedrock-agentcore.${REGION}.amazonaws.com`;
+  const urlPath = `/runtimes/${encodeURIComponent(runtimeId)}/invocations`;
+
+  console.log(`[agent-invoker] Fire-and-forget Runtime invoke: id=${runtimeId}`);
+
+  const signer = new SignatureV4({
+    service: "bedrock-agentcore",
+    region: REGION,
+    credentials: defaultProvider(),
+    sha256: Sha256,
+  });
+
+  const request = {
+    method: "POST",
+    protocol: "https:",
+    hostname: host,
+    path: urlPath,
+    query: { accountId },
+    headers: {
+      "host": host,
+      "content-type": "application/json",
+      "x-amzn-bedrock-agentcore-runtime-session-id": sessionId,
+    },
+    body: payload,
+  };
+
+  const signedRequest = await signer.sign(request);
+
+  // Send the request and resolve as soon as we get HTTP status back
+  // We don't read the response body — the agent handles its own completion
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Runtime did not accept request within 30s")), 30_000);
+
+    const fullPath = `${urlPath}?accountId=${accountId}`;
+    const req = https.default.request({
+      hostname: host,
+      path: fullPath,
+      method: "POST",
+      headers: { ...signedRequest.headers },
+      timeout: 30_000,
+    }, (res) => {
+      clearTimeout(timer);
+      console.log(`[agent-invoker] ${agentId} accepted: HTTP ${res.statusCode}`);
+
+      if (res.statusCode >= 400) {
+        // Read error body for diagnostics
+        let body = "";
+        res.on("data", (chunk) => { body += chunk.toString(); });
+        res.on("end", () => reject(new Error(`Runtime rejected: ${res.statusCode} ${body.slice(0, 500)}`)));
+      } else {
+        // Success — agent is now running. Disconnect immediately.
+        res.destroy(); // Don't hold the connection open
+        resolve();
+      }
+    });
+
+    req.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    req.write(payload);
+    req.end();
+  });
+}
+
+// ─── AgentCore Runtime Invocation (Legacy — synchronous wait) ────────────────
+
+/**
+ * @deprecated Use fireAndForgetRuntime instead. Kept for harness-mode compatibility.
  */
 async function invokeRuntimeAgent(runtimeArn, sessionId, prompt, workflowId, agentId, modelOverride) {
   const https = await import("https");
@@ -418,22 +437,6 @@ async function findTicketForAgent(workflowId, agentId) {
   return null;
 }
 
-async function updateWorkflowTask(workflowId, agentId, updates) {
-  const wf = await ddb.send(new GetCommand({ TableName: WORKFLOWS_TABLE, Key: { workflowId } }));
-  if (!wf.Item) return;
-
-  const workflow = wf.Item;
-  if (!workflow.agentTasks) workflow.agentTasks = {};
-  workflow.agentTasks[agentId] = { ...workflow.agentTasks[agentId], ...updates };
-
-  await ddb.send(new UpdateCommand({
-    TableName: WORKFLOWS_TABLE,
-    Key: { workflowId },
-    UpdateExpression: "SET #at = :at, #u = :u",
-    ExpressionAttributeNames: { "#at": "agentTasks", "#u": "updatedAt" },
-    ExpressionAttributeValues: { ":at": workflow.agentTasks, ":u": new Date().toISOString() },
-  }));
-}
 
 async function publishAgentEvent(workflowId, agentId, detailType, detail) {
   try {
