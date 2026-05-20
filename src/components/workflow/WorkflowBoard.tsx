@@ -7,10 +7,15 @@ import type {
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
+import ArtifactsTab from "./ArtifactsTab";
 
 interface WorkflowBoardProps {
   workflowId: string;
 }
+
+// ─── Tab Types ───────────────────────────────────────────────────────────────
+
+type BoardTab = "pipeline" | "artifacts";
 
 // ─── Phase Order (derived from config) ──────────────────────────────────────
 
@@ -38,6 +43,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const [celebrating, setCelebrating] = useState(false);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState<BoardTab>("pipeline");
   // Tool flash state: maps "phaseId:iconKey" to a timeout so items flash when tools fire
   const [toolFlashes, setToolFlashes] = useState<Record<string, boolean>>({});
   const toolFlashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -261,252 +267,282 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     <div className={celebrating ? "celebrate-wrapper" : ""}>
       <style dangerouslySetInnerHTML={{ __html: PIPELINE_STYLES }} />
 
-      <div className="pipeline-viz">
-        <div className="pipeline-title">Agentis Hub</div>
-        <div className="pipeline-subtitle">Autonomous Multi-Agent Development Pipeline</div>
+      {/* ─── Tab Bar ─────────────────────────────────────────────────────── */}
+      <div className="flex items-center border-b border-zinc-800 bg-[#0f1419] px-6 sticky top-0 z-30">
+        <button
+          onClick={() => setActiveTab("pipeline")}
+          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "pipeline"
+              ? "border-blue-500 text-blue-400"
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          Pipeline
+        </button>
+        <button
+          onClick={() => setActiveTab("artifacts")}
+          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "artifacts"
+              ? "border-blue-500 text-blue-400"
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          Artifacts
+        </button>
+      </div>
 
-        {/* Legend */}
-        <div className="pipeline-legend">
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.bedrock} alt="Bedrock" />
-            Amazon Bedrock
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.agentcore} alt="AgentCore" />
-            Bedrock AgentCore
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.s3} alt="S3" />
-            Amazon S3
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.eventbridge} alt="EventBridge" />
-            Amazon EventBridge
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.codebuild} alt="Code Interpreter" />
-            Code Interpreter
-          </div>
-          <div className="legend-item">
-            <span className="dot skill" />
-            Loaded Skill
-          </div>
-          <div className="legend-item">
-            <span className="dot ext" />
-            External
-          </div>
-        </div>
+      {/* ─── Tab Content ─────────────────────────────────────────────────── */}
+      {activeTab === "artifacts" ? (
+        <ArtifactsTab workflowId={workflowId} />
+      ) : (
+        /* Pipeline Visualization (existing) */
+        <div className="pipeline-viz">
+          <div className="pipeline-title">Agentis Hub</div>
+          <div className="pipeline-subtitle">Autonomous Multi-Agent Development Pipeline</div>
 
-        {/* Canvas */}
-        <div className="pipeline-canvas" ref={pipelineRef}>
-          {/* SVG Connectors */}
-          <svg className="pipeline-connectors">
-            <defs>
-              <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.2} />
-                <stop offset="50%" stopColor="#0ea5e9" stopOpacity={0.9} />
-                <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.2} />
-              </linearGradient>
-              <filter id="pathGlow" x="-10%" y="-10%" width="120%" height="120%">
-                <feGaussianBlur stdDeviation="2" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            {PIPELINE_PHASES.slice(0, -1).map((_, i) => {
-              const x1 = 290 * (i + 1) + 44 * i;
-              const x2 = x1 + 44;
-              const y = 200;
-              const showConnector = i < currentPhaseIndex || isComplete;
-              const isActiveConnector = i === currentPhaseIndex - 1 && !isComplete;
-              return (
-                <path
-                  key={`connector-${i}`}
-                  className={`flow-path ${showConnector ? "show" : ""} ${isActiveConnector ? "active" : ""} ${isSettled ? "settled" : ""}`}
-                  d={`M ${x1} ${y} C ${x1 + 22} ${y}, ${x2 - 22} ${y}, ${x2} ${y}`}
-                />
-              );
-            })}
-          </svg>
+          {/* Legend */}
+          <div className="pipeline-legend">
+            <div className="legend-item">
+              <img className="aws-ico" src={awsIcons.bedrock} alt="Bedrock" />
+              Amazon Bedrock
+            </div>
+            <div className="legend-item">
+              <img className="aws-ico" src={awsIcons.agentcore} alt="AgentCore" />
+              Bedrock AgentCore
+            </div>
+            <div className="legend-item">
+              <img className="aws-ico" src={awsIcons.s3} alt="S3" />
+              Amazon S3
+            </div>
+            <div className="legend-item">
+              <img className="aws-ico" src={awsIcons.eventbridge} alt="EventBridge" />
+              Amazon EventBridge
+            </div>
+            <div className="legend-item">
+              <img className="aws-ico" src={awsIcons.codebuild} alt="Code Interpreter" />
+              Code Interpreter
+            </div>
+            <div className="legend-item">
+              <span className="dot skill" />
+              Loaded Skill
+            </div>
+            <div className="legend-item">
+              <span className="dot ext" />
+              External
+            </div>
+          </div>
 
-          {/* Pipeline phases */}
-          <div className="pipeline-phases">
-            {PIPELINE_PHASES.map((phase, idx) => (
-              <div
-                key={phase.id}
-                className={`phase ${getPhaseClass(idx)}`}
-              >
-                <div className={`agent-box ${getBoxClass(idx)}`}>
-                  <div className="phase-num">Phase {phase.num}</div>
-                  <div className="phase-name">{phase.name}</div>
-                  <div className={`phase-type ${phase.type}`}>{phase.typeLabel}</div>
+          {/* Canvas */}
+          <div className="pipeline-canvas" ref={pipelineRef}>
+            {/* SVG Connectors */}
+            <svg className="pipeline-connectors">
+              <defs>
+                <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.2} />
+                  <stop offset="50%" stopColor="#0ea5e9" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.2} />
+                </linearGradient>
+                <filter id="pathGlow" x="-10%" y="-10%" width="120%" height="120%">
+                  <feGaussianBlur stdDeviation="2" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+              {PIPELINE_PHASES.slice(0, -1).map((_, i) => {
+                const x1 = 290 * (i + 1) + 44 * i;
+                const x2 = x1 + 44;
+                const y = 200;
+                const showConnector = i < currentPhaseIndex || isComplete;
+                const isActiveConnector = i === currentPhaseIndex - 1 && !isComplete;
+                return (
+                  <path
+                    key={`connector-${i}`}
+                    className={`flow-path ${showConnector ? "show" : ""} ${isActiveConnector ? "active" : ""} ${isSettled ? "settled" : ""}`}
+                    d={`M ${x1} ${y} C ${x1 + 22} ${y}, ${x2 - 22} ${y}, ${x2} ${y}`}
+                  />
+                );
+              })}
+            </svg>
 
-                  {/* Identity */}
-                  <div className="identity">
-                    {phase.identity.length === 1 && !phase.identity[0].icon ? (
-                      <div className="id-label" style={{ textAlign: "center", height: "auto", lineHeight: 1.4 }}>
-                        {phase.identity[0].label}
-                      </div>
-                    ) : (
-                      <div className="id-row">
-                        <div className="id-icon-col">
-                          {phase.identity.map((id, i) => (
-                            id.icon && <img key={i} className="id-icon" src={(awsIcons as Record<string, string>)[id.icon]} alt={id.icon} />
-                          ))}
+            {/* Pipeline phases */}
+            <div className="pipeline-phases">
+              {PIPELINE_PHASES.map((phase, idx) => (
+                <div
+                  key={phase.id}
+                  className={`phase ${getPhaseClass(idx)}`}
+                >
+                  <div className={`agent-box ${getBoxClass(idx)}`}>
+                    <div className="phase-num">Phase {phase.num}</div>
+                    <div className="phase-name">{phase.name}</div>
+                    <div className={`phase-type ${phase.type}`}>{phase.typeLabel}</div>
+
+                    {/* Identity */}
+                    <div className="identity">
+                      {phase.identity.length === 1 && !phase.identity[0].icon ? (
+                        <div className="id-label" style={{ textAlign: "center", height: "auto", lineHeight: 1.4 }}>
+                          {phase.identity[0].label}
                         </div>
-                        <div className="id-labels">
-                          {phase.identity.map((id, i) => (
-                            <div key={i} className="id-label">{id.label}</div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Config */}
-                  <div className="config-detail">
-                    {phase.config.map((c, i) => (
-                      <div key={i} className="cfg-row">
-                        <span className="cfg-key">{c.key}</span>
-                        <span className="cfg-val">{c.val}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Work area */}
-                <div className="work-area">
-                  {/* Tools */}
-                  {phase.tools.length > 0 && (
-                    <>
-                      <div className="sec-label">{phase.id === "intake" ? "User Actions" : "Tools"}</div>
-                      {phase.tools.map((tool, i) => {
-                        const iconKey = tool.icon || tool.dot || "ext";
-                        const isFlashing = toolFlashes[`${phase.id}:${iconKey}`];
-                        const itemClass = isFlashing ? "trigger" : getItemClass(idx);
-                        return (
-                          <div key={i} className={`item ${itemClass}`}>
-                            {tool.icon ? (
-                              <img className="svc-icon" src={(awsIcons as Record<string, string>)[tool.icon]} alt={tool.icon} />
-                            ) : (
-                              <span className={`item-dot ${tool.dot || "ext"}`} />
-                            )}
-                            <span className="item-label">{tool.label}</span>
-                            <span className="item-status" />
+                      ) : (
+                        <div className="id-row">
+                          <div className="id-icon-col">
+                            {phase.identity.map((id, i) => (
+                              id.icon && <img key={i} className="id-icon" src={(awsIcons as Record<string, string>)[id.icon]} alt={id.icon} />
+                            ))}
                           </div>
-                        );
-                      })}
-                    </>
-                  )}
+                          <div className="id-labels">
+                            {phase.identity.map((id, i) => (
+                              <div key={i} className="id-label">{id.label}</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Individual Agents */}
-                  {phase.type === "agent" && phase.agents.length > 0 && (() => {
-                    return (
+                    {/* Config */}
+                    <div className="config-detail">
+                      {phase.config.map((c, i) => (
+                        <div key={i} className="cfg-row">
+                          <span className="cfg-key">{c.key}</span>
+                          <span className="cfg-val">{c.val}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Work area */}
+                  <div className="work-area">
+                    {/* Tools */}
+                    {phase.tools.length > 0 && (
                       <>
-                        <div className="sec-label">Agents ({phase.agents.length})</div>
-                        {phase.agents.map((agent) => {
-                          const agentTask = state?.agentTasks[agent.id];
-                          // Agent pulses ("working") whenever it's running — streaming text is optional
-                          const agentItemClass = agentTask
-                            ? agentTask.status === "running" || agentTask.status === "waiting_response"
-                              ? "working"
-                              : agentTask.status === "complete"
-                              ? "done"
-                              : agentTask.status === "error"
-                              ? "error"
-                              : getItemClass(idx)
-                            : getItemClass(idx);
+                        <div className="sec-label">{phase.id === "intake" ? "User Actions" : "Tools"}</div>
+                        {phase.tools.map((tool, i) => {
+                          const iconKey = tool.icon || tool.dot || "ext";
+                          const isFlashing = toolFlashes[`${phase.id}:${iconKey}`];
+                          const itemClass = isFlashing ? "trigger" : getItemClass(idx);
                           return (
-                            <div
-                              key={agent.id}
-                              className={`item ${isSettled ? "done settled" : agentItemClass} cursor-pointer`}
-                              onClick={() => setExpandedAgent(expandedAgent === agent.id ? null : agent.id)}
-                            >
-                              <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
-                              <span className="item-label">{agent.displayName}</span>
+                            <div key={i} className={`item ${itemClass}`}>
+                              {tool.icon ? (
+                                <img className="svc-icon" src={(awsIcons as Record<string, string>)[tool.icon]} alt={tool.icon} />
+                              ) : (
+                                <span className={`item-dot ${tool.dot || "ext"}`} />
+                              )}
+                              <span className="item-label">{tool.label}</span>
                               <span className="item-status" />
                             </div>
                           );
                         })}
                       </>
-                    );
-                  })()}
+                    )}
 
-                  {/* Skills */}
-                  {phase.skills.length > 0 && (
-                    <>
-                      <div className="sec-label">Skills</div>
-                      {phase.skills.map((skill, i) => {
-                        const isSkillFlashing = toolFlashes[`${phase.id}:skill`];
-                        const itemClass = isSkillFlashing ? "trigger" : getItemClass(idx);
-                        return (
-                          <div key={i} className={`item ${itemClass}`}>
-                            <span className="item-dot skill" />
-                            <span className="item-label">{skill}</span>
-                            <span className="item-status" />
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
+                    {/* Individual Agents */}
+                    {phase.type === "agent" && phase.agents.length > 0 && (() => {
+                      return (
+                        <>
+                          <div className="sec-label">Agents ({phase.agents.length})</div>
+                          {phase.agents.map((agent) => {
+                            const agentTask = state?.agentTasks[agent.id];
+                            // Agent pulses ("working") whenever it's running — streaming text is optional
+                            const agentItemClass = agentTask
+                              ? agentTask.status === "running" || agentTask.status === "waiting_response"
+                                ? "working"
+                                : agentTask.status === "complete"
+                                ? "done"
+                                : agentTask.status === "error"
+                                ? "error"
+                                : getItemClass(idx)
+                              : getItemClass(idx);
+                            return (
+                              <div
+                                key={agent.id}
+                                className={`item ${isSettled ? "done settled" : agentItemClass} cursor-pointer`}
+                                onClick={() => setExpandedAgent(expandedAgent === agent.id ? null : agent.id)}
+                              >
+                                <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
+                                <span className="item-label">{agent.displayName}</span>
+                                <span className="item-status" />
+                              </div>
+                            );
+                          })}
+                        </>
+                      );
+                    })()}
 
-                  {/* Outputs */}
-                  {phase.outputs.length > 0 && (
-                    <>
-                      <div className="sec-label">{phase.id === "intake" ? "Trigger" : "Output"}</div>
-                      {phase.outputs.map((out, i) => {
-                        const outIconKey = out.icon || out.dot || "ext";
-                        const isOutFlashing = toolFlashes[`${phase.id}:${outIconKey}`];
-                        const itemClass = isOutFlashing ? "trigger" : getItemClass(idx);
-                        return (
-                          <div key={i} className={`item ${itemClass}`}>
-                            {out.icon ? (
-                              <img className="svc-icon" src={(awsIcons as Record<string, string>)[out.icon]} alt={out.icon} />
-                            ) : (
-                              <span className={`item-dot ${out.dot || "ext"}`} />
-                            )}
-                            <span className="item-label">{out.label}</span>
-                            <span className="item-status" />
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
+                    {/* Skills */}
+                    {phase.skills.length > 0 && (
+                      <>
+                        <div className="sec-label">Skills</div>
+                        {phase.skills.map((skill, i) => {
+                          const isSkillFlashing = toolFlashes[`${phase.id}:skill`];
+                          const itemClass = isSkillFlashing ? "trigger" : getItemClass(idx);
+                          return (
+                            <div key={i} className={`item ${itemClass}`}>
+                              <span className="item-dot skill" />
+                              <span className="item-label">{skill}</span>
+                              <span className="item-status" />
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+
+                    {/* Outputs */}
+                    {phase.outputs.length > 0 && (
+                      <>
+                        <div className="sec-label">{phase.id === "intake" ? "Trigger" : "Output"}</div>
+                        {phase.outputs.map((out, i) => {
+                          const outIconKey = out.icon || out.dot || "ext";
+                          const isOutFlashing = toolFlashes[`${phase.id}:${outIconKey}`];
+                          const itemClass = isOutFlashing ? "trigger" : getItemClass(idx);
+                          return (
+                            <div key={i} className={`item ${itemClass}`}>
+                              {out.icon ? (
+                                <img className="svc-icon" src={(awsIcons as Record<string, string>)[out.icon]} alt={out.icon} />
+                              ) : (
+                                <span className={`item-dot ${out.dot || "ext"}`} />
+                              )}
+                              <span className="item-label">{out.label}</span>
+                              <span className="item-status" />
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
                 </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Status bar */}
+          <div className={`pipeline-status ${isSettled ? "settled" : ""}`}>
+            <div className="status-phase" style={isSettled ? { color: "#f97316" } : undefined}>
+              {isComplete ? "Complete" : (state.phase === "error" ? "Error" : PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase)}
+            </div>
+            <div className="status-text">
+              {isComplete
+                ? "All agents have completed their work"
+                : state.phase === "error"
+                ? state.error || "An error occurred"
+                : `Processing phase ${currentPhaseIndex + 1} of ${PIPELINE_PHASES.length}`}
+            </div>
+          </div>
+
+          {/* Expanded agent output panel */}
+          {expandedAgent && (
+            <div className="agent-output-panel">
+              <div className="agent-output-header">
+                <span>Agent Output — {expandedAgent}</span>
+                <button onClick={() => setExpandedAgent(null)} className="agent-output-close">✕</button>
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Status bar */}
-        <div className={`pipeline-status ${isSettled ? "settled" : ""}`}>
-          <div className="status-phase" style={isSettled ? { color: "#f97316" } : undefined}>
-            {isComplete ? "Complete" : (state.phase === "error" ? "Error" : PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase)}
-          </div>
-          <div className="status-text">
-            {isComplete
-              ? "All agents have completed their work"
-              : state.phase === "error"
-              ? state.error || "An error occurred"
-              : `Processing phase ${currentPhaseIndex + 1} of ${PIPELINE_PHASES.length}`}
-          </div>
-        </div>
-
-        {/* Expanded agent output panel */}
-        {expandedAgent && (
-          <div className="agent-output-panel">
-            <div className="agent-output-header">
-              <span>Agent Output — {expandedAgent}</span>
-              <button onClick={() => setExpandedAgent(null)} className="agent-output-close">✕</button>
+              <div className="agent-output-body">
+                {streamingText[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || "No output yet..."}
+              </div>
             </div>
-            <div className="agent-output-body">
-              {streamingText[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || "No output yet..."}
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
