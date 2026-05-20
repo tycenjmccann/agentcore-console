@@ -4,6 +4,7 @@ import "@/styles/globals.css";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ToastProvider } from "@/components/ui/toast-provider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -40,13 +41,15 @@ export default function RootLayout({
       </head>
       <body className={inter.className}>
         <ThemeProvider>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <div className="flex-1 ml-64">
-              <Header />
-              <main className="p-6">{children}</main>
+          <ToastProvider>
+            <div className="flex min-h-screen">
+              <Sidebar />
+              <div className="flex-1 ml-64">
+                <Header />
+                <main className="p-6">{children}</main>
+              </div>
             </div>
-          </div>
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

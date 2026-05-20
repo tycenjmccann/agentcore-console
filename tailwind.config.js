@@ -28,6 +28,20 @@ module.exports = {
           4: "var(--color-surface-4)",
         },
       },
+      keyframes: {
+        "toast-slide-in": {
+          "0%": { transform: "translateX(100%)", opacity: "0" },
+          "100%": { transform: "translateX(0)", opacity: "1" },
+        },
+        "toast-fade-out": {
+          "0%": { opacity: "1" },
+          "100%": { opacity: "0" },
+        },
+      },
+      animation: {
+        "toast-slide-in": "toast-slide-in 0.3s ease-out",
+        "toast-fade-out": "toast-fade-out 0.2s ease-in forwards",
+      },
     },
   },
   plugins: [require("@tailwindcss/typography")],
