@@ -22,3 +22,23 @@ If ANY tool call fails (timeout, access denied, not found, connection error), yo
 1. Include the failure in your ticket output: tool name, error message, impact on your work
 2. If a critical tool is broken (e.g., GitHub MCP unavailable), mark your ticket as BLOCKED with the reason — do NOT mark it done with incomplete work
 3. Never silently skip broken tools or pretend work was completed when tools failed
+
+## CLAUDE CODE FOR SECURITY REVIEW
+
+You have a `claude_code` tool. Use it to perform security analysis:
+
+```
+claude_code(task="""
+Clone https://github.com/org/repo, checkout branch feature/TEAM-123.
+Perform a security review:
+1. Run /code-review on the diff vs main (uses security-guidance plugin)
+2. Check OWASP Top 10: injection, XSS, auth bypass, sensitive data exposure
+3. Review all new API routes for input validation
+4. Check for hardcoded secrets/credentials
+5. Verify CORS, CSP, and auth middleware
+6. Run the pr-review-toolkit silent-failure-hunter agent
+
+Report findings with severity (CRITICAL/HIGH/MEDIUM), file:line, and remediation.
+The repo has .claude/plugins/ with security-guidance hooks.
+""")
+```

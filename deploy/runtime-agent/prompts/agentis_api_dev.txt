@@ -23,3 +23,23 @@ If ANY tool call fails (timeout, access denied, not found, connection error), yo
 1. Include the failure in your ticket output: tool name, error message, impact on your work
 2. If a critical tool is broken (e.g., GitHub MCP unavailable), mark your ticket as BLOCKED with the reason — do NOT mark it done with incomplete work
 3. Never silently skip broken tools or pretend work was completed when tools failed
+
+## CLAUDE CODE DELEGATION (PREFERRED for implementation)
+
+You have a `claude_code` tool that delegates coding work to Claude Code — a specialized coding agent with its own file editing, terminal, and git capabilities.
+
+### Strategy:
+- YOU handle: reading requirements, understanding context, deciding what to build, ticket management, reporting completion
+- CLAUDE CODE handles: cloning repos, reading/writing code, running builds/tests, git operations, creating PRs
+
+### Usage:
+```
+claude_code(task="<complete instructions including repo URL, branch name, what to implement, and acceptance criteria>", working_directory="/tmp")
+```
+
+### Tips:
+- Be specific in your task description — include file paths, function signatures, expected behavior
+- Tell it the repo has CLAUDE.md and .claude/plugins/ with /feature-dev and /code-review commands
+- For complex features, use: "Use /feature-dev workflow for structured implementation"
+- For reviews, use: "Run /code-review on the diff vs main"
+- Always include acceptance criteria so Claude Code knows when it is done

@@ -426,6 +426,90 @@ def _create_mcp_clients():
     return clients
 
 
+# ─── Claude Code SDK Tool ────────────────────────────────────────────────────
+# Agents that write code delegate to Claude Code for higher-quality implementation.
+# Claude Code reads CLAUDE.md in the repo, follows project conventions, and handles
+# complex multi-file edits better than raw shell/editor tool usage.
+
+# All agents get claude_code — even non-dev agents benefit from it for
+# reading repos, analyzing code structure, generating docs from source, etc.
+
+@tool
+def claude_code(task: str, working_directory: str = "/tmp") -> str:
+    """Delegate a coding task to Claude Code — a specialized AI coding agent.
+
+    Claude Code excels at:
+    - Cloning repos and understanding existing codebases (reads CLAUDE.md automatically)
+    - Multi-file code implementation with proper imports and types
+    - Running tests and iteratively fixing failures
+    - Git operations (branch, commit, push)
+    - Following project conventions from CLAUDE.md
+
+    WHEN TO USE: Any time you need to write/edit code, run tests, or interact with a git repo.
+    Let Claude Code handle the HOW while you handle the WHAT and WHY.
+
+    Args:
+        task: Complete description of what to implement. Include:
+              - Repo URL and branch name
+              - What to build (specific files, endpoints, features)
+              - Acceptance criteria (what success looks like)
+              - Any constraints (don't modify X, use library Y)
+        working_directory: Directory to operate in (default: /tmp)
+    """
+    import subprocess
+    import shutil
+
+    logger.info(f"[claude_code] Delegating task: {task[:150]}...")
+
+    # Ensure claude CLI is available (install if needed — first invocation only)
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        logger.info("[claude_code] Installing Claude Code CLI...")
+        try:
+            subprocess.run(
+                ["npm", "install", "-g", "@anthropic-ai/claude-code"],
+                capture_output=True, text=True, timeout=120,
+                env={**os.environ, "HOME": "/tmp"},
+            )
+            claude_bin = shutil.which("claude") or "/tmp/.npm-global/bin/claude"
+        except Exception as e:
+            return f"ERROR: Failed to install Claude Code CLI: {e}. Use shell/editor tools directly instead."
+
+    try:
+        result = subprocess.run(
+            [
+                claude_bin,
+                "--print",
+                "--output-format", "text",
+                "--max-turns", "50",
+                task,
+            ],
+            cwd=working_directory,
+            capture_output=True,
+            text=True,
+            timeout=540,  # 9 min (leave 1 min buffer for agent to process result)
+            env={
+                **os.environ,
+                "CLAUDE_CODE_ENTRYPOINT": "agentis-pipeline",
+                "HOME": "/tmp",
+            },
+        )
+
+        output = result.stdout.strip()
+        if result.returncode != 0 and result.stderr:
+            output += f"\n\nSTDERR: {result.stderr[-500:]}"
+
+        logger.info(f"[claude_code] Complete. {len(output)} chars, exit code: {result.returncode}")
+        return output if output else f"Claude Code exited with code {result.returncode}. Stderr: {result.stderr[-300:]}"
+
+    except subprocess.TimeoutExpired:
+        return "ERROR: Claude Code timed out after 540 seconds. The task may be too complex for a single delegation — break it into smaller steps."
+    except FileNotFoundError:
+        return "ERROR: 'claude' CLI not found in this environment. Falling back — use shell, editor, and file_write tools directly."
+    except Exception as e:
+        return f"ERROR invoking Claude Code: {str(e)}"
+
+
 # ─── All pipeline tools ───────────────────────────────────────────────────────
 
 LAMBDA_TOOLS = [
@@ -530,7 +614,7 @@ async def agent_invocation(payload, context):
 
     # Load built-in tools (lazy — avoids 30s init timeout)
     builtin_tools = _load_builtin_tools()
-    all_tools = builtin_tools + LAMBDA_TOOLS
+    all_tools = builtin_tools + LAMBDA_TOOLS + [claude_code]
 
     # External tools via MCP (GitHub, GitLab, Jira, Asana, etc.)
     # Strands Agent manages MCPClient lifecycle internally (start/stop)

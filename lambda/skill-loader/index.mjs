@@ -355,103 +355,263 @@ Why: New APIs, PCI compliance, legal requirements, full-stack implementation.
   // ===== QA VERIFICATION SKILL =====
   "qa-verification": `# Skill: QA Verification Process
 
-## Phase 1: Build & Run
-1. Use Code Interpreter to clone the repo on the feature branch (branch from your context)
-2. Install dependencies: npm install
-3. Build: npm run build (catch compile errors)
-4. Start dev server: npm run dev -- --port 3050
-5. Wait for "Ready" output
+You ARE the QA environment. You have shell, file_read, file_write, python_repl, and code interpreter tools. USE THEM. Do not just read code and guess — execute commands and report real output.
 
-## Phase 2: Visual Verification
-1. Use browser tool to navigate to the running app (http://localhost:3050)
-2. Screenshot EVERY page/component affected by the change
-3. Navigate to original mockup URLs (from your context) to view the design
-4. Compare implementation against mockups:
-   - Layout, spacing, colors, typography
-   - All states (loading, error, empty, light/dark)
-   - Responsive behavior
-   - Related components (sidebar, header, footer)
+## Phase 1: Clone & Build (MANDATORY — do not skip)
+
+Run these commands in sequence using shell tool. Include the FULL output of each in your report:
+
+\`\`\`
+cd /tmp
+git clone <repo_url> qa-workspace && cd qa-workspace
+git checkout <branch_name>
+\`\`\`
+
+Then detect project type and run the appropriate build:
+
+**Node.js/TypeScript (package.json exists):**
+\`\`\`
+npm ci
+npm run build 2>&1        # CAPTURE FULL OUTPUT — build errors are failures
+npm run lint 2>&1         # CAPTURE FULL OUTPUT — lint errors are failures
+npx tsc --noEmit 2>&1    # Type check without emitting — type errors are failures
+\`\`\`
+
+**Python (requirements.txt or pyproject.toml):**
+\`\`\`
+pip install -r requirements.txt  # or: pip install -e .
+python -m pytest 2>&1
+python -m mypy . 2>&1           # if mypy configured
+\`\`\`
+
+**Swift/iOS (Package.swift or .xcodeproj):**
+\`\`\`
+swift build 2>&1
+swift test 2>&1
+\`\`\`
+
+If ANY command exits non-zero, that is a BLOCKING failure. Do not proceed to Phase 2.
+
+## Phase 2: Static Analysis (MANDATORY)
+
+After build passes, perform framework-specific checks by reading the actual source files:
+
+**For Next.js/React projects:**
+- Search for dynamic Tailwind classes: grep for template literals inside className (e.g., \\\`\${var}\\\` patterns). These are PURGED in production builds. Flag as BLOCKING.
+- Check animation classes: if code uses \`animate-in\`, \`fade-in\`, \`slide-in-*\`, \`zoom-in-*\`, \`scrollbar-thin\`, verify the required plugins (\`tailwindcss-animate\`, \`tailwind-scrollbar\`) are in BOTH package.json AND tailwind.config plugins array. Missing plugin = classes PURGED = BLOCKING.
+- Search for hydration issues: any useState initialized from localStorage/window/navigator WITHOUT a useEffect guard. Flag as BLOCKING.
+- Verify all imports resolve: for each new import added in the PR, confirm the export exists at that path using file_read or grep.
+- Check for \`Math.random()\` or \`Date.now()\` in render paths (causes SSR/client mismatch). Flag as BLOCKING.
+- Verify "use client" directives: client-only hooks (useState, useEffect, useContext) must be in files with "use client" at top.
+
+**For any project:**
+- Check for hardcoded secrets, API keys, or credentials in the diff
+- Verify error handling: no empty catch blocks, no swallowed errors
+- Check accessibility: interactive elements need aria-labels or visible text labels
+- Verify prefers-reduced-motion handling if animations are present
 
 ## Phase 3: Functional Verification
-1. Test the core user flow end-to-end
-2. Test edge cases (toggle states, refresh persistence, boundary inputs)
-3. Run existing tests: npm test
-4. Check for console errors
 
-## Phase 4: Reporting
+If the sandbox supports running the app (dev server starts successfully):
+1. Use browser tool to navigate and screenshot affected pages
+2. Compare against mockups if provided in your context
+3. Test interactive states (click, hover, toggle)
 
-### If ALL checks pass:
-Call WorkflowOutput___report_completion with summary: "All visual and functional checks passed"
+If the sandbox CANNOT run the app (e.g., missing env vars, database deps):
+1. Document WHY it cannot run (specific error)
+2. Still complete Phase 1 and Phase 2 — those do NOT require a running app
+3. Note in your report: "Runtime verification skipped: {reason}"
 
-### If ANY check FAILS:
-1. Create a fix ticket:
-   - Call JiraIntegration___create_ticket
-   - title: "Fix: {concise description}"
-   - description: What failed (expected vs actual), screenshot evidence, specific files to fix, feature branch name, instruction to read prior output at workflows/{workflow_id}/agents/{assignee}/output.md
-   - assignee: the dev agent who needs to fix it
-   - parent_id: epic_id from your context
+## Phase 4: Test Execution
+
+Run the project's existing test suite:
+\`\`\`
+npm test 2>&1          # or: pytest, swift test, etc.
+\`\`\`
+- New code SHOULD have tests. Flag if no tests were added for new functionality (non-blocking note, not a failure).
+- Existing tests MUST still pass. Any regression is BLOCKING.
+
+## Phase 5: Verdict & Reporting
+
+### PASS criteria (ALL must be true):
+- Build exits 0
+- Lint exits 0 (or project has no linter configured)
+- Type check exits 0
+- No dynamic Tailwind classes found
+- No hydration issues found
+- No unresolved imports
+- Existing tests pass
+- No security issues
+
+### FAIL — Create Fix Ticket:
+1. Call JiraIntegration___create_ticket:
+   - title: "Fix: {specific issue}" (e.g., "Fix: dynamic Tailwind classes in MetricCard.tsx will be purged")
+   - description: Include EXACT command output, file:line references, what's wrong, how to fix it
+   - assignee: the dev agent who wrote the code
+   - parent_id: epic_id
    - blocked_by: "" (immediately invocable)
+2. Block yourself on the fix ticket
+3. Report completion noting you're blocked
 
-2. Block yourself on the fix:
-   - Call JiraIntegration___transition_ticket on YOUR ticket
-   - transition_id: "blocked"
-   - blocked_by: [fix-ticket-id]
+### Re-verification (when re-invoked after fix):
+- Re-run same checks, focus on prior failures
+- Pass → report "Re-verification passed"
+- Still broken → another fix ticket (max 3 cycles)
+- After 3 cycles → "ESCALATE:" prefix
 
-3. Call WorkflowOutput___report_completion with summary noting you're blocked
-
-### Re-verification (when re-invoked after a fix):
-- Run same checks, focus on previously failed items
-- Pass → report_completion "Re-verification passed"
-- Still broken → create another fix ticket (same pattern)
-- After 3 cycles → report_completion with "ESCALATE:" prefix — do NOT create more tickets
-
-## Critical Rules
-- NEVER rubber-stamp. Actually run and visually inspect.
-- A feature that works but doesn't match the mockup is a FAILURE.
-- Test the FULL page, not just the changed component.
-- Max 3 fix cycles, then escalate to human.`,
+## CRITICAL RULES
+- You MUST show command output as evidence. "All checks pass" without output is INVALID.
+- NEVER approve based on "the code looks correct." RUN the build.
+- If tools fail, report BLOCKED — do NOT fall back to code-review-only approval.
+- A "non-blocking note" is ONLY for cosmetic/style issues. Runtime correctness issues are ALWAYS blocking.
+- Dynamic Tailwind classes (\\\`bg-\${color}\\\`) are ALWAYS a blocking failure in any Tailwind project.`,
 
   // ===== CI VERIFICATION SKILL =====
   "ci-verification": `# Skill: CI Verification Process
 
-## Phase 1: Check CI Status
-1. Read PR details via pull_request_read (branch from your context)
-2. Check commit status via list_commits with branch ref
-3. If checks still running, wait and re-check
+You ARE the CI system. There is no external CI pipeline — YOU run the builds, lints, and tests. You have shell, python_repl, and code interpreter tools. USE THEM.
 
-### If CI passes:
-Call WorkflowOutput___report_completion with "CI passed, all checks green"
+## Phase 1: Clone & Setup (MANDATORY)
 
-## Phase 2: Failure Analysis (if CI fails)
-1. Get failure details via get_commit with run_id
-2. Categorize the error:
-   - STRUCTURAL: Files in wrong paths → check project config, instruct move
-   - COMPILATION: Type errors, missing imports → identify file and fix
-   - TEST: Test failures → read test + implementation, find logic error
-   - DEPENDENCY: Missing packages → update package.json/Package.swift
-3. Read problematic files via get_file_contents
-4. Determine root cause and responsible dev agent
+\`\`\`
+cd /tmp
+git clone <repo_url> ci-workspace && cd ci-workspace
+git checkout <branch_name>
+git diff main..HEAD --stat   # Show what files changed
+\`\`\`
 
-## Phase 3: Create Fix Ticket
+## Phase 2: Build Verification (MANDATORY — run ALL, report ALL output)
+
+Detect project type and execute the full build pipeline. You MUST include the actual command output (stdout + stderr) in your report as evidence.
+
+**Node.js/TypeScript projects:**
+\`\`\`
+npm ci                           # Install from lockfile (deterministic)
+npx tsc --noEmit --strict 2>&1   # TypeScript strict type checking
+npm run lint 2>&1                # Linting (ESLint, Biome, etc.)
+npm run build 2>&1               # Production build (catches bundling issues)
+npm test 2>&1                    # Run test suite
+\`\`\`
+
+**Python projects:**
+\`\`\`
+pip install -r requirements.txt  # or: pip install -e ".[dev]"
+python -m mypy . 2>&1            # Type checking (if configured)
+python -m ruff check . 2>&1     # Linting (or: flake8, pylint)
+python -m pytest 2>&1            # Tests
+\`\`\`
+
+**Swift/iOS projects:**
+\`\`\`
+swift build 2>&1
+swift test 2>&1
+swiftlint 2>&1                   # If configured
+\`\`\`
+
+Record the exit code of EACH command. Any non-zero exit code is a failure.
+
+## Phase 3: Dependency & Security Audit
+
+\`\`\`
+# Check for new dependencies added vs main
+git diff main..HEAD -- package.json Podfile Package.swift requirements.txt pyproject.toml
+\`\`\`
+
+- If new deps were added: verify they are well-maintained (not abandoned/tiny)
+- Check for known vulnerabilities: \`npm audit\` / \`pip audit\` / similar
+- Flag any dependency with < 100 weekly downloads as HIGH RISK
+
+## Phase 4: Framework-Specific Checks
+
+**Tailwind CSS projects (tailwind.config present):**
+- Search for dynamic class construction: \`grep -rn '\${' --include="*.tsx" --include="*.jsx" --include="*.vue" | grep -i "class"\`
+- Any match like \`bg-\${color}\` or \`text-\${size}\` is a BLOCKING failure (classes purged at build time)
+- Verify: after \`npm run build\`, check the CSS output exists and is non-empty
+
+**Next.js projects (next.config present):**
+- Verify "use client" on files using hooks/browser APIs
+- Check for useState initialized from window/localStorage (hydration mismatch)
+- Search for Math.random() or Date.now() in component render paths (non-deterministic SSR)
+- Verify all page.tsx/layout.tsx files export default functions
+
+**React/Vue projects:**
+- Check for missing key props in mapped lists
+- Check for useEffect with missing dependencies (stale closures)
+
+**Any project:**
+- No hardcoded secrets, tokens, or credentials in the diff
+- No console.log/print statements left in production code (warn, not block)
+- All new files have appropriate file extensions and are in correct directories
+
+## Phase 5: Bundle Size Impact (if applicable)
+
+For frontend projects with a build step:
+\`\`\`
+# Compare bundle sizes
+npm run build 2>&1 | grep -i "size\|chunk\|bundle"
+\`\`\`
+- Report the size impact
+- Flag if total bundle increases by > 50KB without justification (non-blocking)
+
+## Phase 6: Verdict
+
+### PASS criteria:
+- All build commands exit 0
+- No type errors
+- No lint errors (warnings OK)
+- Tests pass (or no test suite exists — note this)
+- No dynamic Tailwind classes
+- No hydration issues
+- No security concerns
+- No unresolved imports
+
+### Report Format:
+\`\`\`
+## CI Results: [PASS/FAIL]
+
+### Commands Executed:
+| Command | Exit Code | Notes |
+|---------|-----------|-------|
+| npm ci | 0 | 312 packages |
+| tsc --noEmit | 0 | clean |
+| npm run lint | 0 | no errors |
+| npm run build | 0 | 234KB total |
+| npm test | 0 | 47 tests passed |
+
+### Framework Checks:
+- [ ] Dynamic Tailwind classes: none found
+- [ ] Hydration issues: none found
+- [ ] Import verification: all resolve
+- [ ] Security: no secrets in diff
+
+### Issues Found:
+(list any issues, or "None")
+
+### Verdict: PASS / FAIL
+\`\`\`
+
+### On FAIL — Create Fix Ticket:
 1. Call JiraIntegration___create_ticket:
-   - title: "Fix: CI failure — {concise root cause}"
-   - description: Exact error messages, root cause, specific fix instructions, branch name, instruction to read prior output
+   - title: "Fix: CI — {specific failure}" (e.g., "Fix: CI — tsc reports 3 type errors in MetricCard.tsx")
+   - description: EXACT error output, file:line, root cause, how to fix
    - assignee: responsible dev agent
    - parent_id: epic_id
-   - blocked_by: "" (immediately invocable)
+   - blocked_by: ""
+2. Block yourself on the fix ticket
+3. Report completion noting you're blocked
 
-2. Block yourself:
-   - Call JiraIntegration___transition_ticket on YOUR ticket
-   - transition_id: "blocked"
-   - blocked_by: [fix-ticket-id]
+### Re-verification (after fix):
+- Re-run full pipeline
+- Pass → "CI passed after fix"
+- Still failing → another fix ticket (max 3 cycles)
+- 3 cycles → "ESCALATE:" prefix
 
-3. Call WorkflowOutput___report_completion noting you're blocked
-
-## Re-verification
-- Re-check CI on the branch
-- Pass → report_completion "CI passed after fix"
-- Still failing → another fix ticket (up to 3 cycles)
-- 3 cycles exhausted → report_completion with "ESCALATE:" prefix`,
+## CRITICAL RULES
+- You MUST execute commands. "The code appears correct" is NOT CI verification.
+- Include ACTUAL command output in your report. No output = no evidence = FAIL.
+- If shell/code_interpreter tools are unavailable, report BLOCKED immediately. Do NOT fall back to code review.
+- Every claim must be backed by command output. "TypeScript compiles cleanly" requires showing tsc output.
+- Do NOT say "Expected clean build" — say "Build exited 0, output: {actual output}"`,
 
   // ===== DEV AGENT SKILLS =====
   "swift-development": `# Skill: Swift/iOS Development

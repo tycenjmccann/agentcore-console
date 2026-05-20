@@ -59,14 +59,31 @@ OUTPUT=$(agentcore deploy \
   --env "ARTIFACT_BUCKET=agentcore-artifacts-023392223961-us-east-1" \
   --env "SYSTEM_PROMPT=${SYSTEM_PROMPT}" \
   ${MCP_ENV} 2>&1)
+DEPLOY_EXIT=$?
 
-ARN=$(echo "$OUTPUT" | grep -o 'arn:aws:bedrock-agentcore:[^"]*runtime/[^"[:space:]]*' | head -1)
+# Check deploy exit code first, then verify via agentcore status
+if [ $DEPLOY_EXIT -ne 0 ]; then
+  # Check if it's a real error or just a non-zero exit with successful update
+  if echo "$OUTPUT" | grep -qi "error\|failed\|exception"; then
+    echo "FAIL $AGENT_NAME (deploy error, exit=$DEPLOY_EXIT)"
+    echo "$OUTPUT" | grep -i "error\|fail\|Exception" | tail -5 >&2
+    rm -rf "$DEPLOY_DIR"
+    exit 1
+  fi
+fi
 
-if [ -n "$ARN" ]; then
-  echo "OK $AGENT_NAME $ARN"
+# Verify deployment via status (reliable regardless of deploy output format)
+STATUS_OUTPUT=$(agentcore status 2>&1)
+if echo "$STATUS_OUTPUT" | grep -q "READY\|CREATE_COMPLETE\|UPDATE_COMPLETE"; then
+  # Try to extract ARN from status or deploy output
+  ARN=$(echo "$OUTPUT" | grep -o 'arn:aws:bedrock-agentcore:[^"]*runtime/[^"[:space:]]*' | head -1)
+  if [ -z "$ARN" ]; then
+    ARN=$(echo "$STATUS_OUTPUT" | grep -o 'arn:aws:bedrock-agentcore:[^"]*runtime/[^"[:space:]]*' | head -1)
+  fi
+  echo "OK $AGENT_NAME ${ARN:-deployed}"
 else
-  echo "FAIL $AGENT_NAME"
-  echo "$OUTPUT" | grep -i "error\|fail\|Exception" | tail -3 >&2
+  echo "FAIL $AGENT_NAME (status check failed)"
+  echo "$OUTPUT" | tail -5 >&2
 fi
 
 rm -rf "$DEPLOY_DIR"
