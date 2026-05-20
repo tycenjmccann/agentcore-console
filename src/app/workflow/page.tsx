@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Search, Plus, Play, Radio } from "lucide-react";
+import { Search, Plus, Play, Radio, Workflow, GitBranch } from "lucide-react";
 import WorkflowBoard from "@/components/workflow/WorkflowBoard";
 import IntakeForm from "@/components/workflow/IntakeForm";
 import type { WorkflowState, WorkflowInput } from "@/lib/workflow/types";
@@ -184,9 +184,37 @@ export default function WorkflowPage() {
             </div>
           )}
 
+          {/* Sidebar Empty State */}
           {filtered.length === 0 && (
-            <div className="p-4 text-center text-xs text-[var(--color-text-muted)]">
-              {searchQuery ? "No matching workflows" : "No workflows yet"}
+            <div className="p-4 flex flex-col items-center text-center">
+              {searchQuery ? (
+                /* Search active but no results */
+                <div className="py-4">
+                  <Search className="w-8 h-8 text-[var(--color-text-muted)] mx-auto mb-2 opacity-50" />
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    No workflows matching &ldquo;{searchQuery}&rdquo;
+                  </p>
+                </div>
+              ) : (
+                /* No workflows exist — product-contextual empty state */
+                <div className="py-6 px-2">
+                  <div className="w-12 h-12 rounded-full bg-blue-600/10 flex items-center justify-center mx-auto mb-3">
+                    <Workflow className="w-6 h-6 text-blue-400" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-1.5">
+                    Autonomous Development Pipeline
+                  </h3>
+                  <p className="text-[11px] leading-relaxed text-[var(--color-text-muted)] mb-4">
+                    Submit a feature request and watch 13 AI agents deliver requirements, design, code, and QA — autonomously.
+                  </p>
+                  <button
+                    onClick={handleNewWorkflow}
+                    className="w-full px-3 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-500 transition-colors"
+                  >
+                    New Workflow
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -201,15 +229,16 @@ export default function WorkflowPage() {
         ) : selectedId ? (
           <WorkflowBoard workflowId={selectedId} />
         ) : (
+          /* Main Area Empty State — No Workflow Selected */
           <div className="flex flex-col items-center justify-center h-full text-center p-8">
             <div className="w-16 h-16 rounded-full bg-blue-600/10 flex items-center justify-center mb-4">
-              <Play className="w-7 h-7 text-blue-400" />
+              <GitBranch className="w-7 h-7 text-blue-400" />
             </div>
             <h3 className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">
-              Select a workflow or start a new one
+              Select a workflow to view its pipeline
             </h3>
-            <p className="text-sm text-[var(--color-text-muted)] max-w-md mb-4">
-              Choose a past run from the sidebar to view its pipeline state, or create a new workflow to watch agents work in real-time.
+            <p className="text-sm text-[var(--color-text-muted)] max-w-md mb-6">
+              Watch agents work through requirements, design, development, and QA in real-time
             </p>
             <button
               onClick={handleNewWorkflow}
