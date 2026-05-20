@@ -5,7 +5,7 @@
  * Tools: submit_ticket_plan, save_design_doc, report_completion
  */
 
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 
@@ -54,6 +54,16 @@ async function saveDesignDoc({ workflow_id, agent_id, title, content, format = "
     Body: content,
     ContentType: format === "json" ? "application/json" : "text/markdown",
   }));
+  // Update manifest with design doc reference
+  if (workflow_id && agent_id) {
+    try {
+      await updateManifest(workflow_id, agent_id, [{
+        type: "design-doc", format: format === "json" ? "json" : "markdown",
+        description: title || "Design document", s3Key: sharedKey, addedBy: agent_id, critical: true,
+      }]);
+    } catch { /* non-fatal */ }
+  }
+
   return {
     status: "saved",
     location: `s3://${BUCKET}/${key}`,
@@ -137,6 +147,33 @@ async function reportCompletion({ ticket_id, summary, artifacts = "", branch, co
     }
   }
 
+  // 4. Update manifest with agent outputs (PR, branch, artifacts)
+  if (workflowId) {
+    try {
+      const ticketResult = await ddb.send(new GetCommand({
+        TableName: TICKETS_TABLE,
+        Key: { ticketId: ticket_id },
+        ProjectionExpression: "assignee",
+      }));
+      const agentId = ticketResult.Item?.assignee || "unknown";
+      const manifestEntries = [];
+      if (pr_url) {
+        manifestEntries.push({ type: "code", format: "text", description: `Pull Request: ${pr_url}`, s3Key: `completions/${ticket_id}.json`, addedBy: agentId, critical: true });
+      }
+      if (branch) {
+        manifestEntries.push({ type: "code", format: "text", description: `Branch: ${branch}${commit_sha ? ` (commit: ${commit_sha})` : ""}`, s3Key: `completions/${ticket_id}.json`, addedBy: agentId });
+      }
+      if (summary) {
+        manifestEntries.push({ type: "report", format: "markdown", description: `${agentId} completion summary`, s3Key: `completions/${ticket_id}.json`, addedBy: agentId });
+      }
+      if (manifestEntries.length > 0) {
+        await updateManifest(workflowId, agentId, manifestEntries);
+      }
+    } catch (err) {
+      console.warn(`[report_completion] Manifest update failed (non-fatal): ${err.message}`);
+    }
+  }
+
   return {
     status: "complete",
     message: `Ticket ${ticket_id} marked done. Orchestrator will unblock dependents.`,
@@ -154,6 +191,50 @@ async function findWorkflowForTicket(ticketId) {
   } catch {
     return null;
   }
+}
+
+// ─── Manifest Updates ──────────────────────────────────────────────────────────
+
+const PHASE_MAP = {
+  "team-requirements-analyst": "requirements",
+  "team-frontend-designer": "design", "team-ios-designer": "design",
+  "team-backend-designer": "design", "team-android-designer": "design",
+  "team-security-reviewer": "design", "team-legal-compliance": "design",
+  "team-localization": "design", "team-analytics-designer": "design",
+  "team-frontend-dev": "development", "team-backend-dev": "development",
+  "team-api-dev": "development",
+  "team-qa-verifier": "verification", "team-ci-agent": "verification",
+};
+
+async function updateManifest(workflowId, agentId, entries) {
+  if (!workflowId || !entries || entries.length === 0) return;
+  const manifestKey = `workflows/${workflowId}/shared/manifest.json`;
+  let manifest;
+  try {
+    const result = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: manifestKey }));
+    manifest = JSON.parse(await result.Body.transformToString());
+  } catch {
+    manifest = {
+      workflowId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      phases: { intake: [], requirements: [], design: [], development: [], verification: [] },
+    };
+  }
+
+  const phase = PHASE_MAP[agentId] || "development";
+  const now = new Date().toISOString();
+  const newEntries = entries.map((e, i) => ({ id: `${phase}-${Date.now().toString(36)}-${i}`, addedAt: now, ...e }));
+  manifest.phases[phase] = [...(manifest.phases[phase] || []), ...newEntries];
+  manifest.updatedAt = now;
+
+  await s3.send(new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: manifestKey,
+    Body: JSON.stringify(manifest, null, 2),
+    ContentType: "application/json",
+  }));
+  console.log(`[manifest] Added ${newEntries.length} entries to ${phase} for ${workflowId}`);
 }
 
 const TOOLS = {

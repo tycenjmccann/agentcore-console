@@ -112,6 +112,15 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         .then((r) => r.json())
         .then((data) => {
           if (data && data.id) {
+            // Re-key agentTasks from ticket IDs (DDB) to agentIds (UI expects)
+            if (data.agentTasks) {
+              const reKeyed: Record<string, typeof data.agentTasks[string]> = {};
+              for (const [key, task] of Object.entries(data.agentTasks) as [string, { agentId?: string }][]) {
+                const id = task.agentId || key;
+                reKeyed[id] = task;
+              }
+              data.agentTasks = reKeyed;
+            }
             // Only set state from poll if NOT in replay mode and not catching up
             if (!replayMode && !catchingUp) setState(data);
             if (isFirstFetch) {
@@ -332,6 +341,13 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       let s: WorkflowState = { ...baseState, phase: "requirements", agentTasks: {} };
       for (let i = 0; i <= replayIndex && i < replayEvents.length; i++) {
         s = applyEventToState(s, replayEvents[i]);
+      }
+      // Merge DDB outputs into replay state (events don't carry output text)
+      const savedOutputs = originalOutputsRef.current;
+      for (const [agentId, output] of Object.entries(savedOutputs)) {
+        if (s.agentTasks[agentId] && !s.agentTasks[agentId].output) {
+          s.agentTasks[agentId] = { ...s.agentTasks[agentId], output };
+        }
       }
       return s;
     });

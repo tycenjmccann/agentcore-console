@@ -243,6 +243,11 @@ async function handleTicketReady(ticketId, image) {
   // No concurrency guard — same agent can run multiple tickets in parallel.
   // Each ticket gets its own AgentCore Runtime session.
 
+  // Ensure manifest exists (initializes on first agent invocation)
+  try { await initManifestIfNeeded(workflow); } catch (err) {
+    console.warn(`[orchestrator] Manifest init failed (non-fatal): ${err.message}`);
+  }
+
   // Advance phase if needed
   const phaseOrder = ["intake", "requirements", "design", "development", "verification", "review", "complete"];
   const agentPhaseIdx = phaseOrder.indexOf(agentDef.phase);
@@ -563,6 +568,14 @@ async function buildAgentContext(ticket, workflow) {
   context += `- Shared artifacts: workflows/${workflow.id}/shared/\n`;
   context += `- Your agent workspace: workflows/${workflow.id}/agents/${ticket.assignee}/\n\n`;
 
+  // Workflow manifest — upstream artifacts, canonical repo, PR/branch info
+  try {
+    const manifest = await readManifest(workflow.id);
+    if (manifest) {
+      context += buildManifestContext(manifest, agentDef?.phase || "development", workflow, ticket);
+    }
+  } catch { /* manifest read failed — non-fatal */ }
+
   // Dev agents: branch info and design artifacts
   if (agentDef?.phase === "development") {
     const baseBranch = workflow.featureBranch || workflow.repoConfig?.repos?.[0]?.defaultBranch || "main";
@@ -677,6 +690,105 @@ async function readS3Artifact(workflowId, path) {
   } catch {
     return null;
   }
+}
+
+// ─── Manifest Helpers ──────────────────────────────────────────────────────────
+
+async function readManifest(workflowId) {
+  const raw = await readS3Artifact(workflowId, "shared/manifest.json");
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+async function initManifestIfNeeded(workflow) {
+  if (!ARTIFACT_BUCKET) return;
+  const existing = await readManifest(workflow.id);
+  if (existing) return; // Already initialized
+
+  const manifest = {
+    workflowId: workflow.id,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    repoConfig: workflow.repoConfig,
+    phases: { intake: [], requirements: [], design: [], development: [], verification: [] },
+  };
+
+  // Seed intake entries from workflow input sources (if any)
+  if (workflow.input?.sources?.length > 0) {
+    manifest.phases.intake = workflow.input.sources
+      .filter(s => s.s3Key)
+      .map((src, i) => ({
+        id: `intake-${i}-${Date.now().toString(36)}`,
+        type: "source",
+        format: src.contentType?.includes("html") ? "html" : "text",
+        description: src.label || src.value || `Source ${i}`,
+        s3Key: src.s3Key,
+        addedBy: "intake-processor",
+        addedAt: manifest.createdAt,
+        critical: true,
+      }));
+  }
+
+  await s3.send(new PutObjectCommand({
+    Bucket: ARTIFACT_BUCKET,
+    Key: `workflows/${workflow.id}/shared/manifest.json`,
+    Body: JSON.stringify(manifest, null, 2),
+    ContentType: "application/json",
+  }));
+  console.log(`[orchestrator] Initialized manifest for ${workflow.id}`);
+}
+
+function buildManifestContext(manifest, agentPhase, workflow, ticket) {
+  if (!manifest) return "";
+
+  const phaseOrder = ["intake", "requirements", "design", "development", "verification"];
+  const currentIdx = phaseOrder.indexOf(agentPhase);
+  if (currentIdx < 0) return "";
+
+  let ctx = `## Workflow Manifest — Upstream Artifacts\n\n`;
+
+  // Canonical repo info from manifest (single source of truth)
+  if (manifest.repoConfig?.repos?.length > 0) {
+    const url = manifest.repoConfig.repos[0].url || "";
+    const match = url.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
+    if (match) {
+      ctx += `### Repository (CANONICAL — use these values for ALL GitHub operations)\n`;
+      ctx += `- owner: "${match[1]}"\n- repo: "${match[2]}"\n`;
+      ctx += `- default_branch: "${manifest.repoConfig.repos[0].defaultBranch || "main"}"\n\n`;
+    }
+  }
+
+  // List upstream artifacts by phase
+  for (const phase of phaseOrder) {
+    if (phaseOrder.indexOf(phase) >= currentIdx) break;
+    const entries = manifest.phases?.[phase] || [];
+    if (entries.length === 0) continue;
+
+    ctx += `### ${phase.charAt(0).toUpperCase() + phase.slice(1)} Phase Outputs\n`;
+    for (const entry of entries) {
+      const tag = entry.critical ? "★ " : "";
+      ctx += `- ${tag}${entry.description}`;
+      if (entry.s3Key) ctx += ` → s3://${ARTIFACT_BUCKET}/${entry.s3Key}`;
+      ctx += `\n`;
+    }
+    ctx += `\n`;
+  }
+
+  // For QA/CI agents: inject upstream dev agent PR/branch info directly
+  if (agentPhase === "verification" || agentPhase === "review") {
+    const devEntries = manifest.phases?.development || [];
+    const prEntries = devEntries.filter(e => e.description?.includes("Pull Request"));
+    const branchEntries = devEntries.filter(e => e.description?.includes("Branch:"));
+    if (prEntries.length > 0 || branchEntries.length > 0) {
+      ctx += `### Code to Review (from Development Phase)\n`;
+      ctx += `IMPORTANT: Review the code on these branches/PRs. Do NOT search for other repos or branches.\n`;
+      for (const e of prEntries) ctx += `- ${e.description}\n`;
+      for (const e of branchEntries) ctx += `- ${e.description}\n`;
+      ctx += `\n`;
+    }
+  }
+
+  return ctx;
 }
 
 // ─── GitHub Lambda Helper ──────────────────────────────────────────────────────

@@ -22,7 +22,7 @@
 set -e
 
 BASE_URL="${BASE_URL:-http://localhost:3000}"
-REPO_URL="${REPO_URL:-https://github.com/tycen-io/agentis-hub}"
+REPO_URL="${REPO_URL:-https://github.com/tycenjmccann/agentcore-console}"
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
