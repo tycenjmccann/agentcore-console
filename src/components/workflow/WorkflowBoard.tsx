@@ -7,6 +7,11 @@ import type {
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
+import { useViewportMode } from "@/hooks/useViewportMode";
+import ViewToggleButton from "./ViewToggleButton";
+import CompactPipelineView from "./CompactPipelineView";
+import ResponsivePipelineWrapper from "./ResponsivePipelineWrapper";
+import "./compact-pipeline.css";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -43,6 +48,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const toolFlashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const eventSourceRef = useRef<EventSource | null>(null);
   const pipelineRef = useRef<HTMLDivElement>(null);
+
+  // ─── Viewport Mode ───────────────────────────────────────────────────────
+  const { viewMode, toggleView, isAutoDetected, isMobile } = useViewportMode();
 
   // Fetch initial state + poll every 3s
   useEffect(() => {
@@ -257,10 +265,18 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     );
   }
 
-  return (
-    <div className={celebrating ? "celebrate-wrapper" : ""}>
-      <style dangerouslySetInnerHTML={{ __html: PIPELINE_STYLES }} />
+  // ─── Compact View (same data, no separate subscription) ─────────────────
+  const compactViewElement = (
+    <CompactPipelineView
+      state={state}
+      streamingText={streamingText}
+      isMobile={isMobile}
+    />
+  );
 
+  // ─── Full View (original 1720px pipeline, unchanged) ────────────────────
+  const fullViewElement = (
+    <div className={celebrating ? "celebrate-wrapper" : ""}>
       <div className="pipeline-viz">
         <div className="pipeline-title">Agentis Hub</div>
         <div className="pipeline-subtitle">Autonomous Multi-Agent Development Pipeline</div>
@@ -509,11 +525,37 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       </div>
     </div>
   );
+
+  return (
+    <div className="workflow-board-container">
+      <style dangerouslySetInnerHTML={{ __html: PIPELINE_STYLES }} />
+
+      {/* View Toggle Header */}
+      <div className="workflow-board-header">
+        <ViewToggleButton
+          viewMode={viewMode}
+          onToggle={toggleView}
+          isAutoDetected={isAutoDetected}
+        />
+      </div>
+
+      {/* Responsive Pipeline View */}
+      <ResponsivePipelineWrapper
+        viewMode={viewMode}
+        compactView={compactViewElement}
+      >
+        {fullViewElement}
+      </ResponsivePipelineWrapper>
+    </div>
+  );
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const PIPELINE_STYLES = `
+.workflow-board-container{width:100%;min-height:100%}
+.workflow-board-header{display:flex;align-items:center;justify-content:flex-end;padding:8px 16px;position:sticky;top:0;z-index:20;background:rgba(15,20,25,0.95);backdrop-filter:blur(8px);border-bottom:1px solid #1e293b}
+
 .pipeline-viz{display:flex;flex-direction:column;align-items:center;min-height:100vh;overflow-x:auto;padding:14px 20px;background:#0f1419;color:#e2e8f0;font-family:"Segoe UI",system-ui,sans-serif}
 .pipeline-title{font-size:28px;font-weight:700;background:linear-gradient(90deg,#0ea5e9,#38bdf8,#0ea5e9);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 3s linear infinite;margin-bottom:3px}
 .pipeline-subtitle{font-size:12px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px}
