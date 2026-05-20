@@ -5,12 +5,15 @@ import {
   ArrowLeft, Bot, Brain, Cpu, Server, Wrench, Send, User, Plus, Clock,
   MessageSquare, Loader2, Terminal, Zap, ChevronRight, ChevronDown,
   Activity, CheckCircle2, Database, Code2, Play, AlertTriangle, ExternalLink, RefreshCw,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { streamAgentInvocation, AgentInfo, TraceEvent } from "@/lib/agentcore-stream";
 import { cachedFetch, getCached, getClientRegion } from "@/lib/client-cache";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
 interface AgentDetail {
   id: string;
@@ -111,7 +114,22 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
 
 function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
   const [expanded, setExpanded] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const router = useRouter();
 
+  const handleDeleteConfirm = useCallback(async () => {
+    try {
+      await fetch(`/api/agentcore/agents?id=${agent.id}`, {
+        method: "DELETE",
+        headers: { "x-aws-region": getClientRegion() },
+      });
+    } catch {
+      // Continue navigation even if delete API fails (placeholder behavior)
+    }
+    setShowDeleteDialog(false);
+    router.push("/agents");
+  }, [agent.id, router]);
 
   return (
     <div className="card !py-3 !px-4">
@@ -146,6 +164,15 @@ function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
           </div>
           <p className="text-[10px] text-gray-600 font-mono">{agent.arn}</p>
         </div>
+
+        <button
+          ref={deleteButtonRef}
+          onClick={() => setShowDeleteDialog(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 bg-red-600/10 border border-red-600/30 rounded-lg hover:bg-red-600/20 transition-colors"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          Delete Agent
+        </button>
 
         <button
           onClick={() => setExpanded(!expanded)}
@@ -206,6 +233,17 @@ function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={showDeleteDialog}
+        onClose={() => setShowDeleteDialog(false)}
+        onConfirm={handleDeleteConfirm}
+        variant="danger"
+        title="Delete Agent"
+        message={`Are you sure you want to delete ${agent.name}? This action cannot be undone.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+      />
     </div>
   );
 }
