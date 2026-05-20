@@ -223,7 +223,8 @@ async function invokeHarnessAgent(harnessArn, sessionId, prompt, workflowId, age
  * These agents control their own botocore read_timeout (set to 600s in main.py),
  * so Opus 4.7 can think as long as it needs without being killed.
  *
- * The Runtime agent expects payload: { prompt, system_prompt, workflow_id, agent_id, model_override }
+ * The Runtime agent expects payload: { prompt, workflow_id, agent_id, model_override }
+ * Note: system_prompt is NOT passed — it's baked into the agent at deploy time via env var.
  * It returns a streaming response (SSE chunks).
  */
 async function invokeRuntimeAgent(runtimeArn, sessionId, prompt, workflowId, agentId, modelOverride) {

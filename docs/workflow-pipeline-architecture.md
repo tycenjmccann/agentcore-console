@@ -1,0 +1,1027 @@
+# Workflow Pipeline — Architecture & Decision Log
+
+> **Purpose**: Single source of truth for architecture decisions in the workflow pipeline. Prevents circular revisiting of solved problems.
+>
+> **Component**: `src/components/workflow/WorkflowBoard.tsx` + backend event system
+> **Runtime**: `deploy/runtime-agent/main.py` (all 13 agents)
+> **Orchestrator (Lambda mode)**: `lambda/orchestrator/index.mjs` (Stream handler) + `agent-invoker.mjs`
+> **Orchestrator (in-process mode)**: `src/lib/workflow/engine.ts`
+> **Mode switch**: `ORCHESTRATION_MODE=lambda|in-process` (env var)
+
+---
+
+## Current Architecture (as of 2026-05-19)
+
+### Mode: In-Process (ORCHESTRATION_MODE=in-process, default)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        FRONTEND (Next.js)                        │
+│                                                                   │
+│  WorkflowBoard.tsx ─── polls /api/workflow/[id]/stream (1s) ──┐  │
+│       │                                                        │  │
+│       └── Applies CSS classes: .working, .trigger, .done       │  │
+└────────────────────────────────────────────────────────────────┼──┘
+                                                                 │
+                              DynamoDB                            │
+                         ┌─────────────────┐                     │
+                         │  agentis-events  │ ◄──── polled ──────┘
+                         └────────┬────────┘
+                                  │ written by:
+                    ┌─────────────┼─────────────────┐
+                    │             │                   │
+              Runtime Agent   Runtime Agent     Orchestrator
+              (agent.started) (agent.streaming)  (agent.complete)
+              (tool_use)      (trace events)     (workflow.*)
+```
+
+### Mode: Lambda (ORCHESTRATION_MODE=lambda, target for production)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          FRONTEND (Next.js) — READ ONLY                       │
+│  WorkflowBoard.tsx ─── polls agentis-events table (1s) ───────────────────┐  │
+│  /api/workflow/start ─── creates skeletons + writes to agentis-workflows   │  │
+└────────────────────────────────────────────────────────────────────────────┼──┘
+                                                                             │
+         ┌───────────── DynamoDB ────────────────┐                           │
+         │                                        │                           │
+         │  agentis-tickets (+ Stream enabled)    │                           │
+         │  ┌──────────────────────────────────┐  │                           │
+         │  │ TEAM-1 epic (in_progress)         │  │                           │
+         │  │ TEAM-2 requirements (todo) ─────────────► Stream fires           │
+         │  │ TEAM-3 backend-designer (blocked) │  │         │                 │
+         │  │ TEAM-4 security-reviewer (blocked)│  │         │                 │
+         │  │ ...                               │  │         ▼                 │
+         │  └──────────────────────────────────┘  │  ┌──────────────────┐     │
+         │                                        │  │ Orchestrator      │     │
+         │  agentis-workflows                     │  │ Lambda (index.mjs)│     │
+         │  ┌──────────────────────────────────┐  │  │                  │     │
+         │  │ wf_xxx: epicId, agentTasks, ...   │  │  │ • handleTicketDone│     │
+         │  └──────────────────────────────────┘  │  │ • handleTicketReady    │
+         │                                        │  │ • unblock deps    │     │
+         │  agentis-events ◄───────────────────────────── publish events─┼─────┘
+         │  ┌──────────────────────────────────┐  │  └────────┬─────────┘
+         │  │ agent.started, agent.complete,    │  │           │
+         │  │ workflow.phase_change, ...        │  │           │ async invoke
+         │  └──────────────────────────────────┘  │           ▼
+         └────────────────────────────────────────┘  ┌──────────────────┐
+                                                     │ Agent Invoker     │
+                                                     │ Lambda            │
+                                                     │ (agent-invoker.mjs)
+                                                     │                  │
+                                                     │ • invoke Runtime │
+                                                     │ • write output S3│
+                                                     │ • mark "done" ───┼──► Stream fires again
+                                                     └──────────────────┘
+```
+
+**Key difference**: In Lambda mode, the Next.js app is READ-ONLY after the initial `startWorkflow` call. It only:
+1. Creates ticket skeletons + workflow metadata (one-time write)
+2. Polls events table for UI updates (read-only)
+
+All orchestration decisions happen in the Lambda, triggered by DynamoDB Streams.
+
+### Mode: Replay (completed workflows)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        FRONTEND (Next.js)                             │
+│                                                                       │
+│  WorkflowBoard.tsx ─── GET /api/workflow/[id]/events (one-shot) ──┐  │
+│       │                                                            │  │
+│       ├── replayEvents[] = full event array (ordered)              │  │
+│       ├── replayIndex = current position in timeline               │  │
+│       ├── applyEventToState(0→replayIndex) → reconstruct state    │  │
+│       ├── fireReplayVisuals(event) → tool flashes, connectors     │  │
+│       └── Scrubber: play/pause, seek, speed (1x–50x)              │  │
+└────────────────────────────────────────────────────────────────────┼──┘
+                                                                     │
+                              DynamoDB                                │
+                         ┌─────────────────┐                         │
+                         │  agentis-events  │ ◄──── one-shot fetch ──┘
+                         │  (all events     │       (paginated, no SSE)
+                         │   for workflow)  │
+                         └─────────────────┘
+```
+
+**Key**: No SSE, no polling. Single fetch of all events, then client-side replay with timestamp-based pacing.
+
+### Mode: Catch-Up Replay (live/in-progress workflows)
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                        FRONTEND (Next.js)                                   │
+│                                                                             │
+│  WorkflowBoard.tsx                                                          │
+│       │                                                                     │
+│       ├── Phase 1: GET /api/workflow/[id]/events (one-shot, all history)    │
+│       │   └── replayEvents[] + lastEventId stored                          │
+│       │                                                                     │
+│       ├── Phase 2: Catch-up replay at 20x (same logic as completed replay) │
+│       │   └── "Catching up..." indicator, progress bar                     │
+│       │                                                                     │
+│       └── Phase 3: SSE connects with ?cursor=lastEventId (live mode)       │
+│           └── handleEvent() applies new events on top of catch-up state    │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key**: Two-phase load — fast visual catch-up using historical events, then seamless handoff to live SSE. No duplicate events because SSE starts from the last replayed eventId cursor.
+
+### Event Flow
+
+1. **Orchestrator Lambda** invokes Runtime agent via `invoke_async` (non-streaming HTTPS)
+2. **Runtime agent** publishes `agent.started` immediately on invocation (DynamoDB direct)
+3. **Runtime agent** uses `ToolTrackingHandler` callback to publish `agent.streaming` trace events (tool_use) directly to DynamoDB on each tool invocation
+4. **Runtime agent** completes → returns final response to orchestrator
+5. **Orchestrator** publishes `agent.complete` event to DynamoDB
+6. **Frontend** polls events table every 1s, applies CSS animations
+
+### Event Types
+
+| Event | Published By | Triggers |
+|-------|-------------|----------|
+| `agent.started` | Runtime agent (main.py) | Agent box → `.working` (pulsing) |
+| `agent.streaming` (type=trace) | Runtime agent callback | Tool item → `.trigger` (flash) |
+| `agent.complete` | Orchestrator Lambda | Agent box → `.done` (green) |
+| `workflow.phase_change` | Orchestrator Lambda | Phase transition animation |
+| `workflow.complete` | Orchestrator Lambda | Celebration burst |
+
+---
+
+## Decision Log
+
+### DL-001: Non-Streaming Agent Invocation
+
+**Date**: 2026-05-12 (commit `f311ed5`)
+**Decision**: Switch from streaming SSE to `invoke_async` (non-streaming buffered invocation)
+**Status**: ACTIVE
+
+**Context**: Agents were originally invoked with streaming SSE responses. When an agent calls a tool (e.g., GitHub MCP, S3), the agent pauses output while waiting for the tool response. During this pause, no bytes flow on the SSE connection.
+
+**Problem**: AgentCore's load balancer enforces a ~120-second idle timeout on SSE connections. When an agent calls a tool that takes >120s (common with Opus 4.6 doing complex code generation via GitHub MCP), the LB kills the connection. The orchestrator sees a `ReadTimeoutError` and retries, causing duplicate work or failures.
+
+**Solution**: Use `invoke_async` which buffers the entire agent response internally. The agent still streams internally (tool calls happen normally), but the response is delivered as one final payload. No idle connection = no LB timeout.
+
+**Why not just increase the timeout?**: The 120s idle timeout is infrastructure-level (AgentCore LB), not configurable by customers. Even if it were, tool calls can legitimately take 5-10 minutes (complex code generation, large file reads).
+
+**Trade-off**: We lose real-time streaming of agent "thinking" text. Accepted because:
+- Tool events are the primary UI signal (handled separately via DL-002)
+- Agent text output is consumed after completion anyway (written to S3/tickets)
+- Close-laptop-reconnect is more important than live text streaming
+
+---
+
+### DL-002: DynamoDB Events Table for State Persistence
+
+**Date**: 2026-05-14
+**Decision**: Add `agentis-events` DynamoDB table as the single source of truth for all pipeline events
+**Status**: ACTIVE
+
+**Context**: Original architecture used in-memory SSE subscribers (see `route-in-process.ts`). If the browser disconnected or the Next.js server restarted, all event history was lost. Users closing their laptop and reopening would see a blank state.
+
+**Problem**:
+1. No reconnection — close laptop, lose all context
+2. No replay — can't reconstruct what happened during disconnect
+3. Stateful server — Next.js process holds subscriber state, can't scale horizontally
+
+**Solution**: All events written to DynamoDB with `workflowId` (partition key) + `eventId` (sort key, timestamp-based). Frontend polls with `lastEventId` cursor to get only new events. On reconnect, fetches all events from beginning and replays them to reconstruct UI state.
+
+**Architecture properties**:
+- **Stateless frontend**: Any browser can poll and reconstruct full state
+- **Stateless backend**: Next.js API route is a pure DynamoDB read proxy
+- **Durable history**: Complete audit trail of every agent action
+- **Scalable**: Multiple frontends can poll simultaneously
+
+**Table schema**:
+```
+PK: workflowId (S)
+SK: eventId (S) — format: "{timestamp_ms}-{random_4char}"
+GSI: none (single-workflow queries only)
+TTL: expiresAt (7 days)
+```
+
+---
+
+### DL-003: Runtime Agent Self-Publishing Events
+
+**Date**: 2026-05-19
+**Decision**: Runtime agents publish `agent.started` and `tool_use` events directly to DynamoDB (not via orchestrator)
+**Status**: ACTIVE
+
+**Context**: With non-streaming invocation (DL-001), the orchestrator only receives the final response. It cannot publish real-time events during execution because it's blocked waiting for the response.
+
+**Problem**: UI showed no activity between agent start and completion. No pulsing, no tool flashes. Made it look frozen/broken.
+
+**Solution**: The Runtime agent code (`main.py`) publishes events directly to DynamoDB:
+1. `_publish_agent_started()` — called immediately when agent begins processing
+2. `ToolTrackingHandler` callback — publishes `agent.streaming` trace event on every tool invocation
+
+**Implementation**:
+```python
+class ToolTrackingHandler:
+    def __call__(self, **kwargs):
+        current_tool_use = kwargs.get("current_tool_use", {})
+        if current_tool_use and current_tool_use.get("name"):
+            # Publish directly to DynamoDB events table
+            _ddb_events_client.put_item(...)
+```
+
+**Trade-off**: Agents need DynamoDB write permissions + EVENTS_TABLE env var. Accepted because agents already have IAM roles with DynamoDB access for ticket operations.
+
+---
+
+### DL-004: Close-Laptop-Reconnect Architecture
+
+**Date**: 2026-05-14
+**Decision**: Frontend is fully stateless and reconstructs from events table on reconnect
+**Status**: ACTIVE
+
+**Behavior**:
+1. User closes laptop (SSE poll stops)
+2. Agents continue running (fire-and-forget Lambda invocations)
+3. Events accumulate in DynamoDB
+4. User reopens laptop → frontend reconnects
+5. Frontend fetches ALL events for workflow from DynamoDB
+6. Replays events in order → reconstructs exact current state
+7. Resumes live polling from latest cursor
+
+**Why this works**: Every state transition is an event. The UI is a pure function of events. No server-side session needed.
+
+---
+
+## Research: Can Streaming Be Re-Enabled?
+
+**Date**: 2026-05-19
+**Conclusion**: NO. Streaming cannot replace the current approach. The 120s idle timeout is a hard infrastructure constraint that cannot be worked around with keepalives or any client-side technique. The current architecture (non-streaming + DynamoDB side-channel) is the minimal correct solution.
+
+---
+
+### The Core Question
+
+Can we simplify by enabling streaming on Runtime agents and letting the orchestrator parse tool events from the stream (like it already does for Harness agents) — eliminating the custom `ToolTrackingHandler` callback and direct DynamoDB writes from the agent?
+
+### Answer: No, because of what happens during tool execution
+
+```
+Timeline of a streaming agent calling a tool:
+
+0s     ─── Agent starts, yields tokens ("Let me check the repo...") ───► bytes flowing
+3s     ─── Agent decides to call github.get_file_contents ───► last byte sent
+3s-180s ─── Agent WAITING for tool response ───► ZERO bytes on stream
+120s   ─── AgentCore LB idle timeout fires ───► CONNECTION KILLED
+180s   ─── Tool responds, agent wants to continue ───► stream is dead
+```
+
+### What exactly does the 120s timeout kill?
+
+**Critical finding: It kills the HTTP/SSE connection ONLY, not the agent process.**
+
+| Component | What happens at 120s |
+|-----------|---------------------|
+| AgentCore LB | Kills the TCP connection between orchestrator and Runtime agent |
+| Agent process (microVM) | **Keeps running** — governed by `idleRuntimeSessionTimeout` (900s) and `max-lifetime` (3600s) |
+| Orchestrator Lambda | Gets `ReadTimeoutError`, thinks agent died |
+| Tool execution | **Completes normally** — the agent still gets the tool response |
+| Agent output after tool | **Produced but lost** — no one is listening anymore |
+
+So the agent finishes its work, but the orchestrator never receives the output. This causes:
+- Orchestrator retries → duplicate agent invocations
+- Or orchestrator reports failure → ticket stuck as "running"
+- Either way: broken pipeline
+
+**Ref**: `demo/bug-reports/agentcore-harness-read-timeout.md` — 56 timeout events in 24h on security-reviewer agent, same root cause
+
+### Why keepalive pings won't work
+
+**Attempt 1: Yield keepalives from the entrypoint generator**
+
+The entrypoint is an async generator:
+```python
+@app.entrypoint
+async def agent_invocation(payload, context):
+    result = await agent.invoke_async(prompt)  # ← SUSPENDED HERE
+    yield {"event": ...}  # can only yield AFTER await completes
+```
+
+When `await` is active, the generator is suspended. You cannot yield from a suspended coroutine. There is no mechanism in Python's async model to "interrupt" an await to yield a keepalive.
+
+**Attempt 2: Use `stream_async` instead of `invoke_async`**
+
+With `stream_async`, you'd get events as an async iterator. But events only fire when:
+- The LLM produces tokens (during generation) ✓
+- Tool execution starts (one event) ✓
+- Tool execution completes (one event) ✓
+
+During the actual tool wait (Lambda running for 2-5 min), **no events fire**. The stream goes silent. Same timeout.
+
+**Attempt 3: Background task yielding keepalives + agent running concurrently**
+
+```python
+async def agent_invocation(payload, context):
+    task = asyncio.create_task(run_agent(prompt))
+    while not task.done():
+        yield ": keepalive\n\n"  # SSE comment
+        await asyncio.sleep(30)
+    result = task.result()
+    yield {"event": ...}
+```
+
+Problems:
+1. No guarantee AgentCore Runtime framework handles interleaved keepalive yields correctly
+2. The Strands callback_handler fires in a **different execution context** — it cannot trigger a yield from the generator
+3. Untested pattern with no documentation or examples in AgentCore/Strands
+
+**Attempt 4: Use OTel traces or CloudWatch Logs instead of DynamoDB**
+
+| Alternative | Latency | Real-time enough? | Complexity |
+|-------------|---------|-------------------|------------|
+| CloudWatch Logs | 5-15s delivery | NO — tool flashes would lag badly | High (subscription filters, log parsing) |
+| OTel/X-Ray traces | Seconds to minutes | NO — designed for dashboards | High (custom span processors, query API) |
+| Bedrock model invocation logging | Minutes | NO | Captures model I/O only, not tool flow |
+| DynamoDB direct write (current) | <100ms | YES | Low (single `put_item`) |
+
+### Why can't we just use the Harness path for everything?
+
+The Harness path (`invokeHarnessAgent` in `agent-invoker.mjs:156-217`) DOES stream and the orchestrator DOES parse tool events from it. This is simpler — no custom agent code needed.
+
+**But Harness has a separate fatal bug**: It has a hardcoded 120s `read_timeout` on its **internal** botocore connection to `bedrock-runtime`. This kills the agent's own model call (not just the stream to the orchestrator). After 3-5 tool calls, context grows large enough that model TTFT exceeds 120s → `ReadTimeoutError` → agent crashes.
+
+**Ref**: `demo/bug-reports/agentcore-harness-read-timeout.md`
+- Affects even Sonnet 4.5 (not just Opus)
+- 100% failure rate on agents with 8+ tools and complex prompts
+- No customer-configurable workaround
+- This is why we moved to Runtime (where we control `read_timeout=600s`)
+
+### Comparison: Harness vs Runtime event publishing
+
+| | Harness | Runtime (current) |
+|---|---|---|
+| Who publishes tool events? | Orchestrator (parses stream) | Agent (callback → DDB) |
+| Custom agent code needed? | No | Yes (`ToolTrackingHandler`) |
+| Works with Opus + many tools? | **NO** (120s internal timeout) | **YES** (600s configurable) |
+| Extra agent permissions? | No | Yes (DDB write) |
+| Extra env vars? | No | Yes (`EVENTS_TABLE`) |
+
+**If/when AWS fixes the Harness internal timeout**, we could switch back and simplify. Until then, Runtime + callback is the only working option for complex agents.
+
+### The events table is not optional
+
+Even if streaming worked perfectly, the events table would still be needed for:
+1. **Close-laptop-reconnect** — replay events to reconstruct UI state
+2. **Multi-client support** — multiple browsers can observe the same workflow
+3. **Audit trail** — complete history of what every agent did
+4. **Decoupled architecture** — frontend doesn't need a live connection to the orchestrator
+
+The events table is the **single communication channel** between backend and frontend. The only question was WHO writes to it — and the answer is: agents write real-time events directly, orchestrator writes lifecycle events.
+
+### Final Comparison of Approaches
+
+| Approach | Real-time tool events? | Real-time text? | Survives tool waits? | Survives disconnect? | Works with Opus? |
+|----------|----------------------|-----------------|---------------------|---------------------|-----------------|
+| SSE streaming (original) | Yes | Yes | **NO** (120s LB timeout) | **NO** | Yes (if tools fast) |
+| Harness streaming | Yes (via orchestrator) | Yes | **NO** (120s internal timeout) | **NO** | **NO** (crashes) |
+| Non-streaming + DDB events (current) | Yes | No | **YES** | **YES** | **YES** |
+| Hypothetical keepalive streaming | Maybe | Yes | **UNPROVEN** | Partially | Unknown |
+
+### If we ever want live text streaming
+
+The correct path (doesn't fight the LB timeout):
+1. Keep `invoke_async` as the primary invocation method (DL-001 stays)
+2. Add a `text_delta` event type to the Strands callback_handler (it fires on text generation too)
+3. Publish text deltas to DynamoDB alongside tool events (same `put_item` pattern)
+4. Frontend already handles replay — text would just be another event type
+
+This gives "streaming" UX without actual SSE streaming to the agent. The DynamoDB polling (1s interval) provides near-real-time display. The 1s latency is imperceptible for a pipeline that runs 5-30 minutes.
+
+**Bottom line**: We already HAVE real-time event delivery — just through DynamoDB instead of SSE. The architecture is correct. The only enhancement worth pursuing is publishing `text_delta` events for live "thinking" text, using the same side-channel pattern we already have.
+
+---
+
+### What if AWS fixes the Harness internal timeout?
+
+Even if Harness fixes its internal 120s `read_timeout` (the bug in `agentcore-harness-read-timeout.md`), the **external LB idle timeout still applies to the stream back to the caller**. The fix would help but not fully solve streaming:
+
+| Scenario after internal fix | Tool time + Model TTFT | Stream works? |
+|---|---|---|
+| Sonnet, 3-5 tools, moderate context | ~30-60s gaps | Likely YES |
+| Sonnet, 8+ tools, large context | ~60-120s gaps | RISKY |
+| Opus, 5+ tools, large context | ~120-300s gaps | **NO** (LB kills it) |
+
+**Two separate bugs at two separate layers:**
+
+| Bug | Layer | Filed |
+|-----|-------|-------|
+| Internal read_timeout (Harness) | Agent → Bedrock model | `demo/bug-reports/agentcore-harness-read-timeout.md` |
+| External LB idle timeout | Caller → AgentCore stream | `demo/bug-reports/agentcore-lb-idle-timeout.md` |
+
+Fixing the internal bug makes Harness viable for simple agents. Fixing the LB timeout (or adding SSE keepalives) would make streaming viable for ALL agents. Until both are fixed, our non-streaming + DDB side-channel architecture remains the only reliable pattern for complex Opus agents.
+
+**AWS's expected fix**: The correct solution is SSE comment keepalives (`: keepalive\n\n`) emitted by the AgentCore service during idle periods. This is industry standard for long-lived SSE and resets LB timers transparently. See bug report for full proposal.
+
+---
+
+### DL-005: DynamoDB as Sole State Machine (Lambda Orchestration Mode)
+
+**Date**: 2026-05-19
+**Decision**: Implement `ORCHESTRATION_MODE=lambda` — DynamoDB ticket status is the state machine, DynamoDB Streams drive all orchestration
+**Status**: IMPLEMENTED (not yet deployed)
+
+**Context**: The current architecture uses a hybrid model: DynamoDB stores tickets, but the Next.js engine syncs them to an in-memory store and drives orchestration inline (`processReadyTickets`). This has two problems:
+1. **Race condition (P1)**: Requirements agent marks tickets "skip" but the engine fires design agents before skips propagate (documented in `demo/bug-reports/pipeline-retro-run2-2026-05-19.md`)
+2. **Not Jira-swappable**: The customer wants to use Jira + webhooks for production. The in-memory orchestration can't be swapped for external webhooks.
+
+**Solution — Two-mode architecture**:
+
+| Mode | Env Var | Who Orchestrates | State Location |
+|------|---------|-----------------|----------------|
+| `in-process` (default) | `ORCHESTRATION_MODE=in-process` | Next.js engine.ts | In-memory + S3 |
+| `lambda` (target) | `ORCHESTRATION_MODE=lambda` | DynamoDB Streams → orchestrator Lambda | DynamoDB only |
+
+**Lambda mode flow**:
+```
+1. startWorkflow() creates ticket skeletons in DynamoDB:
+   - Epic (in_progress)
+   - Requirements ticket (todo, no blockers) → Stream fires immediately
+   - 7 Design tickets (blocked by requirements)
+   - 3 Dev tickets (blocked by all design)
+   - QA ticket (blocked by all dev)
+   - CI ticket (blocked by QA)
+
+2. Stream fires for requirements ticket → orchestrator Lambda invokes agent
+
+3. Requirements agent reviews tickets:
+   - Skips irrelevant (transitions to "done") → Stream fires → unblocks nothing
+   - Updates relevant with details
+   - Marks itself "done" → Stream fires → unblocks design tickets
+
+4. Each design ticket unblocked → Stream fires → Lambda invokes design agent
+   (Only tickets that become "todo" with empty blockedBy get invoked)
+
+5. Design agents complete → mark "done" → Stream cascades to dev agents
+   ... and so on through QA → CI → workflow complete
+```
+
+**Race condition fix (free)**:
+In lambda mode, each ticket's status is authoritative. The orchestrator only invokes agents for tickets that are `status="todo"` with `blockedBy=[]`. If Requirements marks a design ticket "done" (skip), it never transitions to "todo", so it never fires. No race possible.
+
+**Jira swap path**:
+```
+DynamoDB table         → Jira project
+DynamoDB Streams       → Jira webhooks
+Ticket status in DDB   → Jira ticket status
+Thin webhook handler   → Same (already handles jira_transition events)
+```
+
+Switch: disable Streams, point Jira webhooks at `/api/workflow/webhook`, set `TICKET_PROVIDER=jira`.
+
+**Files created/modified**:
+- `src/lib/workflow/dynamo-workflow-store.ts` — DynamoDB workflows table read/write
+- `src/lib/workflow/ticket-skeletons.ts` — Pre-creates all 13 tickets with dependency chains
+- `src/lib/workflow/engine.ts` — Added `startWorkflowLambdaMode`, mode checks in `handleRequirementsCompletion`
+- `src/app/api/workflow/webhook/route.ts` — Unified mode-aware webhook (thin in lambda, full in in-process)
+- `lambda/orchestrator/index.mjs` — Stream-triggered orchestrator (already existed)
+- `lambda/orchestrator/agent-invoker.mjs` — Async agent runner (already existed)
+- `lambda/orchestrator/template.yaml` — SAM deployment template (already existed)
+
+**Trade-off**: Two modes adds complexity, but allows:
+- Local dev continues to work without AWS infra (in-process mode)
+- Production uses the scalable, race-free Lambda architecture
+- Customer can demo either mode
+
+---
+
+### DL-006: Requirements Agent Creates Tickets (No Skeletons)
+
+**Date**: 2026-05-19 (initial skeleton approach), **REVERSED 2026-05-20**
+**Decision**: Requirements agent creates tickets dynamically for only the relevant agents
+**Status**: ACTIVE (replaces skeleton approach)
+
+**Context**: The skeleton approach pre-created ALL 13 agent tickets at workflow start, then expected the requirements agent to "skip" irrelevant ones. This was backwards — it meant all agents fired regardless of scope (e.g., iOS/Android designers running on a web-only change). The requirements agent's "skip" triage never worked reliably because:
+1. The Jira tools were routed to the wrong Lambda (never executed)
+2. Even conceptually, "subtract from a full set" is more error-prone than "add what's needed"
+
+**Solution**: Workflow start creates ONLY epic + requirements ticket. The requirements agent:
+- Analyzes the feature scope
+- Creates tickets for ONLY the agents whose domains are relevant
+- Sets `blocked_by` dependencies between phases (design → dev → QA → CI)
+- Each ticket INSERT fires the DynamoDB Stream → orchestrator invokes that agent
+
+**Key principle**: Ticket = work assignment. No ticket = no work. The requirements agent is the PM.
+
+**Why this is better for Jira swap**: In Jira, a PM creates tickets for the team members who need to do work. They don't pre-create 13 tickets and close 10 of them.
+
+---
+
+### DL-009: Orchestrator is a Thin Event Router
+
+**Date**: 2026-05-20
+**Decision**: Orchestrator Lambda does ONLY event routing — no business logic
+**Status**: ACTIVE (cleanup TODO)
+
+**Context**: The orchestrator accumulated business logic that belongs in agents:
+- Feature branch creation (should be requirements agent via GitHub MCP)
+- QA gate/retry logic (should be QA agent's decision)
+- Workflow phase advancement (UI concern — derive from ticket state)
+
+**Current state**: Phase advancement is still in the orchestrator (acceptable for now — it's a UI metadata write). Feature branch creation and QA gate logic need to be moved to agents.
+
+**Target state**: Orchestrator does exactly two things:
+1. Ticket goes `todo` (no blockers) → async invoke `agentis-agent-invoker`
+2. Ticket goes `done` → remove from siblings' `blockedBy`, flip unblocked to `todo`
+
+**TODO**: Move branch creation to requirements agent prompt. ~~Move QA retry logic to QA agent.~~ ✅ Done (DL-011).
+
+---
+
+### DL-010: Pure Event-Driven — No Inline Invocations or Concurrency Limits
+
+**Date**: 2026-05-20
+**Decision**: Remove all inline agent invocations and concurrency throttling from orchestrator
+**Status**: ACTIVE
+
+**Context**: The orchestrator had a "deferred ticket pickup" path that scanned for `todo` tickets and invoked agents directly inline (bypassing the Stream). This created two invocation paths and caused cascading invocations when tickets were manually marked done. A concurrency limit (`MAX_CONCURRENT=4`) was added as a workaround for the in-process engine.
+
+**Problem**: With two invocation paths, ticket status was not the single source of truth. Marking a ticket "done" triggered cascading unblocks AND inline invocations simultaneously.
+
+**Solution**: Removed all inline invocation logic. Removed concurrency limit. Single invocation path:
+- Ticket status changes → Stream fires → `handleTicketReady` → invoke agent
+- All same-phase agents run in parallel (Bedrock/AgentCore handles scaling)
+
+**Trade-off**: No concurrency protection against Bedrock rate limits. Accepted because:
+- Runtime agents are independent Lambda invocations (no shared resource)
+- AgentCore handles per-account throttling
+- If rate limiting becomes an issue, add it back as a simple counter in `handleTicketReady`
+
+---
+
+### DL-011: Agent-Driven Fix Cycle (QA/CI → Dev → Re-verify)
+
+**Date**: 2026-05-19
+**Decision**: QA and CI agents drive the fix cycle using ticket creation + self-blocking — no orchestrator logic
+**Status**: ACTIVE
+
+**Context**: When QA or CI finds issues, the dev agent needs to fix them and QA needs to re-verify. Originally this was modeled as a `WorkflowOutput___request_fix` tool that called a webhook, which had orchestrator logic to create fix tickets and manage retry counts. This violated the "dumb orchestrator" principle (DL-009).
+
+**Problem**: Business logic (retry tracking, fix routing, re-verification triggers) was accumulating in the orchestrator webhook handler instead of living in the agents.
+
+**Solution — Agents drive it with existing ticket tools**:
+
+```
+QA finds issues
+  ↓
+QA calls JiraIntegration___create_ticket:
+  - title: "Fix: {what's broken}"
+  - description: findings + evidence + S3 paths for prior work
+  - assignee: target dev agent
+  - blocked_by: [] (immediately invocable)
+  ↓
+QA calls JiraIntegration___transition_ticket on ITSELF:
+  - transition_id: "block"
+  - blocked_by: [fix-ticket-id]
+  ↓
+QA calls report_completion (signals it's waiting)
+  ↓
+DDB Stream fires → orchestrator invokes dev agent (dumb routing)
+  ↓
+Dev agent reads fix ticket description + its own S3 output
+Dev agent fixes on feature branch, marks fix ticket "done"
+  ↓
+Orchestrator removes fix ticket from QA's blockedBy
+QA flips to "todo" → Stream fires → QA re-invoked
+  ↓
+QA re-verifies (same checks)
+  - Pass → report_completion
+  - Fail → create another fix ticket (up to 3 cycles)
+  - 3 cycles exhausted → report_completion with "ESCALATE:" prefix
+```
+
+**Key design decisions**:
+1. **No new tools needed** — `create_ticket` + `transition_ticket` + `report_completion` already exist
+2. **No orchestrator changes** — it already does "done → unblock siblings"
+3. **Context via reference, not payload** — fix ticket tells dev WHERE to find its prior work (S3 path), not what it contained. Agent reads its own context.
+4. **Self-tracking retries** — QA counts fix tickets under the epic via `list_tickets`. No external counter.
+5. **`invoke_team_agent` removed** — not needed for this pattern. True A2A (synchronous agent-to-agent invocation) deferred for future.
+
+**Session resume**:
+- No actual session persistence (AgentCore sessions are infrastructure routing, not conversation memory)
+- "Context resume" via reference: dev agent's prior output is in S3 (`workflows/{wfId}/agents/{agentId}/output.md`), its commits are on the feature branch, and the fix ticket description tells it exactly what broke
+- If true session resume is needed later: store Strands Agent `messages` array to S3 after each invocation, load as `conversation_history` on re-invocation
+
+**Files modified**:
+- `src/config/agent-prompts.ts` — QA and CI prompts rewritten for ticket-driven fix cycle
+- `src/config/agents.json` — Removed `invoke_team_agent`, added Jira tools to QA/CI
+
+**Removed**:
+- `WorkflowOutput___request_fix` tool (was referenced in prompts but never implemented — no longer needed)
+- `request_fix` webhook handler logic (dead code after this change — cleanup TODO)
+
+---
+
+### DL-012: System Prompts Baked at Deploy Time (Not Passed at Invocation)
+
+**Date**: 2026-05-19
+**Decision**: Each Runtime agent deploys with its system prompt as an env var (`SYSTEM_PROMPT`). The orchestrator does NOT pass system prompts — it only passes task context (ticket description + workflow metadata).
+**Status**: ACTIVE
+
+**Context**: The universal `main.py` originally accepted `system_prompt` from the invocation payload, with the orchestrator responsible for looking up and passing the correct prompt per agent. This violated the "dumb orchestrator" principle (DL-009) and meant agent identity was managed externally rather than being intrinsic to the deployed agent.
+
+**Problem**: The orchestrator was never actually passing `system_prompt` — every agent was running with a generic fallback (`"You are a helpful AI agent on a development team"`). The prompts in `src/config/agent-prompts.ts` were dead code that never reached the Runtime agents.
+
+**Solution**:
+1. Per-agent prompt files: `deploy/runtime-agent/prompts/{agent_name}.txt`
+2. `deploy-one.sh` reads the prompt file and passes `--env SYSTEM_PROMPT=...` at deploy time
+3. `main.py` reads `os.getenv("SYSTEM_PROMPT")` — agent identity is fixed at deployment
+4. Orchestrator only passes: `{ prompt: taskContext, workflow_id, agent_id }`
+5. Redeploy = prompt update goes live (version bump in AgentCore console)
+
+**Architecture alignment**:
+- Matches AgentCore's design: each Runtime is a self-contained agent with model + tools + prompt
+- Matches Strands SDK pattern: `Agent(model=..., system_prompt=..., tools=[...])`
+- Orchestrator stays thin: `ticket.status → invoke(agentArn, taskContext)`
+
+**Future target (DL-012b)**: Remove `buildAgentContext` from orchestrator entirely. Requirements agent writes rich ticket descriptions with all needed context. Dev/QA agents use their own tools (S3, GitHub) to discover design artifacts, branches, etc. Orchestrator becomes: `prompt: ticket.description`. Agents are smart enough (Opus) to self-serve.
+
+**Files modified**:
+- `deploy/runtime-agent/main.py` — reads `SYSTEM_PROMPT` from env, removed payload-based prompt
+- `deploy/runtime-agent/deploy-one.sh` — reads prompt file, passes as `--env`
+- `deploy/runtime-agent/deploy-fleet.sh` — updated comments
+- `deploy/runtime-agent/prompts/*.txt` — 13 per-agent prompt files (source of truth)
+- `lambda/orchestrator/agent-invoker.mjs` — updated comment (system_prompt not in payload)
+
+**Source of truth for prompts**: `deploy/runtime-agent/prompts/` (NOT `src/config/agent-prompts.ts` — that file is now legacy/dead code for the in-process engine only)
+
+---
+
+### DL-007: Timeline-Based Replay System for Completed Workflows
+
+**Date**: 2026-05-19
+**Decision**: Completed workflows replay from a pre-fetched event array with client-side pacing, not SSE
+**Status**: ACTIVE
+
+**Context**: When a user clicks on a completed workflow, the original behavior would dump all events at once (reconstructing final state instantly). This loses the narrative of what happened — you can't see which agents ran in what order, which tools they used, or how the pipeline progressed through phases.
+
+**Problem**:
+1. No visibility into past workflow execution order
+2. Dumping all events at once makes all agents appear "done" simultaneously
+3. No way to scrub through history or replay at different speeds
+
+**Solution — Timeline-based replay system**:
+
+1. **New API endpoint** `GET /api/workflow/[id]/events` fetches ALL events for a workflow as a single JSON array (paginates through DynamoDB's `LastEvaluatedKey` internally)
+2. Events stored in `replayEvents[]` array, ordered by timestamp/eventId
+3. Client-side replay engine steps through events one at a time using the same visual logic as live mode
+4. Scrubber bar provides play/pause, seeking, and speed control (1x, 3x, 5x, 10x, 20x, 50x)
+
+**Architecture**:
+
+| Component | Responsibility |
+|-----------|---------------|
+| `GET /api/workflow/[id]/events` | One-shot paginated fetch of all events, applies `transformEvent()` |
+| `replayMode` flag | True when workflow was already "complete" on first load |
+| `applyEventToState(0→N)` | Reconstructs phase + agentTasks state from scratch for any position N |
+| `fireReplayVisuals(event)` | Triggers tool flashes and connector animations WITHOUT calling setState |
+| Scrubber UI | Range slider + play/pause + speed selector + counter (e.g., "59 / 1304") |
+
+**Pacing**: Delays between events use actual DynamoDB timestamps, compressed by speed multiplier. Max 2s gap (prevents long waits between phases), min 50ms between events.
+
+**Intake phase handling**: No DynamoDB events exist for the Intake phase (it's user-triggered). Replay starts with `phase="requirements"` (first actual event). Intake is hardcoded as "done" from the start. The Intake→Requirements connector animates once on replay start (300ms delay, 700ms animation).
+
+**Key design decisions**:
+1. **No SSE for completed workflows** — replay mode skips the SSE stream entirely. State polling also stops once replay mode activates.
+2. **State reconstruction from scratch on every seek** — simple and correct. No delta/undo tracking needed. For 1304 events, `applyEventToState` loop is trivially fast (<1ms).
+3. **Separated visual effects from state** — `fireReplayVisuals()` only does tool flashes and connector animations. `handleEvent()` is only used for live workflows (it calls setState which would conflict with replay reconstruction).
+4. **Real timestamps for pacing** — gives natural rhythm. Bursts of tool calls replay fast, long gaps between phases are compressed to max 2s.
+
+**Response format**:
+```json
+{ "events": WorkflowEvent[], "count": number }
+```
+Each event includes `eventId` (DynamoDB sort key) used as a cursor for SSE catch-up (see DL-008).
+
+**Files created/modified**:
+- `src/app/api/workflow/[id]/events/route.ts` — New endpoint (paginated DynamoDB fetch + transformEvent), returns `eventId` per event
+- `src/components/workflow/WorkflowBoard.tsx` — Replay logic, scrubber UI, `applyEventToState`, `fireReplayVisuals`
+- `src/lib/workflow/types.ts` — Added `timestamp?: string` and `eventId?: string` to WorkflowEvent union type
+
+**Trade-off**: Fetching all events upfront means a larger initial payload (~100-500KB for 1000+ events). Accepted because:
+- It's a one-time fetch (not polling)
+- Events are small JSON objects
+- Client-side replay is instant after fetch
+- Alternative (streaming replay via SSE) adds unnecessary server complexity for historical data
+
+---
+
+### DL-008: Catch-Up Replay for Live Workflows
+
+**Date**: 2026-05-19
+**Decision**: When clicking on a live/in-progress workflow, visually replay historical events at dynamic speed (auto-scaled to ~4s) before transitioning to live SSE
+**Status**: ACTIVE
+
+**Context**: When a user clicks on a live workflow that's been running for 10+ minutes, the original behavior dumps all historical events instantly via SSE (the stream starts from `lastEventId=""` and delivers everything). This floods the UI — all past phases appear complete simultaneously with no visual narrative.
+
+**Problem**:
+1. No visual sense of "what happened before I opened this" — everything appears done instantly
+2. If the workflow is in the development phase, you can't see how it got there
+3. Inconsistent with the replay experience for completed workflows (which has scrubber + pacing)
+
+**Solution — Catch-up replay with SSE handoff**:
+
+1. On first load of a live workflow (`phase !== "complete"`):
+   - Fetch ALL historical events from `GET /api/workflow/[id]/events` (same endpoint as replay)
+   - Store the `eventId` of the last fetched event (for SSE cursor)
+   - Calculate dynamic playback speed so catch-up completes in ~4 seconds:
+     - `speed = max(20, totalTimeSpan / 4000ms)` — e.g., 18min run → ~270x, 2min run → 20x floor
+     - Per-event delay floor: `max(3ms, 4000ms / eventCount)` — adapts to event density
+     - Per-event delay ceiling: 200ms (vs 2s in normal replay) — time gaps don't stall catch-up
+   - Enter catch-up mode using `applyEventToState` + `fireReplayVisuals` logic
+   - Show "Catching up..." pulsing indicator in the replay bar
+
+2. When replay reaches end of fetched events:
+   - `catchingUp` flag clears → `replayMode` set to false
+   - SSE stream connects with `?cursor=<lastEventId>` to skip already-replayed events
+   - UI transitions seamlessly to live mode (scrubber bar disappears, live polling resumes)
+   - New events from SSE layer on top of the catch-up state via `handleEvent()`
+
+3. SSE stream now accepts `?cursor=` query parameter:
+   - If provided, starts DynamoDB query from `eventId > cursor`
+   - Prevents duplicate events during handoff
+
+**State management**:
+- `catchingUp: boolean` — true while fast-replaying history
+- `lastEventIdRef` — stores the DynamoDB `eventId` of the last replayed event (used as SSE cursor)
+- `catchUpCompleteRef` — guards against double-transition
+- `originalOutputsRef` — preserves DDB agent outputs before replay overwrites state (events often have empty output fields)
+- `playbackSpeed` — dynamically calculated for catch-up; user-selectable for manual replay
+- SSE effect depends on `[workflowId, replayMode, catchingUp]` — only connects when both are false
+
+**Dynamic speed scaling** (catch-up only):
+- Target: ~4 seconds total catch-up time regardless of workflow duration or event count
+- Speed formula: `max(20x, totalEventTimeSpan / 4000ms)`
+- Delay floor adapts: `max(3ms, 4000ms / eventCount)` — prevents 50ms × 1000 events = 50s problem
+- Delay ceiling: 200ms during catch-up (vs 2000ms in normal replay)
+- Normal replay retains 50ms floor + user-controlled speed selector for smooth scrubbing
+
+**Component remount on workflow switch**:
+`<WorkflowBoard key={selectedId} .../>` ensures full component remount when switching between workflows. This gives each workflow a clean slate of state, refs, and timers. Without `key`, React reuses the instance and state from the previous workflow leaks.
+
+**Connector animation fix** (related):
+`fireReplayVisuals` now handles `agent_status` events (not just `phase_change`). A "high-water mark" ref tracks the highest animated phase index — when an agent starts in a new phase, the connector fires. This fixes the dev→QA transition which had no explicit `phase_change` event in DynamoDB (QA agents just start running).
+
+**Files modified**:
+- `src/app/api/workflow/[id]/events/route.ts` — Added `eventId` field to transformed events
+- `src/app/api/workflow/[id]/stream/route.ts` — Added `?cursor=` query param support
+- `src/components/workflow/WorkflowBoard.tsx` — Catch-up logic, `replayPhaseHighWaterRef`, agent_status connector animation
+- `src/app/workflow/page.tsx` — Added `key={selectedId}` to WorkflowBoard
+- `src/lib/workflow/types.ts` — Added `eventId?: string` to WorkflowEvent type
+
+**Trade-off**: 20x replay of 1000+ events still takes ~10-30 seconds for a full workflow. Accepted because:
+- It provides the same visual narrative as the completed replay
+- Users see the pipeline "catch up" which confirms the system is working
+- The alternative (instant dump) is confusing and gives no sense of progression
+- If needed, speed could be increased to 50x or events could be pre-filtered
+
+---
+
+### DL-013: Skills System — Dynamic System Prompt Injection via Tool Call
+
+**Date**: 2026-05-19
+**Decision**: Implement a custom skills system using `agentis-skill-loader` Lambda for dynamic prompt injection at agent runtime
+**Status**: ACTIVE
+
+**Context**: Agents need domain-specific expertise (e.g., code architecture patterns, code review checklists, test coverage strategies) that shouldn't bloat the base system prompt. Neither Strands SDK nor AgentCore has a native skills/plugins mechanism — validated against both official docs.
+
+**Problem**:
+1. System prompts grow unwieldy when every specialized behavior is baked in at deploy time (DL-012)
+2. Multiple agents share the same skills (e.g., `code-architect` used by 3 designers)
+3. Skills evolve independently of agent prompts — updating a skill shouldn't require agent redeploy
+4. No native pattern exists in Strands or AgentCore for on-demand prompt augmentation
+
+**Solution — "Dynamic system prompt injection via tool call" pattern**:
+
+```
+Agent prompt says "load skill X"
+  ↓
+Agent calls SkillLoader___load_skill tool (MCP tool on the agent's Runtime)
+  ↓
+Lambda (agentis-skill-loader) looks up skill name in SKILLS map
+  ↓
+Lambda returns markdown instructions as tool response
+  ↓
+Agent incorporates skill content into its working context
+  ↓
+Agent proceeds with skill-augmented behavior
+```
+
+**Implementation**: Skills are defined inline in `lambda/skill-loader/index.mjs` as a `SKILLS` map (key → markdown string). Not S3, not Bedrock Knowledge Bases, not a plugin system. Simple, deterministic, and cheap ($0 beyond Lambda invocation cost).
+
+**Skills deployed** (7 new, sourced from Anthropic claude-code plugins repo):
+| Skill | Purpose |
+|-------|---------|
+| `code-architect` | System design patterns, component decomposition |
+| `type-design` | Type system design, interface contracts |
+| `code-review` | Review checklists, quality gates |
+| `silent-failure-hunter` | Find swallowed errors, missing error handling |
+| `code-simplifier` | Reduce complexity, eliminate dead code |
+| `test-coverage` | Coverage strategy, edge case identification |
+| `feature-dev` | Feature implementation workflow, incremental delivery |
+
+**Agent-to-skill mapping**:
+
+| Agent | Skills |
+|-------|--------|
+| `frontend-designer` | frontend-design + code-architect |
+| `backend-designer` | backend-systems + code-architect + type-design |
+| `ios-designer` | ios-architecture + code-architect + type-design |
+| `frontend-dev` | full-stack + code-simplifier + feature-dev |
+| `backend-dev` | node-typescript + code-simplifier + feature-dev |
+| `api-dev` | node-typescript + code-simplifier + feature-dev |
+| `qa-verifier` | qa-verification + code-review + silent-failure-hunter + test-coverage |
+| `ci-agent` | ci-verification + code-review |
+| `security-reviewer` | privacy-compliance + silent-failure-hunter |
+
+**Why not alternatives?**:
+
+| Alternative | Why rejected |
+|-------------|-------------|
+| Bake into system prompt (DL-012) | Bloats prompt, shared skills duplicate across agents, update = redeploy |
+| S3 file per skill | Adds latency (S3 GET), needs IAM, no advantage over inline map |
+| Bedrock Knowledge Base | Overkill (vector search for known-key lookup), adds cost + latency |
+| Plugin/extension system | Over-engineered for deterministic skill loading — we always know which skill we want |
+
+**Properties**:
+- **Deterministic**: Agent asks for skill X, gets skill X (no retrieval ambiguity)
+- **Cheap**: Single Lambda invocation (~$0.0000002 per load)
+- **Updateable without redeploy**: Edit `index.mjs`, deploy Lambda only (not agents)
+- **Composable**: Agents load multiple skills per invocation
+- **Auditable**: Tool call appears in agent trace events (DL-003)
+
+**Also deployed**: New Runtime agent `agentis_frontend_designer` for design-phase web UI architecture work.
+
+**Branding system**: S3 bucket `agentis-branding` stores `brand-system.md` (design tokens, component library, color palette). The `frontend-designer` agent reads it via `S3Storage___read_object` tool at invocation start — separate from skills (branding is project-specific data, not reusable expertise).
+
+**Files created/modified**:
+- `lambda/skill-loader/index.mjs` — Skill loader Lambda (SKILLS map + handler)
+- `deploy/runtime-agent/prompts/frontend-designer.txt` — New agent prompt (loads skills + branding)
+- `deploy/runtime-agent/deploy-one.sh` — Updated for frontend-designer deployment
+
+**Validation**: Confirmed against Strands SDK source (`strands-tools-src/`) and AgentCore docs — neither provides a native skills, plugins, or dynamic prompt injection mechanism. Our Lambda-based tool call pattern is the correct approach for this requirement.
+
+---
+
+## Deployment Requirements
+
+### Runtime Agents (DL-003)
+
+After the 2026-05-19 changes, all 13 Runtime agents need redeployment:
+
+```bash
+# Required env vars (added):
+EVENTS_TABLE=agentis-events
+
+# Required IAM permissions (verify on role):
+dynamodb:PutItem on arn:aws:dynamodb:us-east-1:023392223961:table/agentis-events
+
+# Deploy command:
+cd deploy/runtime-agent && ./deploy-fleet.sh
+```
+
+### Lambda Orchestration Stack (DL-005)
+
+To enable Lambda orchestration mode:
+
+```bash
+# 1. Enable DynamoDB Streams on agentis-tickets table (if not already)
+aws dynamodb update-table \
+  --table-name agentis-tickets \
+  --stream-specification StreamEnabled=true,StreamViewType=NEW_AND_OLD_IMAGES \
+  --region us-east-1
+
+# 2. Deploy the SAM stack (orchestrator + agent-invoker + events-writer)
+cd lambda/orchestrator
+sam build
+sam deploy --guided  # First time
+sam deploy           # Subsequent
+
+# 3. Set env vars on Next.js app:
+ORCHESTRATION_MODE=lambda
+TICKET_PROVIDER=dynamodb
+WORKFLOWS_TABLE=agentis-workflows
+JIRA_TABLE_NAME=agentis-tickets
+
+# 4. Set Runtime agent ARNs as env vars on orchestrator Lambda:
+# (one per agent — format: RUNTIME_ARN_AGENTIS_{AGENT_NAME_UPPER})
+RUNTIME_ARN_AGENTIS_REQUIREMENTS_ANALYST=arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/xxx
+RUNTIME_ARN_AGENTIS_BACKEND_DESIGNER=arn:aws:bedrock-agentcore:us-east-1:023392223961:runtime/xxx
+# ... etc for all 13 agents
+```
+
+### Jira Swap (Future — after Lambda mode is stable)
+
+```bash
+# 1. Disable DynamoDB Streams
+aws dynamodb update-table \
+  --table-name agentis-tickets \
+  --stream-specification StreamEnabled=false
+
+# 2. Configure Jira webhook to POST to /api/workflow/webhook
+#    Event: issue_updated (status field changes)
+#    URL: https://your-app.com/api/workflow/webhook
+#    Secret: set WEBHOOK_SECRET env var to match
+
+# 3. Switch ticket provider
+TICKET_PROVIDER=jira
+
+# 4. The webhook route already handles Jira-native format (DL-005)
+```
+
+---
+
+## File Map
+
+| File | Role |
+|------|------|
+| `src/components/workflow/WorkflowBoard.tsx` | Pipeline UI + CSS animations + replay logic |
+| `src/app/api/workflow/[id]/stream/route.ts` | DynamoDB poll → SSE to frontend (live mode), accepts `?cursor=` for catch-up handoff |
+| `src/app/api/workflow/[id]/events/route.ts` | One-shot paginated fetch of all events + eventIds (replay + catch-up) |
+| `src/app/workflow/page.tsx` | Workflow page — renders WorkflowBoard with `key={selectedId}` for clean remount |
+| `src/app/api/workflow/webhook/route.ts` | Mode-aware webhook (thin in lambda, full in in-process) |
+| `src/lib/workflow/engine.ts` | Orchestration engine (mode-aware: in-process or lambda) |
+| `src/lib/workflow/dynamo-workflow-store.ts` | DynamoDB workflows table read/write |
+| `src/lib/workflow/ticket-skeletons.ts` | Creates epic + requirements ticket only (agents create their own tickets) |
+| `src/lib/workflow/ticket-provider-dynamodb.ts` | DynamoDB ticket CRUD (shared with Lambda) |
+| `src/lib/workflow/ticket-provider.ts` | Provider interface + selection (memory/dynamodb/jira) |
+| `lambda/orchestrator/index.mjs` | Stream-triggered orchestrator Lambda |
+| `lambda/orchestrator/agent-invoker.mjs` | Async agent invocation Lambda (15min timeout) |
+| `lambda/orchestrator/events-writer.mjs` | EventBridge → events table writer |
+| `lambda/orchestrator/template.yaml` | SAM template for full Lambda stack |
+| `deploy/runtime-agent/main.py` | Agent code (all 13 agents) |
+| `deploy/runtime-agent/prompts/*.txt` | Per-agent system prompts (source of truth) |
+| `deploy/runtime-agent/deploy-one.sh` | Single agent deploy script |
+| `deploy/runtime-agent/deploy-fleet.sh` | Fleet deploy (all agents) |
+| `lambda/workflow-output/index.mjs` | Workflow output Lambda (S3 write + DynamoDB "done" write) |
+
+---
+
+### DL-014: Completion Write Fix, Event TTL Removal, and Nudge System
+
+**Date**: 2026-05-19
+**Decision**: Fix three interconnected issues preventing reliable pipeline cascade and user recovery from stuck states
+**Status**: ACTIVE
+
+**Issue 1 — report_completion DynamoDB Write Fix**
+
+**Problem**: `agentis-workflow-output` Lambda saved completion reports to S3 but never wrote `status: "done"` to the `agentis-tickets` DynamoDB table. The orchestrator's Stream trigger only fires on DynamoDB changes, so ticket completions were invisible — the cascade never continued past the first agent.
+
+**Fix**: Lambda now writes `status: "done"` to the tickets table after S3 write. This fires the DynamoDB Stream → orchestrator sees completion → unblocks downstream tickets.
+
+**Source**: `lambda/workflow-output/index.mjs`
+
+---
+
+**Issue 2 — Event TTL Removed**
+
+**Problem**: Events in `agentis-events` table had a 1-hour TTL (`expiresAt`). Replay data expired before users could watch completed workflows (DL-007 relies on all events being available indefinitely for timeline replay).
+
+**Fix**: Removed TTL entirely. Events persist forever. Cost is negligible (small JSON objects, single-digit KB per event, workflows produce ~1000-2000 events total).
+
+**Note**: DL-002 documented `TTL: expiresAt (7 days)` — that was the original design. The actual deployed value was 1 hour (bug). Now removed completely.
+
+---
+
+**Issue 3 — Nudge System (client-side auto-nudge + manual button)**
+
+**Problem**: Pipelines occasionally stall (agent timeout, missed Stream event, ticket stuck in wrong state). No recovery mechanism existed — users had to manually inspect DynamoDB.
+
+**Solution — Two-layer nudge**:
+
+1. **Auto-nudge**: `WorkflowBoard` detects idle >90s with no active agent (no `.working` status). Automatically calls nudge endpoint. Silent — no user action needed.
+
+2. **Manual nudge**: Button in UI with toast feedback ("Nudged! Checking for stuck tickets..."). For when users notice a stall before the 90s threshold.
+
+**Nudge endpoint**: `POST /api/workflow/[id]/nudge`
+
+**Behavior** (no time thresholds — just fixes whatever's wrong):
+- `todo` → `ready` (should have been picked up)
+- `blocked` → `ready` (if all blockers are done)
+- `in_progress` → `ready` (agent timed out or crashed)
+
+**Critical detail**: Nudge sets `status: "ready"` (not just touching `updatedAt`). This is required because of the orchestrator's Stream filter.
+
+---
+
+**Issue 4 — Orchestrator Stream Filter (related to nudge)**
+
+**Problem**: Orchestrator Lambda (line ~104 in `index.mjs`) skips MODIFY events where `newStatus === oldStatus`. The original nudge implementation only touched `updatedAt` without changing status (e.g., `todo` → `todo`). These events were invisible to the orchestrator — nudge did nothing.
+
+**Fix**: Nudge transitions tickets to `status: "ready"` which is a genuine status change. The orchestrator sees `MODIFY` with `oldStatus !== newStatus` and processes the ticket normally via `handleTicketReady`.
+
+**Implication**: Any recovery mechanism that touches tickets MUST change the `status` field to be visible to the orchestrator. Touching only `updatedAt` or other fields is a no-op from the orchestrator's perspective.
+
+---
+
+**Files modified**:
+- `lambda/workflow-output/index.mjs` — Added DynamoDB `status: "done"` write
+- `agentis-events` table — TTL attribute removed (no code change, infra-level)
+- `src/components/workflow/WorkflowBoard.tsx` — Auto-nudge logic (90s idle detection)
+- `src/app/api/workflow/[id]/nudge/route.ts` — Nudge endpoint (status fix logic)

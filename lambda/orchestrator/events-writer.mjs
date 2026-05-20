@@ -26,7 +26,6 @@ export const handler = async (event) => {
       source: event.source,
       detail,
       timestamp: event.time || new Date().toISOString(),
-      ttl: Math.floor(Date.now() / 1000) + 3600, // 1 hour
     },
   }));
 };

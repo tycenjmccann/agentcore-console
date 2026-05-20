@@ -13,8 +13,8 @@ Globals:
       Variables:
         AWS_REGION_OVERRIDE: !Ref AWS::Region
         TICKETS_TABLE: !Ref TicketsTableName
-        WORKFLOWS_TABLE: !Ref WorkflowsTable
-        EVENTS_TABLE: !Ref EventsTable
+        WORKFLOWS_TABLE: !Ref WorkflowsTableName
+        EVENTS_TABLE: !Ref EventsTableName
         ARTIFACT_BUCKET: !Ref ArtifactBucket
         GITHUB_LAMBDA: !Ref GitHubLambdaName
         EVENT_BUS: !Ref EventBus
@@ -26,9 +26,19 @@ Parameters:
     Default: agentis-tickets
     Description: Existing DynamoDB table for tickets (must have Streams enabled)
 
+  WorkflowsTableName:
+    Type: String
+    Default: agentis-workflows
+    Description: Existing DynamoDB table for workflow metadata
+
+  EventsTableName:
+    Type: String
+    Default: agentis-events
+    Description: Existing DynamoDB table for events (dashboard polling)
+
   ArtifactBucket:
     Type: String
-    Default: ""
+    Default: agentcore-artifacts-023392223961-us-east-1
     Description: S3 bucket for workflow artifacts
 
   GitHubLambdaName:
@@ -42,38 +52,10 @@ Parameters:
     Description: EventBridge bus name for publishing workflow events
 
 Resources:
-  # ─── Workflows Table (new — stores workflow metadata) ──────────────────────────
-  WorkflowsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: agentis-workflows
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: workflowId
-          AttributeType: S
-      KeySchema:
-        - AttributeName: workflowId
-          KeyType: HASH
-
-  # ─── Events Table (new — stores events for dashboard polling, with TTL) ───────
-  EventsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: agentis-events
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: workflowId
-          AttributeType: S
-        - AttributeName: eventId
-          AttributeType: S
-      KeySchema:
-        - AttributeName: workflowId
-          KeyType: HASH
-        - AttributeName: eventId
-          KeyType: RANGE
-      TimeToLiveSpecification:
-        AttributeName: ttl
-        Enabled: true
+  # ─── Tables are pre-existing (not managed by this stack) ───────────────────────
+  # agentis-tickets: PK=ticketId (S), GSI: parentId-index, assignee-index, Streams=NEW_AND_OLD_IMAGES
+  # agentis-workflows: PK=workflowId (S)
+  # agentis-events: PK=workflowId (S), SK=eventId (S), TTL on "ttl"
 
   # ─── Orchestration Lambda ──────────────────────────────────────────────────────
   OrchestratorFunction:
@@ -88,9 +70,9 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref TicketsTableName
         - DynamoDBCrudPolicy:
-            TableName: !Ref WorkflowsTable
+            TableName: !Ref WorkflowsTableName
         - DynamoDBCrudPolicy:
-            TableName: !Ref EventsTable
+            TableName: !Ref EventsTableName
         - DynamoDBStreamReadPolicy:
             TableName: !Ref TicketsTableName
             StreamName: "*"
@@ -127,7 +109,7 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref TicketsTableName
         - DynamoDBCrudPolicy:
-            TableName: !Ref WorkflowsTable
+            TableName: !Ref WorkflowsTableName
         - S3CrudPolicy:
             BucketName: !Ref ArtifactBucket
         - EventBridgePutEventsPolicy:
@@ -140,6 +122,8 @@ Resources:
                 - bedrock-agent-runtime:*
                 - bedrock-agentcore:*
               Resource: "*"
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GitHubLambdaName
 
   # ─── EventBridge Rule (route events to dashboard) ──────────────────────────────
   WorkflowEventsRule:
@@ -167,7 +151,7 @@ Resources:
       MemorySize: 128
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref EventsTable
+            TableName: !Ref EventsTableName
 
   EventsWriterPermission:
     Type: AWS::Lambda::Permission
@@ -185,11 +169,3 @@ Outputs:
   AgentInvokerFunctionArn:
     Description: Agent Invoker Lambda ARN
     Value: !GetAtt AgentInvokerFunction.Arn
-
-  WorkflowsTableName:
-    Description: Workflows metadata table
-    Value: !Ref WorkflowsTable
-
-  EventsTableName:
-    Description: Events table for dashboard polling
-    Value: !Ref EventsTable

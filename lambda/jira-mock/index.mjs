@@ -418,6 +418,15 @@ async function transitionIssue(args) {
     exprValues[":sr"] = reason;
   }
 
+  // Support setting blockedBy (e.g., QA blocks itself on a fix ticket)
+  const blockers = args.blocked_by;
+  if (blockers) {
+    const blockerList = Array.isArray(blockers) ? blockers : [blockers];
+    updateExpr += ", #bb = :bb";
+    exprNames["#bb"] = "blockedBy";
+    exprValues[":bb"] = blockerList;
+  }
+
   await ddb.send(
     new UpdateCommand({
       TableName: TABLE_NAME,

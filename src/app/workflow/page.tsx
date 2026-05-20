@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Search, Plus, Play, Radio } from "lucide-react";
+import { Search, Plus, Play, Radio, Zap } from "lucide-react";
 import WorkflowBoard from "@/components/workflow/WorkflowBoard";
 import IntakeForm from "@/components/workflow/IntakeForm";
 import type { WorkflowState, WorkflowInput } from "@/lib/workflow/types";
@@ -21,6 +21,7 @@ export default function WorkflowPage() {
   const [showIntake, setShowIntake] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [nudgeToast, setNudgeToast] = useState<{ message: string; type: "success" | "info" | "error" } | null>(null);
 
   // Load workflow list
   const fetchWorkflows = useCallback(async () => {
@@ -117,6 +118,21 @@ export default function WorkflowPage() {
     window.history.pushState({}, "", "/workflow");
   };
 
+  const handleNudge = async (id: string) => {
+    try {
+      const res = await fetch(`/api/workflow/${id}/nudge`, { method: "POST" });
+      const data = await res.json();
+      if (data.nudged?.length > 0) {
+        setNudgeToast({ message: `Fixed ${data.nudged.length} stuck ticket(s)`, type: "success" });
+      } else {
+        setNudgeToast({ message: "All tickets healthy — nothing to fix", type: "info" });
+      }
+    } catch {
+      setNudgeToast({ message: "Nudge failed — check connection", type: "error" });
+    }
+    setTimeout(() => setNudgeToast(null), 4000);
+  };
+
   return (
     <div className="flex h-[calc(100vh-64px)] -m-6">
       {/* Left Sidebar — Epic History */}
@@ -162,6 +178,7 @@ export default function WorkflowPage() {
                   isSelected={selectedId === w.id}
                   isActive
                   onClick={() => handleSelectWorkflow(w.id)}
+                  onNudge={handleNudge}
                 />
               ))}
             </div>
@@ -199,7 +216,7 @@ export default function WorkflowPage() {
             <IntakeForm onSubmit={handleSubmit} isLoading={isSubmitting} />
           </div>
         ) : selectedId ? (
-          <WorkflowBoard workflowId={selectedId} />
+          <WorkflowBoard key={selectedId} workflowId={selectedId} />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center p-8">
             <div className="w-16 h-16 rounded-full bg-blue-600/10 flex items-center justify-center mb-4">
@@ -220,6 +237,18 @@ export default function WorkflowPage() {
           </div>
         )}
       </div>
+
+      {/* Nudge Toast — positioned in the sidebar near the nudge buttons */}
+      {nudgeToast && (
+        <div className={`absolute left-4 bottom-4 px-3 py-2 rounded-lg shadow-lg text-xs font-medium z-50 max-w-[260px] ${
+          nudgeToast.type === "success" ? "bg-green-600 text-white" :
+          nudgeToast.type === "error" ? "bg-red-600 text-white" :
+          "bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] border border-[var(--color-border)]"
+        }`}>
+          {nudgeToast.type === "success" && "⚡ "}
+          {nudgeToast.message}
+        </div>
+      )}
     </div>
   );
 }
@@ -231,19 +260,21 @@ function WorkflowListItem({
   isSelected,
   isActive,
   onClick,
+  onNudge,
 }: {
   workflow: WorkflowSummary;
   isSelected: boolean;
   isActive?: boolean;
   onClick: () => void;
+  onNudge?: (id: string) => void;
 }) {
   const isRunning = workflow.phase !== "complete" && workflow.phase !== "error";
   const timeStr = formatRelativeTime(workflow.startedAt);
 
   return (
-    <button
+    <div
       onClick={onClick}
-      className={`w-full text-left px-3 py-2.5 rounded-lg mb-1 transition-all ${
+      className={`w-full text-left px-3 py-2.5 rounded-lg mb-1 transition-all cursor-pointer ${
         isSelected
           ? "bg-blue-600/15 border border-blue-500/30"
           : "hover:bg-[var(--color-bg-tertiary)] border border-transparent"
@@ -275,13 +306,24 @@ function WorkflowListItem({
             <span className="text-[10px] text-[var(--color-text-muted)]">{timeStr}</span>
           </div>
           {isRunning && (
-            <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium uppercase tracking-wider">
-              {workflow.phase}
-            </span>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium uppercase tracking-wider">
+                {workflow.phase}
+              </span>
+              {onNudge && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onNudge(workflow.id); }}
+                  className="p-0.5 rounded hover:bg-amber-500/20 text-[var(--color-text-muted)] hover:text-amber-400 transition-colors"
+                  title="Nudge — unstick any stuck tickets"
+                >
+                  <Zap className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 

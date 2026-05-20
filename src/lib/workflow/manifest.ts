@@ -252,6 +252,7 @@ function normalizePhase(phase: string): ManifestPhase {
     verification: "verification",
     // Agent-level phases map to broader categories
     "team-requirements-analyst": "requirements",
+    "team-frontend-designer": "design",
     "team-ios-designer": "design",
     "team-backend-designer": "design",
     "team-android-designer": "design",

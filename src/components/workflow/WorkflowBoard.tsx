@@ -31,6 +31,42 @@ const PHASE_ORDER: Record<string, number> = (() => {
   return order;
 })();
 
+// ─── Replay helper: apply a single event to state (pure function) ───────────
+
+function applyEventToState(s: WorkflowState, event: WorkflowEvent): WorkflowState {
+  switch (event.type) {
+    case "phase_change":
+      return { ...s, phase: event.phase };
+    case "agent_status": {
+      const tasks = { ...s.agentTasks };
+      if (tasks[event.agentId]) {
+        tasks[event.agentId] = { ...tasks[event.agentId], status: event.status };
+      } else {
+        tasks[event.agentId] = { id: `task_${Date.now()}`, agentId: event.agentId, ticketId: event.ticketId || "", status: event.status, input: "" };
+      }
+      return { ...s, agentTasks: tasks };
+    }
+    case "agent_complete": {
+      const tasks = { ...s.agentTasks };
+      if (tasks[event.agentId]) {
+        tasks[event.agentId] = {
+          ...tasks[event.agentId],
+          status: "complete",
+          // Only overwrite output if the event actually has content (events often have empty/truncated output)
+          output: event.output || tasks[event.agentId].output,
+          branch: event.branch,
+          commitSha: event.commitSha,
+        };
+      }
+      return { ...s, agentTasks: tasks };
+    }
+    case "workflow_complete":
+      return { ...s, phase: "complete" };
+    default:
+      return s;
+  }
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
@@ -41,30 +77,113 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   // Tool flash state: maps "phaseId:iconKey" to a timeout so items flash when tools fire
   const [toolFlashes, setToolFlashes] = useState<Record<string, boolean>>({});
   const toolFlashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [activeConnector, setActiveConnector] = useState<number | null>(null);
+  const [connectorPaths, setConnectorPaths] = useState<string[]>([]);
   const eventSourceRef = useRef<EventSource | null>(null);
   const pipelineRef = useRef<HTMLDivElement>(null);
 
-  // Fetch initial state + poll every 3s
+  // Replay state for completed workflows
+  const [replayMode, setReplayMode] = useState(false);
+  const [replayEvents, setReplayEvents] = useState<WorkflowEvent[]>([]);
+  const [replayIndex, setReplayIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(3); // multiplier: 3x = 3 times real-time
+  const replayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Nudge pulse effect — hot pink full-screen flash during replay
+  const [nudgePulse, setNudgePulse] = useState(false);
+
+  // Catch-up replay state for live/in-progress workflows
+  const [catchingUp, setCatchingUp] = useState(false);
+  const lastEventIdRef = useRef<string>("");
+  const catchUpCompleteRef = useRef(false);
+
+  // Preserve original DDB agent outputs (replay reconstructs state from events which lack full output)
+  const originalOutputsRef = useRef<Record<string, string>>({});
+
+  // Fetch initial state (once for replay, poll for live)
   useEffect(() => {
+    let isFirstFetch = true;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
     const fetchState = () => {
       const ts = Date.now();
       fetch(`/api/workflow/${workflowId}/state?t=${ts}`, { cache: "no-store" })
         .then((r) => r.json())
         .then((data) => {
           if (data && data.id) {
-            setState(data);
+            // Only set state from poll if NOT in replay mode and not catching up
+            if (!replayMode && !catchingUp) setState(data);
+            if (isFirstFetch) {
+              // Capture original DDB agent outputs before replay overwrites state
+              if (data.agentTasks) {
+                const outputs: Record<string, string> = {};
+                for (const task of Object.values(data.agentTasks) as Array<{ agentId?: string; output?: string }>) {
+                  if (task.agentId && task.output) {
+                    outputs[task.agentId] = task.output;
+                  }
+                }
+                originalOutputsRef.current = outputs;
+              }
+              if (data.phase === "complete") {
+                // Completed workflow → full replay mode
+                setReplayMode(true);
+                if (interval) { clearInterval(interval); interval = null; }
+                fetch(`/api/workflow/${workflowId}/events`)
+                  .then((r) => r.json())
+                  .then((evData) => {
+                    if (evData.events?.length) {
+                      setReplayEvents(evData.events);
+                    }
+                  })
+                  .catch(() => {});
+              } else {
+                // Live workflow → catch-up replay then transition to SSE
+                setCatchingUp(true);
+                if (interval) { clearInterval(interval); interval = null; }
+                fetch(`/api/workflow/${workflowId}/events`)
+                  .then((r) => r.json())
+                  .then((evData) => {
+                    if (evData.events?.length) {
+                      // Store the last eventId so SSE can start from there
+                      const lastEv = evData.events[evData.events.length - 1];
+                      lastEventIdRef.current = lastEv.eventId || "";
+                      setReplayMode(true);
+                      setReplayEvents(evData.events);
+                      // Dynamic speed: catch-up should take ~4s max regardless of event count/duration
+                      // Calculate based on total time span of events
+                      const firstTs = new Date(evData.events[0].timestamp || 0).getTime();
+                      const lastTs = new Date(lastEv.timestamp || 0).getTime();
+                      const totalSpanMs = Math.max(1000, lastTs - firstTs);
+                      const targetDurationMs = 4000; // 4 seconds target
+                      // Speed = timeSpan / target, floored at 20x, no ceiling (let it rip for long runs)
+                      const dynamicSpeed = Math.max(20, totalSpanMs / targetDurationMs);
+                      setPlaybackSpeed(dynamicSpeed);
+                      setIsPlaying(true);
+                    } else {
+                      // No historical events — go straight to live
+                      setCatchingUp(false);
+                    }
+                  })
+                  .catch(() => { setCatchingUp(false); });
+              }
+            }
+            isFirstFetch = false;
           }
         })
         .catch(() => {});
     };
 
     fetchState();
-    const interval = setInterval(fetchState, 3000);
-    return () => clearInterval(interval);
+    // Only poll for live workflows (will be stopped if replay/catch-up kicks in)
+    interval = setInterval(fetchState, 3000);
+    return () => { if (interval) clearInterval(interval); };
   }, [workflowId]);
 
-  // SSE connection with auto-reconnect
+  // SSE connection — only for LIVE workflows (starts after catch-up completes or immediately if no catch-up)
   useEffect(() => {
+    if (replayMode || catchingUp) return;
+
     let es: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempts = 0;
@@ -72,7 +191,12 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
     const connect = () => {
       if (stopped) return;
-      es = new EventSource(`/api/workflow/${workflowId}/stream`);
+      // Use cursor from last replayed event to avoid re-delivering history
+      const cursor = lastEventIdRef.current;
+      const url = cursor
+        ? `/api/workflow/${workflowId}/stream?cursor=${encodeURIComponent(cursor)}`
+        : `/api/workflow/${workflowId}/stream`;
+      es = new EventSource(url);
       eventSourceRef.current = es;
 
       es.onopen = () => { reconnectAttempts = 0; };
@@ -107,14 +231,169 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       es?.close();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, [workflowId]);
+  }, [workflowId, replayMode, catchingUp]);
+
+  // Replay playback timer — uses real timestamps for natural pacing
+  // Only re-runs when isPlaying or playbackSpeed changes (not on every replayIndex tick)
+  const replayIndexRef = useRef(replayIndex);
+  replayIndexRef.current = replayIndex;
+
+  useEffect(() => {
+    if (!isPlaying || replayEvents.length === 0) return;
+    let stopped = false;
+
+    const scheduleNext = () => {
+      const currentIdx = replayIndexRef.current;
+      if (stopped || currentIdx >= replayEvents.length - 1) {
+        if (!stopped) {
+          setIsPlaying(false);
+          // If catching up, transition to live SSE
+          if (catchingUp) {
+            catchUpCompleteRef.current = true;
+            setCatchingUp(false);
+            setReplayMode(false);
+          }
+        }
+        return;
+      }
+      const currentTs = new Date(replayEvents[currentIdx].timestamp || 0).getTime();
+      const nextTs = new Date(replayEvents[currentIdx + 1].timestamp || 0).getTime();
+      // Real delay between events, compressed by playback speed
+      // During catch-up: lower the floor so long runs finish in ~4s
+      // Normal replay: 50ms floor for smooth visual pacing
+      const minDelay = catchingUp ? Math.max(3, 4000 / replayEvents.length) : 50;
+      const maxDelay = catchingUp ? 200 : 2000;
+      const realDelay = Math.max(0, nextTs - currentTs);
+      const delay = Math.min(maxDelay, Math.max(minDelay, realDelay / playbackSpeed));
+
+      replayTimerRef.current = setTimeout(() => {
+        if (stopped) return;
+        setReplayIndex(replayIndexRef.current + 1);
+        scheduleNext();
+      }, delay);
+    };
+
+    scheduleNext();
+    return () => {
+      stopped = true;
+      if (replayTimerRef.current) clearTimeout(replayTimerRef.current);
+    };
+  }, [isPlaying, playbackSpeed, replayEvents, catchingUp]);
+
+  // Fire visual effects for the current replay event (without touching state)
+  // Tracks the highest phase index that has been animated, to fire connectors on first entry
+  const replayPhaseHighWaterRef = useRef(0);
+  const fireReplayVisuals = useCallback((event: WorkflowEvent) => {
+    if (event.type === "phase_change") {
+      const newPhaseIndex = PHASE_ORDER[event.phase] ?? -1;
+      if (newPhaseIndex > 0 && newPhaseIndex > replayPhaseHighWaterRef.current) {
+        replayPhaseHighWaterRef.current = newPhaseIndex;
+        setActiveConnector(newPhaseIndex - 1);
+        setTimeout(() => setActiveConnector(null), 1200);
+      }
+    } else if (event.type === "agent_status" && event.status === "running") {
+      // If an agent starts in a new phase we haven't animated yet, fire the connector
+      const agentPhaseIdx = PIPELINE_PHASES.findIndex((p) =>
+        p.agents.some((a) => a.id === event.agentId)
+      );
+      if (agentPhaseIdx > 0 && agentPhaseIdx > replayPhaseHighWaterRef.current) {
+        replayPhaseHighWaterRef.current = agentPhaseIdx;
+        setActiveConnector(agentPhaseIdx - 1);
+        setTimeout(() => setActiveConnector(null), 1200);
+      }
+    } else if (event.type === "tool_use") {
+      const resolved = resolveToolIcon(event.toolName);
+      if (resolved) {
+        const agentPhase = PIPELINE_PHASES.find((p) => p.agents.some((a) => a.id === event.agentId));
+        if (agentPhase) {
+          const flashKey = `${agentPhase.id}:${resolved.icon}`;
+          setToolFlashes((prev) => ({ ...prev, [flashKey]: true }));
+          if (toolFlashTimers.current[flashKey]) clearTimeout(toolFlashTimers.current[flashKey]);
+          toolFlashTimers.current[flashKey] = setTimeout(() => {
+            setToolFlashes((prev) => ({ ...prev, [flashKey]: false }));
+          }, 1600);
+        }
+      }
+    } else if (event.type === "nudge") {
+      // Hot pink full-screen pulse for nudge events
+      setNudgePulse(true);
+      setTimeout(() => setNudgePulse(false), 1500);
+    }
+  }, []);
+
+  // Apply events up to replayIndex when it changes
+  useEffect(() => {
+    if (!replayMode || replayEvents.length === 0) return;
+    // Reconstruct state from scratch up to replayIndex
+    setState((baseState) => {
+      if (!baseState) return baseState;
+      // Intake is always "done" in replay — no events exist for it.
+      // Start at "requirements" since the first DDB event is already a requirements agent.
+      let s: WorkflowState = { ...baseState, phase: "requirements", agentTasks: {} };
+      for (let i = 0; i <= replayIndex && i < replayEvents.length; i++) {
+        s = applyEventToState(s, replayEvents[i]);
+      }
+      return s;
+    });
+    // Fire visual effects for just the current event
+    if (replayIndex < replayEvents.length) {
+      fireReplayVisuals(replayEvents[replayIndex]);
+    }
+  }, [replayIndex, replayMode, replayEvents, fireReplayVisuals]);
+
+
+  // Seek to a specific position
+  const seekTo = useCallback((index: number) => {
+    const target = Math.max(0, Math.min(index, replayEvents.length - 1));
+    // Reset high-water mark when seeking backward so connectors re-fire
+    if (target < replayIndexRef.current) {
+      replayPhaseHighWaterRef.current = 0;
+    }
+    setReplayIndex(target);
+  }, [replayEvents.length]);
+
+  // Start/stop replay
+  const togglePlay = useCallback(() => {
+    if (replayIndex >= replayEvents.length - 1) {
+      // If at end, restart from beginning
+      replayPhaseHighWaterRef.current = 0;
+      setReplayIndex(0);
+      setIsPlaying(true);
+    } else {
+      setIsPlaying((p) => !p);
+    }
+  }, [replayIndex, replayEvents.length]);
 
   const handleEvent = useCallback((event: WorkflowEvent) => {
     switch (event.type) {
-      case "phase_change":
+      case "phase_change": {
+        const newPhaseIndex = PHASE_ORDER[event.phase] ?? -1;
+        // Animate the connector FROM the previous phase TO the new phase
+        if (newPhaseIndex > 0) {
+          const connectorIndex = newPhaseIndex - 1;
+          setActiveConnector(connectorIndex);
+          setTimeout(() => setActiveConnector(null), 1200);
+        }
         setState((s) => s ? { ...s, phase: event.phase } : s);
         break;
+      }
       case "agent_status":
+        // If an agent starts running in a phase beyond current, animate the connector
+        if (event.status === "running") {
+          const agentPhase = PIPELINE_PHASES.findIndex((p) =>
+            p.agents.some((a) => a.id === event.agentId)
+          );
+          if (agentPhase > 0 && activeConnector === null) {
+            setState((s) => {
+              const curIdx = s ? (PHASE_ORDER[s.phase] ?? -1) : -1;
+              if (agentPhase > curIdx) {
+                setActiveConnector(agentPhase - 1);
+                setTimeout(() => setActiveConnector(null), 1200);
+              }
+              return s;
+            });
+          }
+        }
         setState((s) => {
           if (!s) return s;
           const tasks = { ...s.agentTasks };
@@ -191,6 +470,37 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       default:
         break;
     }
+  }, [activeConnector]);
+
+  // Animate connector dot — exact same logic as demo HTML animateConnector()
+  const animateConnectorDot = useCallback((connectorIndex: number, duration = 900) => {
+    const svg = pipelineRef.current?.querySelector(".pipeline-connectors") as SVGSVGElement | null;
+    if (!svg) return;
+    const path = svg.querySelector(`#connector-path-${connectorIndex}`) as SVGPathElement | null;
+    const dot = svg.querySelector(`circle[data-connector="${connectorIndex}"]`) as SVGCircleElement | null;
+    if (!path || !dot) return;
+    const pathLen = path.getTotalLength();
+    if (pathLen === 0) return;
+    path.classList.add("active");
+    const startT = performance.now();
+    dot.style.opacity = "1";
+    function tick(now: number) {
+      const t = Math.min((now - startT) / duration, 1);
+      // Ease-in-out quadratic (same as demo)
+      const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      const pt = path!.getPointAtLength(ease * pathLen);
+      dot!.setAttribute("cx", String(pt.x));
+      dot!.setAttribute("cy", String(pt.y));
+      // Fade in first 5%, fade out last 10% (same as demo)
+      dot!.style.opacity = t < 0.05 ? String(t / 0.05) : t > 0.9 ? String((1 - t) / 0.1) : "1";
+      if (t < 1) {
+        requestAnimationFrame(tick);
+      } else {
+        dot!.style.opacity = "0";
+        path!.classList.remove("active");
+      }
+    }
+    requestAnimationFrame(tick);
   }, []);
 
   // Derive visual states from workflow state
@@ -198,6 +508,121 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const isComplete = state?.phase === "complete";
   // "settled" = loaded a completed workflow (not a live completion animation)
   const isSettled = isComplete && !celebrating;
+
+  // Trigger connector animation when activeConnector changes
+  useEffect(() => {
+    if (activeConnector !== null) {
+      animateConnectorDot(activeConnector, 900);
+    }
+  }, [activeConnector, animateConnectorDot]);
+
+  // On initial load of a live workflow, animate completed connectors
+  const hasAnimatedRef = useRef(false);
+  useEffect(() => {
+    if (replayMode || hasAnimatedRef.current || currentPhaseIndex <= 0 || connectorPaths.length === 0) return;
+    hasAnimatedRef.current = true;
+    for (let i = 0; i < currentPhaseIndex && i < connectorPaths.length; i++) {
+      setTimeout(() => animateConnectorDot(i, 800), i * 400);
+    }
+  }, [replayMode, currentPhaseIndex, connectorPaths, animateConnectorDot]);
+
+  // On replay start, animate the intake→requirements connector (hardcoded since intake has no DDB events)
+  const hasPlayedIntakeRef = useRef(false);
+  useEffect(() => {
+    if (!replayMode || replayEvents.length === 0 || hasPlayedIntakeRef.current) return;
+    if (connectorPaths.length > 0) {
+      hasPlayedIntakeRef.current = true;
+      setTimeout(() => animateConnectorDot(0, 700), 300);
+    }
+  }, [replayMode, replayEvents, connectorPaths, animateConnectorDot]);
+
+  // ─── Auto-Nudge: if workflow active, no agent running, idle >60s → auto-fix stuck tickets ───
+  const lastActivityRef = useRef<number>(Date.now());
+  const nudgeFiredRef = useRef<string>(""); // tracks workflowId+phase to avoid repeat nudges
+  // Update activity timestamp whenever an agent is running or streaming
+  useEffect(() => {
+    if (!state || state.phase === "complete" || state.phase === "error") return;
+    const hasRunning = Object.values(state.agentTasks || {}).some(
+      (t) => t.status === "running" || t.status === "waiting_response"
+    );
+    const hasStreaming = Object.keys(streamingText).length > 0;
+    if (hasRunning || hasStreaming) {
+      lastActivityRef.current = Date.now();
+      // Reset nudge flag when activity resumes (new phase or agent started)
+      nudgeFiredRef.current = "";
+    }
+  }, [state, streamingText]);
+
+  useEffect(() => {
+    if (!state || state.phase === "complete" || state.phase === "error" || replayMode) return;
+    const check = setInterval(() => {
+      const idle = Date.now() - lastActivityRef.current;
+      const nudgeKey = `${workflowId}:${state.phase}`;
+      if (idle > 90_000 && nudgeFiredRef.current !== nudgeKey) {
+        nudgeFiredRef.current = nudgeKey;
+        fetch(`/api/workflow/${workflowId}/nudge`, { method: "POST" })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.nudged?.length > 0) {
+              console.log(`[auto-nudge] Fixed ${data.nudged.length} ticket(s):`, data.nudged);
+              // Flash the nudge pulse so the user sees it happened
+              setNudgePulse(true);
+              setTimeout(() => setNudgePulse(false), 1500);
+            }
+          })
+          .catch(() => {});
+      }
+    }, 15_000); // check every 15s
+    return () => clearInterval(check);
+  }, [workflowId, state?.phase, replayMode]);
+
+  // Measure element positions and compute connector paths:
+  // FROM: last output/trigger item (right edge) of phase[i]
+  // TO: agent-box (left edge) of phase[i+1]
+  useEffect(() => {
+    const canvas = pipelineRef.current;
+    if (!canvas) return;
+    const timer = setTimeout(() => {
+      const canvasRect = canvas.getBoundingClientRect();
+      const phases = canvas.querySelectorAll(".phase");
+      const paths: string[] = [];
+      for (let i = 0; i < phases.length - 1; i++) {
+        const fromPhase = phases[i];
+        const toPhase = phases[i + 1];
+        if (!fromPhase || !toPhase) { paths.push(""); continue; }
+        // FROM: last .item in the phase's work-area (the output/trigger item)
+        const fromItems = fromPhase.querySelectorAll(".work-area .item");
+        const fromEl = fromItems[fromItems.length - 1];
+        // TO: the agent-box header of the next phase
+        const toEl = toPhase.querySelector(".agent-box");
+        if (!fromEl || !toEl) { paths.push(""); continue; }
+        const fromRect = fromEl.getBoundingClientRect();
+        const toRect = toEl.getBoundingClientRect();
+        // Start: right-center of last output item
+        const fromX = fromRect.right - canvasRect.left;
+        const fromY = fromRect.top + fromRect.height / 2 - canvasRect.top;
+        // End: left-center of next agent-box
+        const toX = toRect.left - canvasRect.left;
+        const toY = toRect.top + toRect.height / 2 - canvasRect.top;
+        // Bezier curve — control points adapt to whether path goes mostly horizontal or vertical
+        const dx = toX - fromX;
+        const dy = toY - fromY;
+        let d: string;
+        if (Math.abs(dx) > Math.abs(dy) * 0.8) {
+          // Mostly horizontal — horizontal S-curve
+          const cpx = dx * 0.4;
+          d = `M ${fromX} ${fromY} C ${fromX + cpx} ${fromY}, ${toX - cpx} ${toY}, ${toX} ${toY}`;
+        } else {
+          // Mostly vertical — vertical S-curve
+          const cpy = dy * 0.4;
+          d = `M ${fromX} ${fromY} C ${fromX} ${fromY + cpy}, ${toX} ${toY - cpy}, ${toX} ${toY}`;
+        }
+        paths.push(d);
+      }
+      setConnectorPaths(paths);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [state?.phase, celebrating]);
 
   // Check if a pipeline phase still has running agents (for parallel execution across phases)
   const phaseHasRunningAgents = (phaseIndex: number): boolean => {
@@ -212,9 +637,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   const getPhaseClass = (phaseIndex: number) => {
     if (currentPhaseIndex === -1) return "";
-    if (isSettled) return "active done settled";
+    if (isSettled && !replayMode) return "active done settled";
     if (isComplete) return "active done";
-    // Phase still has running agents — show as active, not done
     if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "active";
     if (phaseIndex < currentPhaseIndex) return "active done";
     if (phaseIndex === currentPhaseIndex) return "active";
@@ -223,9 +647,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   const getBoxClass = (phaseIndex: number) => {
     if (currentPhaseIndex === -1) return "";
-    if (isSettled) return "done settled";
+    if (isSettled && !replayMode) return "done settled";
     if (isComplete) return "done";
-    // Phase still has running agents — show as awake, not done
     if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "awake";
     if (phaseIndex < currentPhaseIndex) return "done";
     if (phaseIndex === currentPhaseIndex) return "awake";
@@ -234,7 +657,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   const getItemClass = (phaseIndex: number): string => {
     if (!state) return "";
-    if (isSettled) return "done settled";
+    if (isSettled && !replayMode) return "done settled";
     if (isComplete) return "done";
     // Phase still has running agents — steady glow (not pulsating)
     if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "active-glow";
@@ -260,6 +683,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   return (
     <div className={celebrating ? "celebrate-wrapper" : ""}>
       <style dangerouslySetInnerHTML={{ __html: PIPELINE_STYLES }} />
+
+      {/* Nudge pulse overlay — hot pink full-screen flash during replay */}
+      {nudgePulse && (
+        <div className="nudge-pulse-overlay" />
+      )}
 
       <div className="pipeline-viz">
         <div className="pipeline-title">Agentis Hub</div>
@@ -307,26 +735,36 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                 <stop offset="50%" stopColor="#0ea5e9" stopOpacity={0.9} />
                 <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.2} />
               </linearGradient>
-              <filter id="pathGlow" x="-10%" y="-10%" width="120%" height="120%">
-                <feGaussianBlur stdDeviation="2" result="blur" />
+              <filter id="pathGlow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
                 <feMerge>
                   <feMergeNode in="blur" />
                   <feMergeNode in="SourceGraphic" />
                 </feMerge>
               </filter>
+              <filter id="dotGlow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="4" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
             </defs>
-            {PIPELINE_PHASES.slice(0, -1).map((_, i) => {
-              const x1 = 290 * (i + 1) + 44 * i;
-              const x2 = x1 + 44;
-              const y = 200;
+            {connectorPaths.map((d, i) => {
+              if (!d) return null;
               const showConnector = i < currentPhaseIndex || isComplete;
               const isActiveConnector = i === currentPhaseIndex - 1 && !isComplete;
+              const pathId = `connector-path-${i}`;
               return (
-                <path
-                  key={`connector-${i}`}
-                  className={`flow-path ${showConnector ? "show" : ""} ${isActiveConnector ? "active" : ""} ${isSettled ? "settled" : ""}`}
-                  d={`M ${x1} ${y} C ${x1 + 22} ${y}, ${x2 - 22} ${y}, ${x2} ${y}`}
-                />
+                <g key={`connector-${i}`}>
+                  <path
+                    id={pathId}
+                    className={`flow-path ${showConnector ? "show" : ""} ${isActiveConnector ? "active" : ""} ${isSettled ? "settled" : ""}`}
+                    d={d}
+                  />
+                  <circle className="flow-dot" r="5" data-connector={i} style={{ opacity: 0 }} />
+                </g>
               );
             })}
           </svg>
@@ -481,8 +919,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         </div>
 
         {/* Status bar */}
-        <div className={`pipeline-status ${isSettled ? "settled" : ""}`}>
-          <div className="status-phase" style={isSettled ? { color: "#f97316" } : undefined}>
+        <div className={`pipeline-status ${isSettled && !replayMode ? "settled" : ""}`}>
+          <div className="status-phase" style={isSettled && !replayMode ? { color: "#f97316" } : undefined}>
             {isComplete ? "Complete" : (state.phase === "error" ? "Error" : PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase)}
           </div>
           <div className="status-text">
@@ -494,6 +932,53 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           </div>
         </div>
 
+        {/* Replay scrubber bar */}
+        {replayMode && replayEvents.length > 0 && (
+          <div className="replay-bar">
+            {catchingUp ? (
+              <>
+                <span className="catching-up-indicator">Catching up...</span>
+                <input
+                  type="range"
+                  className="replay-scrubber"
+                  min={0}
+                  max={replayEvents.length - 1}
+                  value={replayIndex}
+                  readOnly
+                />
+                <span className="replay-counter">{replayIndex + 1} / {replayEvents.length}</span>
+              </>
+            ) : (
+              <>
+                <button className="replay-btn" onClick={togglePlay}>
+                  {isPlaying ? "⏸" : "▶"}
+                </button>
+                <input
+                  type="range"
+                  className="replay-scrubber"
+                  min={0}
+                  max={replayEvents.length - 1}
+                  value={replayIndex}
+                  onChange={(e) => seekTo(Number(e.target.value))}
+                />
+                <span className="replay-counter">{replayIndex + 1} / {replayEvents.length}</span>
+                <select
+                  className="replay-speed"
+                  value={playbackSpeed}
+                  onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
+                >
+                  <option value={1}>1x (real-time)</option>
+                  <option value={3}>3x</option>
+                  <option value={5}>5x</option>
+                  <option value={10}>10x</option>
+                  <option value={20}>20x</option>
+                  <option value={50}>50x</option>
+                </select>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Expanded agent output panel */}
         {expandedAgent && (
           <div className="agent-output-panel">
@@ -502,7 +987,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
               <button onClick={() => setExpandedAgent(null)} className="agent-output-close">✕</button>
             </div>
             <div className="agent-output-body">
-              {streamingText[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || "No output yet..."}
+              {streamingText[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || originalOutputsRef.current[expandedAgent] || "No output yet..."}
             </div>
           </div>
         )}
@@ -528,9 +1013,11 @@ const PIPELINE_STYLES = `
 
 .pipeline-canvas{position:relative;width:1720px;min-height:840px}
 .pipeline-connectors{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
-.flow-path{fill:none;stroke:#1e293b;stroke-width:2;stroke-linecap:round;opacity:0;transition:opacity .3s}
-.flow-path.show{opacity:1}
-.flow-path.active{stroke:url(#flowGrad);stroke-width:2.5;filter:url(#pathGlow)}
+.flow-path{fill:none;stroke:#1e293b;stroke-width:2;stroke-linecap:round;opacity:0;transition:opacity .5s,stroke .5s}
+.flow-path.show{opacity:1;stroke:#0ea5e9;stroke-width:2.5;filter:url(#pathGlow)}
+.flow-path.active{stroke:#0ea5e9;stroke-width:3;filter:url(#pathGlow);opacity:1}
+.flow-path.animating{stroke:#0ea5e9;stroke-width:3;opacity:1;filter:url(#pathGlow)}
+.flow-dot{fill:#0ea5e9;filter:url(#dotGlow)}
 
 .pipeline-phases{display:flex;align-items:flex-start;gap:44px;position:relative;z-index:2}
 
@@ -616,11 +1103,26 @@ const PIPELINE_STYLES = `
 .item.done.settled{animation:settledItemGlow 4s ease-in-out infinite;opacity:0.85}
 .item.done.settled .item-status{background:#f97316;box-shadow:0 0 4px rgba(249,115,22,.4)}
 .item.done.settled .item-label{color:#e2e8f0}
-.flow-path.settled{stroke:#f9731650;opacity:.5;stroke-width:2}
+.flow-path.settled{stroke:#f97316;opacity:.6;stroke-width:2.5}
+
+.replay-bar{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 16px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;width:100%;max-width:1720px}
+.replay-btn{background:none;border:1px solid #334155;color:#e2e8f0;font-size:14px;width:32px;height:32px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.replay-btn:hover{border-color:#0ea5e9;background:#0ea5e920}
+.replay-scrubber{flex:1;height:4px;-webkit-appearance:none;appearance:none;background:#334155;border-radius:2px;cursor:pointer;outline:none}
+.replay-scrubber::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#0ea5e9;cursor:pointer;box-shadow:0 0 6px rgba(14,165,233,.5)}
+.replay-scrubber::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#0ea5e9;cursor:pointer;border:none}
+.replay-counter{font-size:11px;color:#64748b;font-family:"JetBrains Mono",monospace;min-width:80px;text-align:center}
+.replay-speed{background:#0f1419;border:1px solid #334155;color:#e2e8f0;font-size:11px;padding:4px 8px;border-radius:4px;cursor:pointer}
+.replay-speed:hover{border-color:#0ea5e9}
+.catching-up-indicator{font-size:12px;color:#0ea5e9;font-weight:500;letter-spacing:0.5px;animation:catchUpPulse 1.2s ease-in-out infinite}
+@keyframes catchUpPulse{0%,100%{opacity:1}50%{opacity:0.5}}
 
 .agent-output-panel{margin-top:16px;width:100%;max-width:1720px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;overflow:hidden}
 .agent-output-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#0f1419;border-bottom:1px solid #1e293b;font-size:11px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase}
 .agent-output-close{background:none;border:none;color:#64748b;font-size:14px;cursor:pointer;padding:2px 6px}
 .agent-output-close:hover{color:#e2e8f0}
 .agent-output-body{padding:12px;font-size:12px;color:#94a3b8;white-space:pre-wrap;max-height:300px;overflow-y:auto;font-family:"JetBrains Mono",monospace;line-height:1.5}
+
+.nudge-pulse-overlay{position:fixed;inset:0;z-index:9999;pointer-events:none;animation:nudgePulse 1.5s ease-out forwards}
+@keyframes nudgePulse{0%{background:rgba(236,72,153,0.35);box-shadow:inset 0 0 120px rgba(236,72,153,0.6)}30%{background:rgba(236,72,153,0.15);box-shadow:inset 0 0 60px rgba(236,72,153,0.3)}100%{background:transparent;box-shadow:none}}
 `;

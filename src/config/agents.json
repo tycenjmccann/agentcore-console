@@ -31,6 +31,16 @@
       "keywords": ["backenddesign", "apidesign", "backendarchitect", "servicedesign"]
     },
     {
+      "id": "team-frontend-designer",
+      "name": "Frontend Designer",
+      "role": "Web UI/UX architecture, component design, responsive layouts, accessibility, design system enforcement",
+      "phase": "design",
+      "harnessName": "agentis_frontend_designer",
+      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "canQueryAgents": ["team-requirements-analyst"],
+      "keywords": ["frontenddesign", "webdesign", "uidesign", "uxdesign", "webarchitect", "componentdesign", "responsivedesign"]
+    },
+    {
       "id": "team-android-designer",
       "name": "Android Designer",
       "role": "Android/Kotlin architecture, Material Design, Jetpack Compose patterns",
@@ -116,17 +126,17 @@
       "role": "Visual regression testing, E2E validation, and design-to-implementation comparison",
       "phase": "verification",
       "harnessName": "team_qa_verifier",
-      "tools": ["gateway", "code_interpreter", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "get_file_contents", "create_or_update_file", "create_branch", "create_pull_request"],
+      "tools": ["gateway", "code_interpreter", "browser", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "JiraIntegration___create_ticket", "JiraIntegration___transition_ticket", "JiraIntegration___list_tickets", "JiraIntegration___add_comment", "get_file_contents", "WorkflowOutput___report_completion"],
       "canQueryAgents": ["team-frontend-dev", "team-backend-dev", "team-api-dev"],
       "keywords": ["qa", "verification", "testing", "visualregression", "e2e"]
     },
     {
       "id": "team-ci-agent",
       "name": "CI Validation Agent",
-      "role": "Monitor CI results, parse build failures, instruct dev agents to fix issues",
+      "role": "Monitor CI results, parse build failures, create fix tickets for dev agents",
       "phase": "review",
       "harnessName": "team_ci_agent",
-      "tools": ["gateway", "invoke_team_agent", "get_file_contents", "get_file_contents", "create_or_update_file"],
+      "tools": ["gateway", "S3Storage___read_object", "JiraIntegration___create_ticket", "JiraIntegration___transition_ticket", "JiraIntegration___list_tickets", "JiraIntegration___add_comment", "get_file_contents", "create_or_update_file", "WorkflowOutput___report_completion"],
       "canQueryAgents": ["team-frontend-dev", "team-backend-dev", "team-api-dev"],
       "keywords": ["ci", "build", "pipeline", "validation", "cicd"]
     }

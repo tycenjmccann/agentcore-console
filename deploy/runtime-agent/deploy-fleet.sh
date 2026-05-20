@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# deploy-fleet.sh — Deploy 13 Strands agents to AgentCore Runtime (direct_code_deploy)
+# deploy-fleet.sh — Deploy 14 Strands agents to AgentCore Runtime (direct_code_deploy)
 #
-# Each agent uses the same main.py but gets its own Runtime resource.
-# The orchestrator differentiates them at invocation time via payload
-# (system_prompt, agent_id, etc.)
+# Each agent uses the same main.py but gets its own Runtime resource with a unique
+# SYSTEM_PROMPT env var baked in from deploy/runtime-agent/prompts/{agent_name}.txt.
+# The orchestrator is dumb — it only passes task context (ticket description).
 #
 # Prerequisites:
 #   pip install "bedrock-agentcore-starter-toolkit>=0.1.21" strands-agents boto3
@@ -15,6 +15,13 @@
 #
 
 set -e
+
+# Source project env vars (GITHUB_PAT, etc.) so agents get MCP access
+ENV_FILE="$(cd "$(dirname "$0")/../.." && pwd)/.env.local"
+if [ -f "$ENV_FILE" ]; then
+  set -a; source "$ENV_FILE"; set +a
+  echo "Loaded env from $ENV_FILE"
+fi
 
 REGION="${AWS_REGION:-us-east-1}"
 ROLE_ARN="${ROLE_ARN:-arn:aws:iam::023392223961:role/csharness_cssonnet}"
@@ -34,7 +41,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "═══════════════════════════════════════════════════════════════"
-echo "  Deploying Agentis Fleet — 13 Strands Agents on Runtime"
+echo "  Deploying Agentis Fleet — 14 Strands Agents on Runtime"
 echo "═══════════════════════════════════════════════════════════════"
 echo "  Region:      $REGION"
 echo "  Role ARN:    $ROLE_ARN"
@@ -45,9 +52,10 @@ echo "  Deploy Type: direct_code_deploy (CodeZip, no Docker)"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
-# All 13 agents — same code, different runtime name
+# All 13 agents — same code, different runtime name + system prompt
 AGENTS=(
   "agentis_requirements_analyst"
+  "agentis_frontend_designer"
   "agentis_ios_designer"
   "agentis_backend_designer"
   "agentis_android_designer"
@@ -120,3 +128,7 @@ for name, arn in data.items():
     env_key = 'RUNTIME_ARN_' + name.upper()
     print(f'{env_key}={arn}')
 "
+
+echo ""
+echo "Running post-deploy health check..."
+"$SCRIPT_DIR/verify-fleet.sh"

@@ -207,7 +207,7 @@ export interface HumanNotification {
 
 // ─── SSE Events ──────────────────────────────────────────────────────────────
 
-export type WorkflowEvent =
+export type WorkflowEvent = (
   | { type: "phase_change"; phase: WorkflowPhase }
   | { type: "agent_status"; agentId: string; status: AgentTaskStatus; ticketId?: string }
   | { type: "agent_output"; agentId: string; chunk: string }
@@ -220,4 +220,6 @@ export type WorkflowEvent =
   | { type: "ticket_update"; ticketId: string; status: TicketStatus }
   | { type: "notification"; notification: HumanNotification }
   | { type: "workflow_complete"; summary: string }
-  | { type: "error"; agentId?: string; error: string };
+  | { type: "error"; agentId?: string; error: string }
+  | { type: "nudge"; nudged: string[]; ticketsScanned?: number }
+) & { timestamp?: string; eventId?: string };

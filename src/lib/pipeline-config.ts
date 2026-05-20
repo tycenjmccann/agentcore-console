@@ -151,11 +151,11 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
     type: "agent",
     agentPhase: "design",
     identity: [
-      { icon: "agentcore", label: "AgentCore Runtime (x7 parallel)" },
+      { icon: "agentcore", label: "AgentCore Runtime (x8 parallel)" },
       { icon: "bedrock", label: "Claude Opus 4 / Sonnet 4" },
     ],
     config: [
-      { key: "Dispatch", val: "parallel fan-out, 7 runtimes" },
+      { key: "Dispatch", val: "parallel fan-out, 8 runtimes" },
       { key: "Memory", val: "built-in + shared namespace" },
       { key: "A2A", val: "cross-agent query enabled" },
     ],
@@ -165,6 +165,7 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { dot: "ext", label: "Gateway (Jira, GitHub)" },
     ],
     skills: [
+      "Frontend/Web UI Design",
       "iOS Architecture Design",
       "Backend Systems Design",
       "Privacy & Compliance",

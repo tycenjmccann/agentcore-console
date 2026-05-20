@@ -83,83 +83,30 @@ export async function POST(req: NextRequest) {
       },
     }));
 
-    // 3. Pre-create ALL agent ticket skeletons with proper dependency chain.
-    // Requirements agent will mark irrelevant ones as "done" (skipped).
-    // This ensures cascade always works regardless of agent behavior.
+    // 3. Create ONLY the requirements ticket (status=todo → Stream fires → Lambda invokes).
+    // The requirements agent creates all downstream tickets based on its analysis.
+    const reqTicketId = await nextTicketId();
 
-    const AGENT_ROSTER = [
-      { id: "team-requirements-analyst", phase: "requirements" },
-      { id: "team-ios-designer", phase: "design" },
-      { id: "team-backend-designer", phase: "design" },
-      { id: "team-android-designer", phase: "design" },
-      { id: "team-security-reviewer", phase: "design" },
-      { id: "team-legal-compliance", phase: "design" },
-      { id: "team-localization", phase: "design" },
-      { id: "team-analytics-designer", phase: "design" },
-      { id: "team-backend-dev", phase: "development" },
-      { id: "team-api-dev", phase: "development" },
-      { id: "team-frontend-dev", phase: "development" },
-      { id: "team-qa-verifier", phase: "verification" },
-      { id: "team-ci-agent", phase: "review" },
-    ];
+    await ddb.send(new PutCommand({
+      TableName: TICKETS_TABLE,
+      Item: {
+        ticketId: reqTicketId,
+        type: "task",
+        title: `Requirements: requirements analyst — ${body.title}`,
+        description: `Analyze the feature request and create tickets for the relevant agents.\n\nTitle: ${body.title}\nDescription: ${body.description}`,
+        status: "todo",
+        assignee: "team-requirements-analyst",
+        parentId: epicId,
+        workflowId,
+        comments: [],
+        artifacts: [],
+        blockedBy: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    }));
 
-    const now = new Date().toISOString();
-    const ticketIds: Record<string, string> = {};
-
-    // Create tickets for each agent
-    for (const agent of AGENT_ROSTER) {
-      ticketIds[agent.id] = await nextTicketId();
-    }
-
-    const reqTicketId = ticketIds["team-requirements-analyst"];
-    const designTicketIds = AGENT_ROSTER.filter(a => a.phase === "design").map(a => ticketIds[a.id]);
-    const devTicketIds = AGENT_ROSTER.filter(a => a.phase === "development").map(a => ticketIds[a.id]);
-    const qaTicketId = ticketIds["team-qa-verifier"];
-
-    for (const agent of AGENT_ROSTER) {
-      let blockedBy: string[] = [];
-      let status = "todo";
-
-      if (agent.phase === "design") {
-        blockedBy = [reqTicketId]; // Design waits for requirements
-        status = "blocked";
-      } else if (agent.phase === "development") {
-        blockedBy = designTicketIds; // Dev waits for ALL design
-        status = "blocked";
-      } else if (agent.phase === "verification") {
-        blockedBy = devTicketIds; // QA waits for ALL dev
-        status = "blocked";
-      } else if (agent.phase === "review") {
-        blockedBy = [qaTicketId]; // CI waits for QA
-        status = "blocked";
-      }
-
-      const phaseLabel = agent.phase.charAt(0).toUpperCase() + agent.phase.slice(1);
-      const agentName = agent.id.replace("team-", "").replace(/-/g, " ");
-
-      await ddb.send(new PutCommand({
-        TableName: TICKETS_TABLE,
-        Item: {
-          ticketId: ticketIds[agent.id],
-          type: "task",
-          title: `${phaseLabel}: ${agentName} — ${body.title}`,
-          description: agent.id === "team-requirements-analyst"
-            ? `Analyze the feature request and determine which agents are needed.\n\nTitle: ${body.title}\nDescription: ${body.description}\n\nFor agents that are NOT needed, use your report_completion tool to mark their tickets as "done" with reason "SKIPPED: not applicable".`
-            : `Execute ${phaseLabel.toLowerCase()} work for: ${body.title}`,
-          status,
-          assignee: agent.id,
-          parentId: epicId,
-          workflowId,
-          comments: [],
-          artifacts: [],
-          blockedBy,
-          createdAt: now,
-          updatedAt: now,
-        },
-      }));
-    }
-
-    console.log(`[start] Workflow ${workflowId} created. Epic: ${epicId}. ${AGENT_ROSTER.length} skeleton tickets pre-created. Requirements ticket ${reqTicketId} will trigger first.`);
+    console.log(`[start] Workflow ${workflowId} created. Epic: ${epicId}. Requirements ticket ${reqTicketId} will trigger first.`);
 
     return NextResponse.json({ workflowId, epicId });
   } catch (err) {

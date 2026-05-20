@@ -38,7 +38,6 @@ const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || "";
 const GITHUB_LAMBDA = process.env.GITHUB_LAMBDA || "agentis-github-mcp";
 const EVENT_BUS = process.env.EVENT_BUS || "default";
 const MAX_QA_RETRIES = 3;
-const MAX_CONCURRENT = 4; // Runtime agents have 600s read_timeout — safe to parallelize
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },
@@ -52,6 +51,7 @@ const bedrockAgent = new BedrockAgentRuntimeClient({ region: REGION });
 
 const AGENT_ROSTER = [
   { id: "team-requirements-analyst", phase: "requirements", harnessName: "team_requirements_analyst" },
+  { id: "team-frontend-designer", phase: "design", harnessName: "team_frontend_designer" },
   { id: "team-ios-designer", phase: "design", harnessName: "team_ios_designer" },
   { id: "team-backend-designer", phase: "design", harnessName: "team_backend_designer" },
   { id: "team-android-designer", phase: "design", harnessName: "team_android_designer" },
@@ -146,10 +146,10 @@ async function handleTicketDone(ticketId, image) {
     return;
   }
 
-  // Update agent task status in workflow metadata
-  if (assignee && workflow.agentTasks?.[assignee]) {
-    workflow.agentTasks[assignee].status = "complete";
-    workflow.agentTasks[assignee].completedAt = new Date().toISOString();
+  // Update agent task status in workflow metadata (keyed by ticketId)
+  if (ticketId && workflow.agentTasks?.[ticketId]) {
+    workflow.agentTasks[ticketId].status = "complete";
+    workflow.agentTasks[ticketId].completedAt = new Date().toISOString();
     await saveWorkflow(workflow);
   }
 
@@ -201,57 +201,8 @@ async function handleTicketDone(ticketId, image) {
   // Publish event for UI
   await publishEvent(ticketId, "agent.complete", { ticketId, assignee, agentId: assignee, unblocked, workflowId: workflow?.id });
 
-  // Kick deferred tickets: when a slot opens, directly invoke any "todo" tickets waiting for concurrency
-  // We can't rely on stream events here (status unchanged = stream handler skips it),
-  // so we invoke agents directly inline.
-  const allSiblings = await getChildTickets(parentId);
-  const deferredTickets = allSiblings.filter(t => t.status === "todo" && t.ticketId !== ticketId && (t.blockedBy || []).length === 0);
-  for (const deferred of deferredTickets) {
-    // Re-check running count using fresh workflow state
-    const freshWf = await getWorkflow(workflow.id);
-    const runningNow = Object.values(freshWf?.agentTasks || {}).filter(t => t.status === "running").length;
-    if (runningNow >= MAX_CONCURRENT) break;
-
-    const deferredAssignee = deferred.assignee;
-    if (!deferredAssignee) continue;
-    const deferredAgentDef = getAgentDef(deferredAssignee);
-    if (!deferredAgentDef) continue;
-
-    // Skip if already running
-    if (freshWf?.agentTasks?.[deferredAssignee]?.status === "running") continue;
-
-    console.log(`[orchestrator] Picking up deferred ticket ${deferred.ticketId} (${deferredAssignee})`);
-
-    // Mark ticket in_progress
-    await ddb.send(new UpdateCommand({
-      TableName: TICKETS_TABLE,
-      Key: { ticketId: deferred.ticketId },
-      UpdateExpression: "SET #s = :s, #u = :u",
-      ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
-      ExpressionAttributeValues: { ":s": "in_progress", ":u": new Date().toISOString() },
-    }));
-
-    // Record agent task in workflow
-    const task = {
-      id: `task_${Date.now()}_${deferredAssignee}`,
-      agentId: deferredAssignee,
-      ticketId: deferred.ticketId,
-      status: "running",
-      startedAt: new Date().toISOString(),
-    };
-    if (!freshWf.agentTasks) freshWf.agentTasks = {};
-    freshWf.agentTasks[deferredAssignee] = task;
-    await saveWorkflow(freshWf);
-
-    // Build context and invoke
-    const deferredTicket = await getTicket(deferred.ticketId);
-    const deferredContext = await buildAgentContext(deferredTicket, freshWf);
-    await invokeAgent(deferredAgentDef, deferredContext, freshWf);
-  }
-
-  // If nothing was unblocked and no deferred, check if workflow is complete
-  // NOTE: QA ticket is pre-created with dependency chain — no need to create dynamically
-  if (unblocked.length === 0 && deferredTickets.length === 0) {
+  // Check if workflow is complete (all tickets done)
+  if (unblocked.length === 0) {
     if (await isWorkflowComplete(parentId)) {
       await completeWorkflow(workflow);
     }
@@ -289,19 +240,8 @@ async function handleTicketReady(ticketId, image) {
     return;
   }
 
-  // Check if agent already running (deduplicate)
-  if (workflow.agentTasks?.[assignee]?.status === "running") {
-    console.log(`[orchestrator] Agent ${assignee} already running. Deferring ${ticketId}.`);
-    return;
-  }
-
-  // Concurrency limit: max 2 agents running at once to avoid Bedrock rate limits
-  // With 3 concurrent, botocore 60s read_timeout triggers due to throughput contention
-  const runningCount = Object.values(workflow.agentTasks || {}).filter(t => t.status === "running").length;
-  if (runningCount >= MAX_CONCURRENT) {
-    console.log(`[orchestrator] Concurrency limit (${MAX_CONCURRENT}) reached. Deferring ${ticketId} (${assignee}).`);
-    return;
-  }
+  // No concurrency guard — same agent can run multiple tickets in parallel.
+  // Each ticket gets its own AgentCore Runtime session.
 
   // Advance phase if needed
   const phaseOrder = ["intake", "requirements", "design", "development", "verification", "review", "complete"];
@@ -336,7 +276,7 @@ async function handleTicketReady(ticketId, image) {
     ExpressionAttributeValues: { ":s": "in_progress", ":u": new Date().toISOString() },
   }));
 
-  // Record agent task in workflow
+  // Record agent task in workflow (keyed by ticketId to support multiple tickets per agent)
   const task = {
     id: `task_${Date.now()}_${assignee}`,
     agentId: assignee,
@@ -345,7 +285,7 @@ async function handleTicketReady(ticketId, image) {
     startedAt: new Date().toISOString(),
   };
   if (!workflow.agentTasks) workflow.agentTasks = {};
-  workflow.agentTasks[assignee] = task;
+  workflow.agentTasks[ticketId] = task;
   await saveWorkflow(workflow);
 
   // Build context and invoke agent
@@ -502,7 +442,23 @@ async function invokeAgent(agentDef, context, workflow) {
   const harnessEnvKey = `HARNESS_ARN_${agentDef.harnessName.toUpperCase()}`;
   const harnessArn = process.env[runtimeEnvKey] || process.env[harnessEnvKey];
   if (!harnessArn) {
-    console.error(`[orchestrator] No ARN for agent: ${agentDef.harnessName}. Set ${runtimeEnvKey} or ${harnessEnvKey} env var.`);
+    console.error(`[orchestrator] No ARN for agent: ${agentDef.harnessName}. Tried ${runtimeEnvKey} and ${harnessEnvKey}. Marking ticket blocked.`);
+    // Mark ticket blocked instead of silently returning — prevents stuck workflows
+    const task = Object.values(workflow.agentTasks || {}).find(t => t.agentId === agentDef.id && t.status === "running");
+    if (task?.ticketId) {
+      await ddb.send(new UpdateCommand({
+        TableName: TICKETS_TABLE,
+        Key: { ticketId: task.ticketId },
+        UpdateExpression: "SET #s = :s, #u = :u",
+        ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+        ExpressionAttributeValues: { ":s": "blocked", ":u": new Date().toISOString() },
+      }));
+    }
+    await publishEvent(workflow.epicId, "agent.error", {
+      agentId: agentDef.id,
+      workflowId: workflow.id,
+      error: `No runtime ARN configured. Set ${runtimeEnvKey} env var on orchestrator Lambda.`,
+    });
     return;
   }
   console.log(`[orchestrator] Using ${harnessArn.includes("/runtime/") ? "Runtime" : "Harness"} for ${agentDef.id}`);
@@ -577,9 +533,9 @@ async function buildAgentContext(ticket, workflow) {
   // Workflow context (epic ID, workflow ID, ticket ID)
   context += `## Workflow Context\nworkflow_id: ${workflow.id}\nepic_id: ${workflow.epicId}\nticket_id: ${ticket.ticketId}\n\n`;
 
-  // For requirements agent: inject critical instruction about pre-created tickets
+  // For requirements agent: inject ticket creation context
   if (ticket.assignee === "team-requirements-analyst") {
-    context += `## CRITICAL: Pre-Created Ticket Skeletons\nAll agent tickets have ALREADY been created under epic "${workflow.epicId}".\nDo NOT create any new tickets. Instead:\n- List tickets: JiraIntegration___list_tickets with parent_id "${workflow.epicId}"\n- Skip irrelevant: JiraIntegration___transition_ticket with ticket_id, transition_id "skip", and reason\n- Update relevant: JiraIntegration___update_ticket with ticket_id and new description\n- Your own ticket_id: "${ticket.ticketId}" — transition it to "done" when finished\n\n`;
+    context += `## Ticket Creation Instructions\nYou are responsible for creating tickets for all agents that need to work on this feature.\nUse JiraIntegration___create_ticket with:\n- parent_id: "${workflow.epicId}"\n- workflow_id: "${workflow.id}"\n- blocked_by: comma-separated ticket IDs for dependencies\n- assignee: agent ID from the roster (e.g., "team-frontend-dev")\n\nYour own ticket_id: "${ticket.ticketId}" — transition it to "done" when finished.\n\n`;
   }
 
   // Requirements artifact (from epic)
@@ -764,7 +720,6 @@ async function publishEvent(ticketId, detailType, detail) {
           type: detailType,
           detail,
           timestamp: new Date().toISOString(),
-          ttl: Math.floor(Date.now() / 1000) + 3600, // 1 hour TTL
         },
       }));
     } catch { /* non-fatal */ }

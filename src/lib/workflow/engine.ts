@@ -80,9 +80,24 @@ import { processIntakeSources, buildRequirementsContext } from "./intake";
 import { provisionWorkspace, startCodeInterpreterSession, stopCodeInterpreterSession, writeArtifact, readArtifact, listArtifacts } from "./workspace";
 import { initManifest, addManifestEntries, getManifest, buildManifestContext } from "./manifest";
 import { getCodeSearchProvider } from "./code-search-provider";
+import { saveWorkflowToDynamo } from "./dynamo-workflow-store";
+import { createTicketSkeletons } from "./ticket-skeletons";
 
 const DEFAULT_REGION = process.env.AWS_REGION || "us-east-1";
 const ARTIFACT_BUCKET = process.env.TEAM_WORKFLOW_S3_BUCKET || "";
+
+/**
+ * Orchestration mode:
+ * - "in-process" (default): Next.js engine drives everything (current behavior)
+ * - "lambda": DynamoDB Streams + Lambda orchestrator drives workflow after initial kickoff
+ *
+ * In Lambda mode, startWorkflow:
+ * 1. Creates ticket skeletons in DynamoDB (all 13 agents + epic)
+ * 2. Saves workflow metadata to agentis-workflows table
+ * 3. Sets requirements ticket to "todo" → DynamoDB Stream fires → Lambda invokes agent
+ * 4. Returns immediately — Stream handles all cascading from here
+ */
+const ORCHESTRATION_MODE = process.env.ORCHESTRATION_MODE || "in-process";
 
 /**
  * Sync tickets from DynamoDB into the in-memory store.
@@ -150,9 +165,20 @@ async function readTicketPlanFromS3(workflowId: string): Promise<TicketPlan | nu
 
 /**
  * Start a new workflow. Creates the epic, processes intake, invokes requirements agent.
+ *
+ * In Lambda mode: creates ticket skeletons in DynamoDB, saves workflow metadata,
+ * and returns immediately. The DynamoDB Stream + orchestrator Lambda handles everything.
+ *
+ * In in-process mode: current behavior (engine drives orchestration inline).
  */
 export async function startWorkflow(input: WorkflowInput): Promise<string> {
   const workflowId = `wf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  if (ORCHESTRATION_MODE === "lambda") {
+    return startWorkflowLambdaMode(workflowId, input);
+  }
+
+  // ─── In-Process Mode (default, current behavior) ─────────────────────────
 
   // Create the epic
   const epic = await tickets().createEpic({
@@ -187,6 +213,67 @@ export async function startWorkflow(input: WorkflowInput): Promise<string> {
       emitEvent(workflowId, { type: "error", error: (err as Error).message });
     }
   });
+
+  return workflowId;
+}
+
+/**
+ * Lambda Orchestration Mode — DynamoDB is the sole state machine.
+ *
+ * Creates all ticket skeletons with dependency chains, saves workflow metadata
+ * to agentis-workflows table, then returns. The DynamoDB Stream fires for the
+ * requirements ticket (status="todo") → orchestrator Lambda picks it up.
+ *
+ * This is the target architecture for Jira swap:
+ * - DynamoDB table → Jira project
+ * - DynamoDB Streams → Jira webhooks
+ * - Ticket status in DynamoDB → Jira ticket status (the state machine)
+ */
+async function startWorkflowLambdaMode(workflowId: string, input: WorkflowInput): Promise<string> {
+  console.log(`[engine] Starting workflow in LAMBDA orchestration mode: ${workflowId}`);
+
+  // 1. Create all ticket skeletons in DynamoDB with dependency chains
+  //    Requirements ticket starts as "todo" (no blockers) → Stream fires immediately
+  const { epicId, requirementsTicketId, ticketIds } = await createTicketSkeletons(
+    workflowId,
+    input.title,
+    input.description
+  );
+
+  // 2. Build agentTasks map from skeleton IDs
+  const agentTasks: Record<string, AgentTask> = {};
+  for (const [agentId, ticketId] of Object.entries(ticketIds)) {
+    agentTasks[agentId] = {
+      id: `task_${Date.now()}_${agentId}`,
+      agentId,
+      ticketId,
+      status: "pending",
+      input: "", // Populated by orchestrator Lambda at invocation time
+      startedAt: new Date().toISOString(),
+    };
+  }
+
+  // 3. Save workflow state to BOTH in-memory store (for UI) AND DynamoDB (for Lambda)
+  const state: WorkflowState = {
+    id: workflowId,
+    phase: "requirements",
+    epicId,
+    repoConfig: input.repoConfig,
+    input,
+    agentTasks,
+    messages: [],
+    humanNotifications: [],
+    startedAt: new Date().toISOString(),
+  };
+
+  // In-memory (for Next.js UI polling/SSE)
+  setWorkflow(state);
+  emitEvent(workflowId, { type: "phase_change", phase: "requirements" });
+
+  // DynamoDB workflows table (for Lambda orchestrator to read)
+  await saveWorkflowToDynamo(state);
+
+  console.log(`[engine] Lambda mode: ${Object.keys(ticketIds).length} skeleton tickets created. Requirements ticket ${requirementsTicketId} is "todo" — Stream will invoke agent.`);
 
   return workflowId;
 }
@@ -444,7 +531,16 @@ export async function handleRequirementsCompletion(
   persistWorkflow(workflowId);
   emitEvent(workflowId, { type: "phase_change", phase: nextWorkflowPhase });
 
-  // Process ready tickets (this kicks off the ticket-driven loop)
+  // In Lambda mode: the DynamoDB Stream handles cascading.
+  // The requirements agent already marked tickets done/skip in DynamoDB via tool calls.
+  // Those writes trigger Stream → orchestrator Lambda → unblocks + invokes next agents.
+  if (ORCHESTRATION_MODE === "lambda") {
+    console.log(`[engine] Lambda mode: requirements complete. Stream handles cascade from here.`);
+    await saveWorkflowToDynamo(state);
+    return;
+  }
+
+  // In-process mode: drive the cascade ourselves
   await processReadyTickets(workflowId, epicId);
 }
 

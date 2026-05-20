@@ -83,7 +83,8 @@ export async function GET(
 ) {
   const workflowId = params.id;
   const encoder = new TextEncoder();
-  let lastEventId = "";
+  // Allow client to specify a cursor to skip already-replayed events
+  let lastEventId = req.nextUrl.searchParams.get("cursor") || "";
   let stopped = false;
 
   req.signal.addEventListener("abort", () => { stopped = true; });

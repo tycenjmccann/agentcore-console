@@ -1,8 +1,12 @@
 """
 Agentis Pipeline Agent — Strands on AgentCore Runtime
 
-A single universal agent code deployed as 13 separate Runtime resources.
-The orchestrator passes system_prompt + prompt per invocation to specialize behavior.
+Universal agent code deployed as 13 separate Runtime resources.
+Each deployment gets its own SYSTEM_PROMPT env var baked in at deploy time,
+making each agent a fully self-contained specialist.
+
+The orchestrator is thin/dumb — it only passes the task prompt (ticket context).
+Agent identity (system prompt, tools, model) is fixed at deploy time.
 
 Key advantages over Harness:
   - We control botocore read_timeout (600s) so Opus can think without being killed
@@ -12,6 +16,10 @@ Key advantages over Harness:
 """
 
 import os
+os.environ["BYPASS_TOOL_CONSENT"] = "true"  # Required for non-interactive strands_tools (shell, editor, etc.)
+os.environ["HOME"] = "/tmp"  # Runtime /var/task is read-only; tools need writable HOME
+os.chdir("/tmp")  # python_repl, editor, shell all use cwd() for state — must be writable
+
 import json
 import logging
 import boto3
@@ -22,21 +30,69 @@ from botocore.config import Config as BotocoreConfig
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
 # Built-in Strands tools — lazy import to stay under 30s init limit
-# NOTE: shell, editor, file_write, python_repl need writable /var/task which Runtime doesn't allow
 def _load_builtin_tools():
-    """Import strands_tools at invocation time, not module load time."""
+    """Import strands_tools at invocation time, not module load time.
+
+    All built-in tools are loaded for every agent. AgentCore Runtime provides /tmp
+    as writable space, and Code Interpreter / Browser run in separate sandboxes.
+    """
     from strands_tools import (
+        # Multi-modal
         image_reader,
+        # Web & Network
         http_request,
+        # Utilities
         current_time,
+        calculator,
+        # File Operations
+        file_read,
+        file_write,
+        editor,
+        # Shell & System
+        shell,
+        environment,
+        # Code Interpretation
+        python_repl,
+        # RAG & Memory
+        retrieve,
     )
-    return [image_reader, http_request, current_time]
+    # AgentCore built-in services (Code Interpreter + Browser)
+    from strands_tools.code_interpreter import AgentCoreCodeInterpreter
+    from strands_tools.browser import AgentCoreBrowser
+
+    code_interpreter_tool = AgentCoreCodeInterpreter(region=REGION)
+    browser_tool = AgentCoreBrowser(region=REGION)
+
+    return [
+        # Multi-modal
+        image_reader,
+        # Web & Network
+        http_request,
+        # Utilities
+        current_time,
+        calculator,
+        # File Operations
+        file_read,
+        file_write,
+        editor,
+        # Shell & System
+        shell,
+        environment,
+        # Code Interpretation
+        python_repl,
+        # RAG & Memory
+        retrieve,
+        # AgentCore Services — sandboxed code execution & browser automation
+        code_interpreter_tool.code_interpreter,
+        browser_tool.browser,
+    ]
 
 # --- Configuration ---
 REGION = os.getenv("AWS_REGION", "us-east-1")
 MODEL_ID = os.getenv("MODEL_ID", "us.anthropic.claude-opus-4-6-v1")
 READ_TIMEOUT = int(os.getenv("READ_TIMEOUT", "600"))  # 10 minutes — no more urllib3 kills
 GATEWAY_ARN = os.getenv("GATEWAY_ARN", "arn:aws:bedrock-agentcore:us-east-1:023392223961:gateway/datesparkiamgw-vjme4fyj6k")
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "You are a helpful AI agent on a development team.")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("agentis-pipeline-agent")
@@ -60,9 +116,13 @@ lambda_client = boto3.client("lambda", region_name=REGION)
 
 # Tool Lambda function names (the gateway targets are backed by these)
 S3_TOOLS_LAMBDA = os.getenv("S3_TOOLS_LAMBDA", "agentis-s3-tools")
+JIRA_TOOLS_LAMBDA = os.getenv("JIRA_TOOLS_LAMBDA", "datespark-jira-mcp")
 BUILDER_TOOLS_LAMBDA = os.getenv("BUILDER_TOOLS_LAMBDA", "agentis-builder-tools")
 WORKFLOW_OUTPUT_LAMBDA = os.getenv("WORKFLOW_OUTPUT_LAMBDA", "agentis-workflow-output")
 SKILL_LOADER_LAMBDA = os.getenv("SKILL_LOADER_LAMBDA", "agentis-skill-loader")
+
+# Default artifact bucket — agents should use this for all workflow artifacts
+ARTIFACT_BUCKET = os.getenv("ARTIFACT_BUCKET", "agentcore-artifacts-023392223961-us-east-1")
 
 # MCP Servers — connect agents to external tools (GitHub, GitLab, Jira, Asana, etc.)
 # Configured via MCP_SERVERS env var (JSON array) or legacy GITHUB_PAT shorthand.
@@ -122,21 +182,22 @@ def _invoke_lambda(function_name: str, tool_name: str, arguments: dict) -> str:
 s3_client = boto3.client("s3", region_name=REGION)
 
 @tool
-def download_s3_file(bucket: str, key: str) -> str:
+def download_s3_file(key: str, bucket: str = "") -> str:
     """Download a file from S3 to local /tmp directory so it can be read by image_reader or other tools.
     Use this for images (PNG, JPG, etc.) that need visual analysis.
 
     Args:
-        bucket: S3 bucket name
         key: Object key/path in the bucket
+        bucket: S3 bucket name (defaults to the team artifact bucket)
 
     Returns:
         Local file path where the file was saved (e.g., /tmp/filename.png)
     """
     import os
+    actual_bucket = bucket or ARTIFACT_BUCKET
     filename = os.path.basename(key)
     local_path = f"/tmp/{filename}"
-    s3_client.download_file(bucket, key, local_path)
+    s3_client.download_file(actual_bucket, key, local_path)
     size = os.path.getsize(local_path)
     return f"Downloaded to {local_path} ({size} bytes). Use image_reader tool with this path to view the image."
 
@@ -144,58 +205,72 @@ def download_s3_file(bucket: str, key: str) -> str:
 # ─── S3 Storage Tools ─────────────────────────────────────────────────────────
 
 @tool
-def S3Storage___read_object(bucket: str, key: str) -> str:
+def S3Storage___read_object(key: str, bucket: str = "") -> str:
     """Read a TEXT object from S3. Returns the object content as text. For images/binary files, use download_s3_file instead.
 
     Args:
-        bucket: S3 bucket name
         key: Object key/path in the bucket
+        bucket: S3 bucket name (defaults to the team artifact bucket)
     """
-    return _invoke_lambda(S3_TOOLS_LAMBDA, "S3Storage___read_object", {"bucket": bucket, "key": key})
+    return _invoke_lambda(S3_TOOLS_LAMBDA, "S3Storage___read_object", {"bucket": bucket or ARTIFACT_BUCKET, "key": key})
 
 
 @tool
-def S3Storage___write_object(bucket: str, key: str, content: str, content_type: str = "text/plain") -> str:
+def S3Storage___write_object(key: str, content: str, bucket: str = "", content_type: str = "text/plain") -> str:
     """Write content to an S3 object.
 
     Args:
-        bucket: S3 bucket name
         key: Object key/path in the bucket
         content: Content to write
+        bucket: S3 bucket name (defaults to the team artifact bucket)
         content_type: MIME type of the content
     """
     return _invoke_lambda(S3_TOOLS_LAMBDA, "S3Storage___write_object", {
-        "bucket": bucket, "key": key, "content": content, "content_type": content_type
+        "bucket": bucket or ARTIFACT_BUCKET, "key": key, "content": content, "content_type": content_type
     })
 
 
 @tool
-def S3Storage___list_objects(bucket: str, prefix: str = "") -> str:
+def S3Storage___list_objects(prefix: str = "", bucket: str = "") -> str:
     """List objects in an S3 bucket under a prefix.
 
     Args:
-        bucket: S3 bucket name
         prefix: Key prefix to filter by
+        bucket: S3 bucket name (defaults to the team artifact bucket)
     """
-    return _invoke_lambda(S3_TOOLS_LAMBDA, "S3Storage___list_objects", {"bucket": bucket, "prefix": prefix})
+    return _invoke_lambda(S3_TOOLS_LAMBDA, "S3Storage___list_objects", {"bucket": bucket or ARTIFACT_BUCKET, "prefix": prefix})
 
 
 # ─── Jira Integration Tools ──────────────────────────────────────────────────
 
 @tool
-def JiraIntegration___create_ticket(title: str, description: str, parent_id: str = "", assignee: str = "", ticket_type: str = "task") -> str:
-    """Create a new Jira ticket.
+def JiraIntegration___create_ticket(title: str, description: str, parent_id: str = "", assignee: str = "", ticket_type: str = "task", blocked_by: str = "", workflow_id: str = "") -> str:
+    """Create a new ticket in the project tracker.
+
+    MANDATORY TICKETS (create these for EVERY workflow, no exceptions):
+      - team-qa-verifier: "QA: Verify [feature]" — blocked_by=ALL dev ticket IDs
+      - team-ci-agent: "CI: Validate build and tests for [feature]" — blocked_by=QA ticket ID
+
+    Example complete ticket set for a frontend feature:
+      1. create_ticket(assignee="team-frontend-designer", blocked_by="")
+      2. create_ticket(assignee="team-frontend-dev", blocked_by="TEAM-101")
+      3. create_ticket(assignee="team-qa-verifier", blocked_by="TEAM-102")  ← ALWAYS
+      4. create_ticket(assignee="team-ci-agent", blocked_by="TEAM-103")     ← ALWAYS
 
     Args:
         title: Ticket title/summary
-        description: Detailed description
-        parent_id: Parent ticket ID (for subtasks)
-        assignee: Agent ID to assign to
+        description: Detailed description with requirements and acceptance criteria
+        parent_id: Parent epic ticket ID (required for child tickets)
+        assignee: Agent ID to assign to (e.g., team-frontend-dev, team-backend-dev, team-qa-verifier, team-ci-agent)
         ticket_type: Type of ticket (epic, story, task)
+        blocked_by: Comma-separated list of ticket IDs this ticket is blocked by (e.g., "TEAM-401,TEAM-402")
+        workflow_id: Workflow ID this ticket belongs to
     """
-    return _invoke_lambda(BUILDER_TOOLS_LAMBDA, "JiraIntegration___create_ticket", {
-        "title": title, "description": description, "parent_id": parent_id,
-        "assignee": assignee, "type": ticket_type
+    blockers = [b.strip() for b in blocked_by.split(",") if b.strip()] if blocked_by else []
+    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___create_ticket", {
+        "summary": title, "description": description, "parent_key": parent_id,
+        "assignee": assignee, "issue_type": ticket_type, "blocked_by": blockers,
+        "workflow_id": workflow_id
     })
 
 
@@ -208,7 +283,7 @@ def JiraIntegration___transition_ticket(ticket_id: str, transition_id: str, reas
         transition_id: Target status (done, skip, blocked, in_progress, todo)
         reason: Reason for the transition
     """
-    return _invoke_lambda(BUILDER_TOOLS_LAMBDA, "JiraIntegration___transition_ticket", {
+    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___transition_ticket", {
         "ticket_id": ticket_id, "transition_id": transition_id, "reason": reason
     })
 
@@ -227,7 +302,7 @@ def JiraIntegration___update_ticket(ticket_id: str, description: str = "", title
         args["description"] = description
     if title:
         args["title"] = title
-    return _invoke_lambda(BUILDER_TOOLS_LAMBDA, "JiraIntegration___update_ticket", args)
+    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___update_ticket", args)
 
 
 @tool
@@ -237,7 +312,7 @@ def JiraIntegration___list_tickets(parent_id: str) -> str:
     Args:
         parent_id: Parent ticket ID to list children of
     """
-    return _invoke_lambda(BUILDER_TOOLS_LAMBDA, "JiraIntegration___list_tickets", {"parent_id": parent_id})
+    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___list_tickets", {"parent_id": parent_id})
 
 
 @tool
@@ -248,7 +323,7 @@ def JiraIntegration___add_comment(ticket_id: str, comment: str) -> str:
         ticket_id: The ticket ID to comment on
         comment: Comment text to add
     """
-    return _invoke_lambda(BUILDER_TOOLS_LAMBDA, "JiraIntegration___add_comment", {
+    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___add_comment", {
         "ticket_id": ticket_id, "comment": comment
     })
 
@@ -261,7 +336,7 @@ def JiraIntegration___search_issues(query: str, max_results: int = 20) -> str:
         query: Search query string
         max_results: Maximum number of results to return
     """
-    return _invoke_lambda(BUILDER_TOOLS_LAMBDA, "JiraIntegration___search_issues", {
+    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___search_issues", {
         "query": query, "max_results": max_results
     })
 
@@ -400,7 +475,6 @@ def _publish_agent_started(workflow_id: str, agent_id: str):
                     "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
                 }},
                 "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
-                "ttl": {"N": str(int(time.time()) + 3600)},
             },
         )
         logger.info(f"[{agent_id}] Published agent.started event")
@@ -419,15 +493,16 @@ async def agent_invocation(payload, context):
 
     Expected payload:
     {
-        "prompt": "The task instructions for this agent",
-        "system_prompt": "Role-specific system prompt (from agent-prompts.ts)",
+        "prompt": "The task context (ticket description, workflow metadata)",
         "workflow_id": "wf_xxx",
         "agent_id": "team-security-reviewer",
         "model_override": "us.anthropic.claude-opus-4-6-v1" (optional)
     }
+
+    The system prompt is NOT in the payload — it's baked into the agent at deploy time
+    via the SYSTEM_PROMPT env var. The orchestrator is dumb and only passes task context.
     """
     prompt = payload.get("prompt", "")
-    system_prompt = payload.get("system_prompt", "You are a helpful AI agent on a development team.")
     workflow_id = payload.get("workflow_id", "unknown")
     agent_id = payload.get("agent_id", "unknown")
     model_override = payload.get("model_override")
@@ -501,16 +576,15 @@ async def agent_invocation(payload, context):
                                     "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
                                 }},
                                 "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
-                                "ttl": {"N": str(int(time.time()) + 3600)},
                             },
                         )
                     except Exception as e:
                         logger.warning(f"[{agent_id}] Failed to publish tool event: {e}")
 
-    # Create agent with role-specific system prompt and all tools
+    # Create agent with system prompt baked in at deploy time (SYSTEM_PROMPT env var)
     agent = Agent(
         model=active_model,
-        system_prompt=system_prompt,
+        system_prompt=SYSTEM_PROMPT,
         tools=all_tools,
         callback_handler=ToolTrackingHandler(),
     )

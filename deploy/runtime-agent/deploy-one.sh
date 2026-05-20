@@ -7,6 +7,12 @@ ROLE_ARN="arn:aws:iam::023392223961:role/csharness_cssonnet"
 REGION="us-east-1"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Source project env vars if not already set (GITHUB_PAT for MCP access)
+if [ -z "${GITHUB_PAT:-}" ]; then
+  ENV_FILE="$SCRIPT_DIR/../../.env.local"
+  [ -f "$ENV_FILE" ] && set -a && source "$ENV_FILE" && set +a
+fi
+
 DEPLOY_DIR=$(mktemp -d)
 cp "$SCRIPT_DIR/main.py" "$DEPLOY_DIR/"
 cp "$SCRIPT_DIR/requirements.txt" "$DEPLOY_DIR/"
@@ -25,6 +31,14 @@ agentcore configure \
   --disable-memory \
   --non-interactive > /dev/null 2>&1
 
+# Load agent-specific system prompt from prompts/ directory
+PROMPT_FILE="$SCRIPT_DIR/prompts/${AGENT_NAME}.txt"
+if [ ! -f "$PROMPT_FILE" ]; then
+  echo "FAIL $AGENT_NAME (no prompt file: $PROMPT_FILE)"
+  exit 1
+fi
+SYSTEM_PROMPT=$(cat "$PROMPT_FILE")
+
 # Build env args — MCP_SERVERS takes priority, GITHUB_PAT is legacy shorthand
 MCP_ENV=""
 if [ -n "${MCP_SERVERS:-}" ]; then
@@ -35,11 +49,15 @@ fi
 
 OUTPUT=$(agentcore deploy \
   --auto-update-on-conflict \
+  --env "BYPASS_TOOL_CONSENT=true" \
   --env "GATEWAY_ARN=arn:aws:bedrock-agentcore:us-east-1:023392223961:gateway/datesparkiamgw-vjme4fyj6k" \
   --env "MODEL_ID=us.anthropic.claude-opus-4-6-v1" \
   --env "READ_TIMEOUT=600" \
   --env "AWS_REGION=us-east-1" \
   --env "EVENTS_TABLE=agentis-events" \
+  --env "JIRA_TOOLS_LAMBDA=datespark-jira-mcp" \
+  --env "ARTIFACT_BUCKET=agentcore-artifacts-023392223961-us-east-1" \
+  --env "SYSTEM_PROMPT=${SYSTEM_PROMPT}" \
   ${MCP_ENV} 2>&1)
 
 ARN=$(echo "$OUTPUT" | grep -o 'arn:aws:bedrock-agentcore:[^"]*runtime/[^"[:space:]]*' | head -1)
