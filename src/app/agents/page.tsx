@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cachedFetch, getCached, getClientRegion } from "@/lib/client-cache";
+import { StatusBadge, statusVariantMap } from "@/components/ui/StatusBadge";
 
 interface AgentDetail {
   id: string;
@@ -166,13 +167,12 @@ export default function AgentsPage() {
                       }`}>
                         {agent.type.toUpperCase()}
                       </span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border flex-shrink-0 ${
-                        agent.status === "ACTIVE" || agent.status === "READY"
-                          ? "bg-green-400/10 text-green-400 border-green-400/30"
-                          : "bg-gray-400/10 text-gray-400 border-gray-400/30"
-                      }`}>
-                        {agent.status}
-                      </span>
+                      <StatusBadge
+                        variant={statusVariantMap[agent.status] || "neutral"}
+                        label={agent.status}
+                        size="sm"
+                        showDot
+                      />
                     </div>
                     <p className="text-[10px] text-gray-600 font-mono mt-0.5">{agent.id}</p>
                     {agent.description && (

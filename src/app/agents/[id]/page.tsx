@@ -11,6 +11,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { streamAgentInvocation, AgentInfo, TraceEvent } from "@/lib/agentcore-stream";
 import { cachedFetch, getCached, getClientRegion } from "@/lib/client-cache";
+import { StatusBadge, statusVariantMap } from "@/components/ui/StatusBadge";
 
 interface AgentDetail {
   id: string;
@@ -136,13 +137,12 @@ function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
             }`}>
               {agent.type.toUpperCase()}
             </span>
-            <span className={`text-xs px-2 py-0.5 rounded-full border ${
-              agent.status === "ACTIVE" || agent.status === "READY"
-                ? "bg-green-400/10 text-green-400 border-green-400/30"
-                : "bg-gray-400/10 text-gray-400 border-gray-400/30"
-            }`}>
-              {agent.status}
-            </span>
+            <StatusBadge
+              variant={statusVariantMap[agent.status] || "neutral"}
+              label={agent.status}
+              size="sm"
+              showDot
+            />
           </div>
           <p className="text-[10px] text-gray-600 font-mono">{agent.arn}</p>
         </div>
