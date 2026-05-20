@@ -4,4 +4,8 @@ export { default as AgentItem } from "./AgentItem";
 export { default as SVGConnector } from "./SVGConnector";
 export { default as AgentOutputPanel } from "./AgentOutputPanel";
 export { default as StatusBar } from "./StatusBar";
+export { default as ArtifactsTab } from "./ArtifactsTab";
+export { default as ArtifactList } from "./ArtifactList";
+export { default as ArtifactPreview } from "./ArtifactPreview";
+export { default as PRLinks } from "./PRLinks";
 export { usePipelineSSE } from "./usePipelineSSE";
