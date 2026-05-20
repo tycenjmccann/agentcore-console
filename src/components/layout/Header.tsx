@@ -5,6 +5,7 @@ import { Globe, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { invalidateCachePrefix } from "@/lib/client-cache";
 import ThemeToggle from "./ThemeToggle";
+import SoundToggle from "./SoundToggle";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -62,6 +63,9 @@ export default function Header() {
       <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">{title}</h2>
 
       <div className="flex items-center gap-4">
+        {/* Sound Toggle */}
+        <SoundToggle />
+
         {/* Theme Toggle */}
         <ThemeToggle />
 
