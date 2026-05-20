@@ -4,4 +4,8 @@ export { default as AgentItem } from "./AgentItem";
 export { default as SVGConnector } from "./SVGConnector";
 export { default as AgentOutputPanel } from "./AgentOutputPanel";
 export { default as StatusBar } from "./StatusBar";
+export { default as CompactPipelineView } from "./CompactPipelineView";
+export { default as ViewToggleButton } from "./ViewToggleButton";
+export { default as MobileAgentOverlay } from "./MobileAgentOverlay";
+export { default as ResponsivePipelineWrapper } from "./ResponsivePipelineWrapper";
 export { usePipelineSSE } from "./usePipelineSSE";
