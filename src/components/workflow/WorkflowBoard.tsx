@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import type {
   WorkflowState,
   WorkflowEvent,
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
+import { useWorkflowNotifications } from "@/hooks/useWorkflowNotifications";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -43,6 +44,24 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const toolFlashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const eventSourceRef = useRef<EventSource | null>(null);
   const pipelineRef = useRef<HTMLDivElement>(null);
+
+  // ─── Workflow Notifications Integration ──────────────────────────────────
+  // Build the notification target from current workflow state
+  const notificationTarget = useMemo(() => {
+    if (!state) return null;
+    return {
+      workflowId: state.id,
+      phase: state.phase,
+      title: state.input?.title || workflowId,
+    };
+  }, [state, workflowId]);
+
+  // This hook handles:
+  // - Firing browser notifications on phase → complete/error
+  // - Updating tab title (✓ / ✗) on terminal states
+  // - Resetting tab title when user returns to tab
+  // - Deduplication of notifications per workflow
+  useWorkflowNotifications({ workflow: notificationTarget });
 
   // Fetch initial state + poll every 3s
   useEffect(() => {
