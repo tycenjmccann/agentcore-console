@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cachedFetch, getCached } from "@/lib/client-cache";
+import MetricsGrid from "@/components/dashboard/MetricsGrid";
 
 interface Agent {
   id: string;
@@ -92,6 +93,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Dashboard Metrics Cards */}
+      <MetricsGrid />
+
       {/* Agent Activity Section */}
       <div className="card">
         <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide mb-4">Agent Activity</h3>
