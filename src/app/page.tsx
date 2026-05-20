@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cachedFetch, getCached } from "@/lib/client-cache";
+import { ActivityFeed } from "@/components/dashboard";
 
 interface Agent {
   id: string;
@@ -288,6 +289,9 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Activity Feed Section */}
+      <ActivityFeed />
     </div>
   );
 }
