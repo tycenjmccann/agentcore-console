@@ -7,7 +7,7 @@
 
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const s3 = new S3Client({ region: REGION });
@@ -17,6 +17,7 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
 
 const BUCKET = process.env.ARTIFACT_BUCKET || "agentcore-artifacts-023392223961-us-east-1";
 const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
+const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
 
 async function submitTicketPlan({ workflow_id, requirements, tickets }) {
   const key = `workflows/${workflow_id}/shared/ticket-plan.json`;
@@ -104,10 +105,55 @@ async function reportCompletion({ ticket_id, summary, artifacts = "", branch, co
     console.log(`[report_completion] Marked ${ticket_id} as done`);
   }
 
+  // 3. Update workflow agentTasks map (powers the UI output panel)
+  const workflowId = ticket_id ? await findWorkflowForTicket(ticket_id) : null;
+  if (workflowId) {
+    try {
+      const wf = await ddb.send(new GetCommand({ TableName: WORKFLOWS_TABLE, Key: { workflowId } }));
+      if (wf.Item) {
+        const agentTasks = wf.Item.agentTasks || {};
+        // Find the task entry for this ticket
+        const taskKey = Object.keys(agentTasks).find(k => agentTasks[k]?.ticketId === ticket_id) || ticket_id;
+        agentTasks[taskKey] = {
+          ...agentTasks[taskKey],
+          status: "complete",
+          output: summary?.slice(0, 10000),
+          branch: branch || null,
+          commitSha: commit_sha || null,
+          prUrl: pr_url || null,
+          completedAt: new Date().toISOString(),
+        };
+        await ddb.send(new UpdateCommand({
+          TableName: WORKFLOWS_TABLE,
+          Key: { workflowId },
+          UpdateExpression: "SET #at = :at, #u = :u",
+          ExpressionAttributeNames: { "#at": "agentTasks", "#u": "updatedAt" },
+          ExpressionAttributeValues: { ":at": agentTasks, ":u": new Date().toISOString() },
+        }));
+        console.log(`[report_completion] Updated workflow ${workflowId} agentTasks for ${taskKey}`);
+      }
+    } catch (err) {
+      console.warn(`[report_completion] Failed to update workflow agentTasks: ${err.message}`);
+    }
+  }
+
   return {
     status: "complete",
     message: `Ticket ${ticket_id} marked done. Orchestrator will unblock dependents.`,
   };
+}
+
+async function findWorkflowForTicket(ticketId) {
+  try {
+    const result = await ddb.send(new GetCommand({
+      TableName: TICKETS_TABLE,
+      Key: { ticketId },
+      ProjectionExpression: "workflowId",
+    }));
+    return result.Item?.workflowId || null;
+  } catch {
+    return null;
+  }
 }
 
 const TOOLS = {

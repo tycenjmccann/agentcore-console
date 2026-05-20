@@ -557,15 +557,23 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     if (!state || state.phase === "complete" || state.phase === "error" || replayMode) return;
     const check = setInterval(() => {
       const idle = Date.now() - lastActivityRef.current;
+      const hasRunning = Object.values(state.agentTasks || {}).some(
+        (t) => t.status === "running" || t.status === "waiting_response"
+      );
       const nudgeKey = `${workflowId}:${state.phase}`;
-      if (idle > 90_000 && nudgeFiredRef.current !== nudgeKey) {
+
+      // Fire nudge if:
+      // 1. No agent is currently running (impossible stuck state — e.g. blocked with no blockers)
+      // 2. OR idle for >90s (agent accepted but timed out / crashed without completing)
+      const shouldNudge = (!hasRunning || idle > 90_000) && nudgeFiredRef.current !== nudgeKey;
+
+      if (shouldNudge) {
         nudgeFiredRef.current = nudgeKey;
         fetch(`/api/workflow/${workflowId}/nudge`, { method: "POST" })
           .then((r) => r.json())
           .then((data) => {
             if (data.nudged?.length > 0) {
               console.log(`[auto-nudge] Fixed ${data.nudged.length} ticket(s):`, data.nudged);
-              // Flash the nudge pulse so the user sees it happened
               setNudgePulse(true);
               setTimeout(() => setNudgePulse(false), 1500);
             }

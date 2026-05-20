@@ -330,8 +330,10 @@ function WorkflowListItem({
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function formatRelativeTime(isoString: string): string {
+  if (!isoString) return "";
   const now = Date.now();
   const then = new Date(isoString).getTime();
+  if (isNaN(then)) return "";
   const diff = now - then;
 
   if (diff < 60000) return "just now";

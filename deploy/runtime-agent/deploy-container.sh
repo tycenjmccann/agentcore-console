@@ -46,12 +46,11 @@ cp "$SCRIPT_DIR/requirements.txt" "$DEPLOY_DIR/"
 cp "$SCRIPT_DIR/Dockerfile" "$DEPLOY_DIR/"
 cd "$DEPLOY_DIR"
 
-# Configure as container deployment with our ECR image
+# Configure as container deployment (agentcore will use the Dockerfile in cwd)
 agentcore configure \
   -e main.py \
   -n "$AGENT_NAME" \
   -er "$ROLE_ARN" \
-  -ecr "$ECR_IMAGE" \
   -r "$REGION" \
   -dt container \
   --idle-timeout 900 \

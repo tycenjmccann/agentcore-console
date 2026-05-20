@@ -960,6 +960,7 @@ TICKET_PROVIDER=jira
 | `deploy/runtime-agent/deploy-one.sh` | Single agent deploy script |
 | `deploy/runtime-agent/deploy-fleet.sh` | Fleet deploy (all agents) |
 | `lambda/workflow-output/index.mjs` | Workflow output Lambda (S3 write + DynamoDB "done" write) |
+| `scripts/start-test-workflow.sh` | **Standard test workflow launcher** (curl to `/api/workflow/start`) |
 
 ---
 
@@ -1025,3 +1026,143 @@ TICKET_PROVIDER=jira
 - `agentis-events` table — TTL attribute removed (no code change, infra-level)
 - `src/components/workflow/WorkflowBoard.tsx` — Auto-nudge logic (90s idle detection)
 - `src/app/api/workflow/[id]/nudge/route.ts` — Nudge endpoint (status fix logic)
+
+---
+
+## Starting Test Workflows
+
+**IMPORTANT**: All workflows MUST be created through the `/api/workflow/start` API endpoint. This is the only path that correctly initializes all required fields (`startedAt`, `epicId`, ticket skeletons, etc.). Direct DynamoDB writes or other shortcuts will produce broken records (e.g., "Invalid Date" in the UI).
+
+### Standard Script: `scripts/start-test-workflow.sh`
+
+The canonical way to start a test workflow from the command line:
+
+```bash
+# Default test (StatusBadge component)
+./scripts/start-test-workflow.sh
+
+# Pre-defined scopes (increasing complexity)
+./scripts/start-test-workflow.sh --scope minimal    # Single-file /health endpoint (~5 min)
+./scripts/start-test-workflow.sh --scope sidebar    # Multi-component sidebar (~20 min)
+./scripts/start-test-workflow.sh --scope full       # Data table with sorting/filtering (~30 min)
+
+# Custom workflow
+./scripts/start-test-workflow.sh --title "My Feature" --desc "Build X that does Y"
+
+# Use Sonnet for faster/cheaper runs (Opus is default)
+./scripts/start-test-workflow.sh --scope minimal --model sonnet
+```
+
+**Requirements**:
+- Next.js dev server running on `localhost:3000` (or set `BASE_URL`)
+- AWS credentials configured (DynamoDB access)
+- `jq` installed (for JSON parsing)
+
+**What it does**:
+1. POSTs to `/api/workflow/start` with the specified title/description
+2. Returns the `workflowId` and `epicId`
+3. Prints a direct link to the workflow UI
+
+### Via curl (manual)
+
+```bash
+curl -s -X POST http://localhost:3000/api/workflow/start \
+  -H "Content-Type: application/json" \
+  -d '{"title":"My Test","description":"Build something","sources":[],"repoConfig":{"repos":[{"url":"https://github.com/tycen-io/agentis-hub","defaultBranch":"main"}]}}' \
+  | jq .
+```
+
+### Via the UI
+
+Navigate to `http://localhost:3000/workflow` → click "New Workflow" → fill the intake form.
+
+### What NOT to do
+
+- Do NOT write directly to the `agentis-workflows` DynamoDB table
+- Do NOT invoke agents without going through the workflow start route
+- Do NOT use inline curl/scripts that bypass `/api/workflow/start`
+
+Any workflow created without the start route will be missing `startedAt`, `epicId`, and ticket skeletons — causing UI display bugs and broken pipeline orchestration.
+
+---
+
+### DL-015: Fire-and-Forget Agent Invocation
+
+**Date**: 2026-05-20
+**Decision**: Agent invoker Lambda returns immediately after Runtime accepts the request (HTTP 200). Does not wait for agent completion.
+**Status**: ACTIVE
+
+**Context**: The invoker Lambda held open an HTTP connection for up to 840s (14 min) waiting for the agent to finish. This caused:
+1. Lambda billed for entire agent runtime (~$0.50+ per invocation at 512MB)
+2. Timeouts when agents ran longer than 840s (CI agent doing npm ci + build)
+3. Redundant "done" write — agent already calls `report_completion` which marks ticket done
+
+**Solution**: `fireAndForgetRuntime()` sends the request, confirms HTTP 200 (accepted), then `res.destroy()` and returns. Total Lambda duration: ~8 seconds vs ~840 seconds.
+
+**Agent lifecycle is self-managed**:
+- Agent writes `agent.streaming` events directly to DynamoDB (DL-003)
+- Agent calls `report_completion` when done → `workflow-output` Lambda → marks ticket "done" → DDB Stream → orchestrator cascade
+- If agent crashes without calling `report_completion` → ticket stays "in_progress" → nudge system detects 90s idle → triggers recovery
+
+**What was removed from the invoker**:
+- S3 output archiving (agent handles via `report_completion`)
+- Backup "done" write to DDB (redundant — agent does it)
+- `updateWorkflowTask()` (moved to `workflow-output` Lambda)
+- EventBridge `agent.complete` event (orchestrator publishes equivalent in `handleTicketDone`)
+
+**Legacy harness agents** still use synchronous invocation (they don't have `report_completion`). Will be migrated to Runtime containers.
+
+**Trade-off**: If agent crashes silently, detection is delayed by ~90s (nudge interval). Accepted because crash-without-reporting is rare and the nudge handles it.
+
+---
+
+### DL-016: Eliminate `agentis-workflows` Table (PLANNED)
+
+**Date**: 2026-05-20
+**Decision**: Consolidate all workflow state into the epic ticket on `agentis-tickets`. Delete `agentis-workflows` table.
+**Status**: PLANNED (backlog)
+
+**Context**: The `agentis-workflows` table stores:
+- `workflowId`, `epicId`, `repoConfig`, `startedAt`, `status`, `phase`
+- `agentTasks` map (output, branch, status per agent — powers UI output panel)
+
+All of this data either already exists on the epic ticket + children, or can trivially be added as fields on the epic.
+
+**Why eliminate**:
+- Minimal infra principle — fewer tables = less to manage, less IAM, less cost
+- Data is duplicated — children tickets already have `output`, `branch`, `status`, `assignee`
+- The `agentTasks` map is just a denormalized cache of children ticket data
+- Simplifies the mental model (ticket = single source of truth)
+
+**Migration plan**:
+1. Move `repoConfig`, `input`, `phase` to fields on the epic ticket
+2. UI state endpoint: query epic + children via `parentId-index` instead of reading workflows table
+3. Remove `agentTasks` map — derive from children tickets
+4. Update orchestrator to read/write epic ticket instead of workflows table
+5. Delete `agentis-workflows` table
+
+**~5 places to update**: orchestrator Lambda, workflow-output Lambda, dynamo-read.ts, start route, state route.
+
+**Estimated effort**: 2-hour refactor. Not urgent — current system works fine.
+
+---
+
+### DL-017: Container Deployment for Tool-Heavy Agents
+
+**Date**: 2026-05-20
+**Decision**: Deploy agents that need npm/Node.js/Playwright as container images instead of CodeZip
+**Status**: ACTIVE (CI agent deployed as container)
+
+**Context**: CodeZip deployment only supports Python. Agents that need Node.js tools (Claude Code CLI, npm for builds, Playwright for browser testing) had to install them at runtime — adding 2-5 minutes of setup per invocation and sometimes hanging.
+
+**Solution**: Pre-built ARM64 Docker image with all tools baked in:
+- Python 3.13 + agent code
+- Node.js 20 + npm
+- `@anthropic-ai/claude-code` CLI
+- Playwright + Chromium
+
+Image pushed to ECR, deployed via `update_agent_runtime` API with `container_uri`.
+
+**Key learning**: Cannot switch a runtime from CodeZip → Container in-place. Must create a new runtime. The `agentcore` CLI handles this via `agentcore configure -dt container` + `agentcore deploy --local-build`.
+
+**Trade-off**: Larger image (~1GB compressed). Accepted because cold start is still fast on AgentCore (microVM boots in <3s regardless of image size).

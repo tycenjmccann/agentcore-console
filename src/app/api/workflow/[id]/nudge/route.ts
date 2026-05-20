@@ -67,9 +67,10 @@ export async function POST(
       nudged.push(`${ticketId} (todo→ready)`);
     }
 
-    // Case 2: "blocked" but all blockers are done — unblock it.
-    if (status === "blocked" && blockedBy && blockedBy.length > 0) {
-      const allBlockersDone = blockedBy.every(
+    // Case 2: "blocked" but all blockers are done (or no blockers at all) — unblock it.
+    if (status === "blocked") {
+      const hasBlockers = blockedBy && blockedBy.length > 0;
+      const allBlockersDone = !hasBlockers || blockedBy.every(
         (blockerId: string) => statusMap.get(blockerId) === "done"
       );
       if (allBlockersDone) {
@@ -80,7 +81,7 @@ export async function POST(
           ExpressionAttributeNames: { "#s": "status", "#bb": "blockedBy", "#u": "updatedAt" },
           ExpressionAttributeValues: { ":s": "ready", ":bb": [], ":u": new Date().toISOString() },
         }));
-        nudged.push(`${ticketId} (unblocked→ready)`);
+        nudged.push(`${ticketId} (${hasBlockers ? "unblocked" : "blocked-no-blockers"}→ready)`);
       }
     }
 

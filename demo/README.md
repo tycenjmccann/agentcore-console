@@ -1,4 +1,25 @@
-# Agentis Hub — Architecture Pipeline Visualization
+# Agentis Hub — Demo & Testing
+
+## Running Test Workflows
+
+Use the standard test script to start workflows via the API:
+
+```bash
+# From repo root:
+./scripts/start-test-workflow.sh                     # Default test
+./scripts/start-test-workflow.sh --scope minimal     # Fastest (~5 min)
+./scripts/start-test-workflow.sh --scope sidebar     # Medium (~20 min)
+./scripts/start-test-workflow.sh --scope full        # Full pipeline (~30 min)
+./scripts/start-test-workflow.sh --model sonnet      # Use Sonnet (faster/cheaper)
+```
+
+Requires the Next.js dev server on `localhost:3000` and AWS credentials. See `docs/workflow-pipeline-architecture.md` for full details.
+
+> **Warning**: Do NOT start workflows by writing directly to DynamoDB or using custom scripts that bypass `/api/workflow/start`. This produces broken records with missing dates and no ticket skeletons.
+
+---
+
+## Architecture Pipeline Visualization
 
 **File:** `agentis-v1-pipeline.html`
 **Type:** Single-file HTML (self-contained, no external dependencies)
