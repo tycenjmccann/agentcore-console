@@ -16,7 +16,7 @@ export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
   const [sources, setSources] = useState<IntakeSource[]>([]);
   const [newSourceUrl, setNewSourceUrl] = useState("");
   const [repoLayout, setRepoLayout] = useState<RepoLayout>("monorepo");
-  const [repoUrl, setRepoUrl] = useState("https://github.com/tycenjmccann/agentcore-console");
+  const [repoUrl, setRepoUrl] = useState("");
   const [defaultBranch, setDefaultBranch] = useState("main");
 
   // Model selection state
@@ -219,7 +219,7 @@ export default function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
             type="text"
             value={repoUrl}
             onChange={(e) => setRepoUrl(e.target.value)}
-            placeholder="https://github.com/org/repo.git"
+            placeholder="https://github.com/org/repo"
             className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder-zinc-500 text-sm focus:outline-none focus:border-zinc-500"
           />
           <input

@@ -21,6 +21,15 @@ export default function WorkflowPage() {
   const [showIntake, setShowIntake] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorToast, setErrorToast] = useState(false);
+
+  // Auto-dismiss error toast after 5s
+  useEffect(() => {
+    if (errorToast) {
+      const timer = setTimeout(() => setErrorToast(false), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorToast]);
 
   // Load workflow list
   const fetchWorkflows = useCallback(async () => {
@@ -86,6 +95,7 @@ export default function WorkflowPage() {
       }
     } catch (err) {
       console.error("Failed to start workflow:", err);
+      setErrorToast(true);
     } finally {
       setIsSubmitting(false);
     }
@@ -141,7 +151,7 @@ export default function WorkflowPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search epics..."
+              placeholder="Search workflows..."
               className="w-full pl-8 pr-3 py-1.5 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-md text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -220,6 +230,13 @@ export default function WorkflowPage() {
           </div>
         )}
       </div>
+
+      {/* Error Toast */}
+      {errorToast && (
+        <div className="fixed bottom-4 left-72 z-50 bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg text-sm font-medium">
+          Failed to start workflow — check connection
+        </div>
+      )}
     </div>
   );
 }
@@ -275,8 +292,8 @@ function WorkflowListItem({
             <span className="text-[10px] text-[var(--color-text-muted)]">{timeStr}</span>
           </div>
           {isRunning && (
-            <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium uppercase tracking-wider">
-              {workflow.phase}
+            <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium">
+              {workflow.phase.charAt(0).toUpperCase() + workflow.phase.slice(1)}
             </span>
           )}
         </div>
