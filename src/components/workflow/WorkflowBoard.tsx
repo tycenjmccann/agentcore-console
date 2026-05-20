@@ -7,9 +7,30 @@ import type {
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
+import { useToast } from "@/hooks/useToast";
+import { truncate } from "@/lib/utils";
 
 interface WorkflowBoardProps {
   workflowId: string;
+}
+
+// ─── Agent Name Resolution ──────────────────────────────────────────────────
+
+/**
+ * Resolve an agent ID to a human-friendly display name.
+ * Searches PIPELINE_PHASES for the agent config.
+ */
+function resolveAgentName(agentId: string): string {
+  for (const phase of PIPELINE_PHASES) {
+    const agent = phase.agents.find((a) => a.id === agentId);
+    if (agent) return agent.displayName;
+  }
+  // Fallback: convert "team-backend-dev" → "Backend Dev"
+  return agentId
+    .replace(/^team-/, "")
+    .split("-")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 // ─── Phase Order (derived from config) ──────────────────────────────────────
@@ -82,6 +103,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const pipelineRef = useRef<HTMLDivElement>(null);
 
+  // Toast notifications
+  const { showToast } = useToast();
+  // Deduplication: track event IDs that have already triggered a toast
+  const toastFiredEventsRef = useRef<Set<string>>(new Set());
+
   // Replay state for completed workflows
   const [replayMode, setReplayMode] = useState(false);
   const [replayEvents, setReplayEvents] = useState<WorkflowEvent[]>([]);
@@ -100,6 +126,17 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   // Preserve original DDB agent outputs (replay reconstructs state from events which lack full output)
   const originalOutputsRef = useRef<Record<string, string>>({});
+
+  // Ref to track if we're in replay mode (for use in handleEvent without causing re-renders)
+  const replayModeRef = useRef(replayMode);
+  useEffect(() => {
+    replayModeRef.current = replayMode;
+  }, [replayMode]);
+
+  const catchingUpRef = useRef(catchingUp);
+  useEffect(() => {
+    catchingUpRef.current = catchingUp;
+  }, [catchingUp]);
 
   // Fetch initial state (once for replay, poll for live)
   useEffect(() => {
@@ -365,6 +402,79 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   }, [replayIndex, replayEvents.length]);
 
   const handleEvent = useCallback((event: WorkflowEvent) => {
+    // ─── Toast Notifications (only for LIVE events, not replays) ─────────
+    const isLive = !replayModeRef.current && !catchingUpRef.current;
+    if (isLive) {
+      // Generate a deduplication key for this event
+      const dedupeKey = event.eventId || `${event.type}-${event.timestamp || Date.now()}`;
+
+      if (!toastFiredEventsRef.current.has(dedupeKey)) {
+        toastFiredEventsRef.current.add(dedupeKey);
+
+        switch (event.type) {
+          case "workflow_complete":
+            showToast({
+              variant: "success",
+              title: "Workflow Complete",
+              description: event.summary
+                ? truncate(event.summary, 150)
+                : "All agents have completed their work.",
+              duration: 8000,
+            });
+            break;
+
+          case "error":
+            if (event.agentId) {
+              // Agent-level error → warning toast with agent name
+              const agentName = resolveAgentName(event.agentId);
+              showToast({
+                variant: "warning",
+                title: `Agent Error: ${agentName}`,
+                description: event.error
+                  ? truncate(event.error, 150)
+                  : "An error occurred during agent execution.",
+                duration: 10000,
+              });
+            } else {
+              // Workflow-level error → error toast
+              showToast({
+                variant: "error",
+                title: "Workflow Error",
+                description: event.error
+                  ? truncate(event.error, 150)
+                  : "An unexpected error occurred.",
+                duration: 10000,
+              });
+            }
+            break;
+
+          case "agent_complete": {
+            // Optional: show info toast for agent completion
+            const completedAgentName = resolveAgentName(event.agentId);
+            showToast({
+              variant: "info",
+              title: `${completedAgentName} Finished`,
+              description: event.output
+                ? truncate(event.output, 100)
+                : undefined,
+              duration: 5000,
+            });
+            break;
+          }
+
+          default:
+            break;
+        }
+
+        // Prevent deduplication set from growing unbounded
+        if (toastFiredEventsRef.current.size > 200) {
+          const entries = Array.from(toastFiredEventsRef.current);
+          toastFiredEventsRef.current = new Set(entries.slice(-100));
+        }
+      }
+    }
+
+    // ─── Existing Event Handling (state updates + animations) ────────────
     switch (event.type) {
       case "phase_change": {
         const newPhaseIndex = PHASE_ORDER[event.phase] ?? -1;
@@ -470,7 +580,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       default:
         break;
     }
-  }, [activeConnector]);
+  }, [activeConnector, showToast]);
 
   // Animate connector dot — exact same logic as demo HTML animateConnector()
   const animateConnectorDot = useCallback((connectorIndex: number, duration = 900) => {
