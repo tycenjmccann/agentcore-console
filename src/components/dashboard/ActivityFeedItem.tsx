@@ -58,36 +58,37 @@ export default function ActivityFeedItem({ event }: ActivityFeedItemProps) {
     ? `/workflow/${event.workflowId}`
     : null;
 
-  const entityName = event.agentName || event.workflowName;
-
   const content = (
     <div
       className={cn(
-        "flex items-start gap-3 px-3 py-2.5 rounded-lg border transition-colors",
-        config.bgColor,
-        config.borderColor,
-        href && "hover:bg-surface-3/50 cursor-pointer"
+        "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors",
+        "hover:bg-surface-3/50 group cursor-pointer"
       )}
     >
       {/* Icon */}
-      <div className={cn("mt-0.5 flex-shrink-0", config.textColor)}>
-        <Icon className="w-4 h-4" />
+      <div
+        className={cn(
+          "w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0",
+          config.bgColor
+        )}
+      >
+        <Icon className={cn("w-4 h-4", config.textColor)} />
       </div>
 
-      {/* Content */}
+      {/* Description */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-[var(--color-text-primary)] leading-snug">
+        <p className="text-sm text-[var(--color-text-primary)] truncate">
           {event.description}
         </p>
-        {entityName && (
-          <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-            {event.agentId ? "Agent" : "Workflow"}: {entityName}
+        {(event.agentName || event.workflowName) && (
+          <p className="text-xs text-[var(--color-text-muted)] truncate">
+            {event.agentName || event.workflowName}
           </p>
         )}
       </div>
 
       {/* Timestamp */}
-      <span className="text-xs text-[var(--color-text-muted)] flex-shrink-0 mt-0.5">
+      <span className="text-xs text-[var(--color-text-muted)] flex-shrink-0 whitespace-nowrap">
         {formatTimestamp(event.timestamp)}
       </span>
     </div>

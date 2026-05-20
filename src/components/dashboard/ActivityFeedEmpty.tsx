@@ -11,7 +11,7 @@ export default function ActivityFeedEmpty() {
       <h4 className="text-sm font-medium text-[var(--color-text-primary)] mb-1">
         No activity yet
       </h4>
-      <p className="text-xs text-[var(--color-text-muted)] text-center max-w-xs">
+      <p className="text-xs text-[var(--color-text-muted)] text-center max-w-[240px]">
         Events will appear here as agents and workflows run
       </p>
     </div>

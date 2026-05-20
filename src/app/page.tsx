@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cachedFetch, getCached } from "@/lib/client-cache";
-import { ActivityFeed } from "@/components/dashboard";
+import ActivityFeed from "@/components/dashboard/ActivityFeed";
 
 interface Agent {
   id: string;

@@ -7,36 +7,29 @@ import { cn } from "@/lib/utils";
 import ActivityFeedItem, { type ActivityEvent } from "./ActivityFeedItem";
 import ActivityFeedEmpty from "./ActivityFeedEmpty";
 
-const EVENTS_URL = "/api/events";
 const POLL_INTERVAL = 10_000; // 10 seconds
 const TIMESTAMP_REFRESH_INTERVAL = 30_000; // 30 seconds
+const SCROLL_THRESHOLD = 40; // pixels from bottom to consider "at bottom"
 
 export default function ActivityFeed() {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
   const [, setTick] = useState(0); // Force re-render for timestamp updates
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const prevEventCountRef = useRef(0);
 
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const isUserScrolling = useRef(false);
-
-  // Scroll to bottom helper
-  const scrollToBottom = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (container) {
-      container.scrollTop = container.scrollHeight;
-    }
-  }, []);
-
-  // Fetch events
+  // Fetch events from API
   const fetchEvents = useCallback(async (initial = false) => {
     try {
-      const data = await cachedFetch<ActivityEvent[]>(EVENTS_URL, {
+      const data = await cachedFetch<ActivityEvent[]>("/api/events", {
         forceRefresh: !initial,
       });
-      setEvents(Array.isArray(data) ? data : []);
+      if (Array.isArray(data)) {
+        setEvents(data);
+      }
     } catch {
-      // Silently handle fetch errors — keep existing events
+      // Silently fail on poll errors; keep existing data
     } finally {
       if (initial) setLoading(false);
     }
@@ -49,13 +42,11 @@ export default function ActivityFeed() {
 
   // Polling interval
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchEvents(false);
-    }, POLL_INTERVAL);
+    const interval = setInterval(() => fetchEvents(false), POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [fetchEvents]);
 
-  // Timestamp refresh interval
+  // Timestamp refresh interval (force re-render every 30s)
   useEffect(() => {
     const interval = setInterval(() => {
       setTick((t) => t + 1);
@@ -65,33 +56,32 @@ export default function ActivityFeed() {
 
   // Auto-scroll when new events arrive
   useEffect(() => {
-    if (autoScroll && !loading) {
+    if (autoScroll && events.length > prevEventCountRef.current) {
       scrollToBottom();
     }
-  }, [events, autoScroll, loading, scrollToBottom]);
+    prevEventCountRef.current = events.length;
+  }, [events, autoScroll]);
 
-  // Handle scroll events to detect user scrolling up
-  const handleScroll = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 40;
-
-    if (isAtBottom) {
-      setAutoScroll(true);
-      isUserScrolling.current = false;
-    } else {
-      setAutoScroll(false);
-      isUserScrolling.current = true;
+  // Scroll to bottom helper
+  const scrollToBottom = () => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, []);
+  };
+
+  // Handle scroll — detect if user scrolled away from bottom
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
+    setAutoScroll(isAtBottom);
+  };
 
   // Re-enable auto-scroll
-  const handleScrollToBottom = useCallback(() => {
+  const handleResumeAutoScroll = () => {
     setAutoScroll(true);
     scrollToBottom();
-  }, [scrollToBottom]);
+  };
 
   // Loading skeleton
   if (loading) {
@@ -102,8 +92,8 @@ export default function ActivityFeed() {
         </h3>
         <div className="space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex items-start gap-3 animate-pulse">
-              <div className="w-4 h-4 rounded-full bg-surface-3 mt-0.5" />
+            <div key={i} className="flex items-center gap-3 px-3 py-2 animate-pulse">
+              <div className="w-7 h-7 rounded-md bg-surface-3" />
               <div className="flex-1 space-y-1.5">
                 <div className="h-3.5 bg-surface-3 rounded w-3/4" />
                 <div className="h-2.5 bg-surface-3 rounded w-1/3" />
@@ -122,27 +112,24 @@ export default function ActivityFeed() {
         <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">
           Activity Feed
         </h3>
-        {events.length > 0 && (
-          <span className="text-xs text-[var(--color-text-muted)]">
-            {events.length} event{events.length !== 1 ? "s" : ""}
-          </span>
-        )}
+        <span className="text-xs text-[var(--color-text-muted)]">
+          {events.length} event{events.length !== 1 ? "s" : ""}
+        </span>
       </div>
 
       {events.length === 0 ? (
         <ActivityFeedEmpty />
       ) : (
         <div className="relative">
-          {/* Scrollable event list */}
           <div
-            ref={scrollContainerRef}
+            ref={scrollRef}
             onScroll={handleScroll}
-            className="max-h-80 overflow-y-auto pr-1 scroll-smooth"
+            className="max-h-[400px] overflow-y-auto scrollbar-thin"
             role="log"
             aria-live="polite"
             aria-label="Activity feed"
           >
-            <ul className="space-y-2">
+            <ul className="space-y-0.5">
               {events.map((event) => (
                 <ActivityFeedItem key={event.id} event={event} />
               ))}
@@ -152,14 +139,13 @@ export default function ActivityFeed() {
           {/* Scroll-to-bottom toggle */}
           {!autoScroll && (
             <button
-              onClick={handleScrollToBottom}
+              onClick={handleResumeAutoScroll}
               className={cn(
-                "absolute bottom-2 right-2 flex items-center gap-1.5",
-                "px-2.5 py-1.5 rounded-lg",
-                "bg-surface-3 border border-surface-4",
-                "text-xs text-[var(--color-text-secondary)]",
-                "hover:bg-surface-4 hover:text-[var(--color-text-primary)]",
-                "transition-all shadow-lg"
+                "absolute bottom-3 right-3 z-10",
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full",
+                "bg-brand-600 hover:bg-brand-500 text-white text-xs font-medium",
+                "shadow-lg transition-all",
+                "animate-in fade-in slide-in-from-bottom-2"
               )}
               aria-label="Scroll to latest events"
             >

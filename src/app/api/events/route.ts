@@ -1,153 +1,169 @@
-import { NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 
+/**
+ * Activity event schema returned by this endpoint.
+ */
 export interface ActivityEvent {
   id: string;
   type: "success" | "error" | "info" | "warning";
   description: string;
-  timestamp: string;
+  timestamp: string; // ISO 8601
   agentId?: string;
   agentName?: string;
   workflowId?: string;
   workflowName?: string;
 }
 
-// Generate mock events for initial development
+/**
+ * Generate mock events for demonstration purposes.
+ * In production, this would query a real event store.
+ */
 function generateMockEvents(): ActivityEvent[] {
   const now = Date.now();
   const events: ActivityEvent[] = [
     {
       id: "evt-001",
       type: "success",
-      description: "Agent completed ticket TEAM-412 successfully",
-      timestamp: new Date(now - 30000).toISOString(),
+      description: "Agent completed ticket resolution",
+      timestamp: new Date(now - 30_000).toISOString(),
       agentId: "agent-frontend-dev",
       agentName: "Frontend Dev",
     },
     {
       id: "evt-002",
       type: "info",
-      description: "Workflow 'Customer Onboarding' started",
-      timestamp: new Date(now - 60000).toISOString(),
+      description: "Workflow started: Customer Onboarding",
+      timestamp: new Date(now - 120_000).toISOString(),
       workflowId: "wf-onboarding-001",
       workflowName: "Customer Onboarding",
     },
     {
       id: "evt-003",
       type: "warning",
-      description: "Agent approaching token limit (85% used)",
-      timestamp: new Date(now - 120000).toISOString(),
+      description: "Agent response time exceeded threshold (45s)",
+      timestamp: new Date(now - 180_000).toISOString(),
       agentId: "agent-backend-dev",
       agentName: "Backend Dev",
     },
     {
       id: "evt-004",
       type: "error",
-      description: "Agent failed to process ticket TEAM-398: timeout exceeded",
-      timestamp: new Date(now - 180000).toISOString(),
-      agentId: "agent-qa-verifier",
-      agentName: "QA Verifier",
+      description: "Workflow failed: Build validation error in CI pipeline",
+      timestamp: new Date(now - 300_000).toISOString(),
+      workflowId: "wf-ci-pipeline-002",
+      workflowName: "CI Pipeline",
     },
     {
       id: "evt-005",
       type: "success",
-      description: "Workflow 'Data Migration' completed all phases",
-      timestamp: new Date(now - 240000).toISOString(),
-      workflowId: "wf-migration-002",
-      workflowName: "Data Migration",
+      description: "Agent deployed successfully to production",
+      timestamp: new Date(now - 420_000).toISOString(),
+      agentId: "agent-deployer",
+      agentName: "Deployer Agent",
     },
     {
       id: "evt-006",
       type: "info",
-      description: "Agent session started for code review task",
-      timestamp: new Date(now - 300000).toISOString(),
-      agentId: "agent-code-reviewer",
-      agentName: "Code Reviewer",
+      description: "New agent registered: QA Verifier",
+      timestamp: new Date(now - 600_000).toISOString(),
+      agentId: "agent-qa-verifier",
+      agentName: "QA Verifier",
     },
     {
       id: "evt-007",
       type: "success",
-      description: "Pull request #142 merged by CI agent",
-      timestamp: new Date(now - 360000).toISOString(),
-      agentId: "agent-ci-agent",
-      agentName: "CI Agent",
+      description: "Workflow completed: Data Migration Sprint",
+      timestamp: new Date(now - 900_000).toISOString(),
+      workflowId: "wf-data-migration-003",
+      workflowName: "Data Migration Sprint",
     },
     {
       id: "evt-008",
       type: "warning",
-      description: "Rate limit warning: 3 retries on external API call",
-      timestamp: new Date(now - 420000).toISOString(),
-      agentId: "agent-backend-dev",
-      agentName: "Backend Dev",
+      description: "Token usage approaching daily limit (85%)",
+      timestamp: new Date(now - 1_200_000).toISOString(),
+      agentId: "agent-content-writer",
+      agentName: "Content Writer",
     },
     {
       id: "evt-009",
-      type: "info",
-      description: "Workflow 'Billing Dispute' entered review phase",
-      timestamp: new Date(now - 480000).toISOString(),
-      workflowId: "wf-billing-003",
-      workflowName: "Billing Dispute",
+      type: "error",
+      description: "Agent invocation failed: timeout after 120s",
+      timestamp: new Date(now - 1_500_000).toISOString(),
+      agentId: "agent-researcher",
+      agentName: "Researcher Agent",
     },
     {
       id: "evt-010",
       type: "success",
-      description: "Agent resolved 5 support tickets in batch",
-      timestamp: new Date(now - 540000).toISOString(),
-      agentId: "agent-support",
-      agentName: "Support Agent",
+      description: "Pull request merged by code review agent",
+      timestamp: new Date(now - 1_800_000).toISOString(),
+      agentId: "agent-code-reviewer",
+      agentName: "Code Reviewer",
     },
     {
       id: "evt-011",
-      type: "error",
-      description: "Build failed: TypeScript compilation error in module",
-      timestamp: new Date(now - 600000).toISOString(),
-      agentId: "agent-ci-agent",
-      agentName: "CI Agent",
+      type: "info",
+      description: "Workflow queued: Billing Dispute Resolution",
+      timestamp: new Date(now - 2_100_000).toISOString(),
+      workflowId: "wf-billing-004",
+      workflowName: "Billing Dispute Resolution",
     },
     {
       id: "evt-012",
       type: "success",
-      description: "Agent deployed hotfix to staging environment",
-      timestamp: new Date(now - 660000).toISOString(),
-      agentId: "agent-devops",
-      agentName: "DevOps Agent",
+      description: "Agent completed 15 tickets in batch processing",
+      timestamp: new Date(now - 2_400_000).toISOString(),
+      agentId: "agent-batch-processor",
+      agentName: "Batch Processor",
     },
     {
       id: "evt-013",
-      type: "info",
-      description: "New workflow created: 'Account Migration Sprint'",
-      timestamp: new Date(now - 720000).toISOString(),
-      workflowId: "wf-account-004",
-      workflowName: "Account Migration Sprint",
+      type: "warning",
+      description: "Memory store approaching capacity (92% used)",
+      timestamp: new Date(now - 3_000_000).toISOString(),
+      agentId: "agent-memory-manager",
+      agentName: "Memory Manager",
     },
     {
       id: "evt-014",
-      type: "warning",
-      description: "Agent memory usage at 78% capacity",
-      timestamp: new Date(now - 780000).toISOString(),
-      agentId: "agent-frontend-dev",
-      agentName: "Frontend Dev",
+      type: "info",
+      description: "Agent configuration updated: new model routing",
+      timestamp: new Date(now - 3_600_000).toISOString(),
+      agentId: "agent-router",
+      agentName: "Router Agent",
     },
     {
       id: "evt-015",
       type: "success",
-      description: "All tests passing for feature branch feat/user-auth",
-      timestamp: new Date(now - 840000).toISOString(),
-      agentId: "agent-qa-verifier",
-      agentName: "QA Verifier",
+      description: "Workflow completed: Account Migration batch 7",
+      timestamp: new Date(now - 4_200_000).toISOString(),
+      workflowId: "wf-account-migration-005",
+      workflowName: "Account Migration",
     },
   ];
 
-  // Sort by timestamp ascending (newest at bottom)
+  // Sort ascending by timestamp (oldest first, newest at bottom)
   return events.sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
 }
 
-export async function GET() {
-  const events = generateMockEvents();
-
-  // Limit to 50 events max
-  const limited = events.slice(-50);
-
-  return NextResponse.json(limited);
+/**
+ * GET /api/events
+ * Returns up to 50 activity events sorted by timestamp ascending.
+ */
+export async function GET(_req: NextRequest) {
+  try {
+    const events = generateMockEvents();
+    // Limit to 50 events max
+    const limited = events.slice(-50);
+    return Response.json(limited);
+  } catch (error) {
+    console.error("Events API error:", error);
+    return Response.json(
+      { error: "Failed to fetch events" },
+      { status: 500 }
+    );
+  }
 }
