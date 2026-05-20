@@ -7,6 +7,7 @@ import type {
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
+import { useCompletionSound } from "@/hooks/useCompletionSound";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -44,6 +45,13 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const pipelineRef = useRef<HTMLDivElement>(null);
 
+  // Sound notification hook
+  const { playSuccess, playError } = useCompletionSound();
+
+  // Track previous phase to detect transitions (avoid replaying on re-render)
+  const prevPhaseRef = useRef<string | null>(null);
+  const soundPlayedRef = useRef<Set<string>>(new Set());
+
   // Fetch initial state + poll every 3s
   useEffect(() => {
     const fetchState = () => {
@@ -62,6 +70,32 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     const interval = setInterval(fetchState, 3000);
     return () => clearInterval(interval);
   }, [workflowId]);
+
+  // Detect phase transitions and play sounds
+  useEffect(() => {
+    if (!state) return;
+
+    const currentPhase = state.phase;
+    const prevPhase = prevPhaseRef.current;
+
+    // Only play sounds on actual transitions (not initial load of already-completed workflows)
+    if (prevPhase !== null && prevPhase !== currentPhase) {
+      const soundKey = `${workflowId}:${currentPhase}`;
+
+      // Ensure we only play once per workflow terminal state
+      if (!soundPlayedRef.current.has(soundKey)) {
+        if (currentPhase === "complete") {
+          playSuccess();
+          soundPlayedRef.current.add(soundKey);
+        } else if (currentPhase === "error") {
+          playError();
+          soundPlayedRef.current.add(soundKey);
+        }
+      }
+    }
+
+    prevPhaseRef.current = currentPhase;
+  }, [state?.phase, workflowId, playSuccess, playError]);
 
   // SSE connection with auto-reconnect
   useEffect(() => {
