@@ -4,6 +4,7 @@ import "@/styles/globals.css";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
 import { ThemeProvider } from "@/components/theme-provider";
+import { CommandPalette } from "@/components/ui/command-palette";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -47,6 +48,7 @@ export default function RootLayout({
               <main className="p-6">{children}</main>
             </div>
           </div>
+          <CommandPalette />
         </ThemeProvider>
       </body>
     </html>
