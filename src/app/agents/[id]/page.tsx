@@ -11,6 +11,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { streamAgentInvocation, AgentInfo, TraceEvent } from "@/lib/agentcore-stream";
 import { cachedFetch, getCached, getClientRegion } from "@/lib/client-cache";
+import CollapsiblePanel from "@/components/layout/CollapsiblePanel";
 
 interface AgentDetail {
   id: string;
@@ -81,11 +82,11 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
   if (!agent) {
     return (
       <div className="space-y-4">
-        <Link href="/agents" className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300">
+        <Link href="/agents" className="flex items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]">
           <ArrowLeft className="w-4 h-4" /> Back to Agents
         </Link>
         <div className="card text-center py-8">
-          <p className="text-sm text-gray-400">Agent not found.</p>
+          <p className="text-sm text-[var(--color-text-muted)]">Agent not found.</p>
         </div>
       </div>
     );
@@ -93,7 +94,7 @@ export default function AgentDetailPage({ params }: { params: { id: string } }) 
 
   return (
     <div className="space-y-4">
-      <Link href="/agents" className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300">
+      <Link href="/agents" className="flex items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]">
         <ArrowLeft className="w-4 h-4" /> Back to Agents
       </Link>
 
@@ -128,7 +129,7 @@ function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold text-white">{agent.name}</h2>
+            <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{agent.name}</h2>
             <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
               agent.type === "harness"
                 ? "bg-brand-600/10 text-brand-400 border-brand-600/30"
@@ -144,12 +145,12 @@ function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
               {agent.status}
             </span>
           </div>
-          <p className="text-[10px] text-gray-600 font-mono">{agent.arn}</p>
+          <p className="text-[10px] text-[var(--color-text-muted)] font-mono">{agent.arn}</p>
         </div>
 
         <button
           onClick={() => setExpanded(!expanded)}
-          className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1"
+          className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] flex items-center gap-1"
         >
           {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           Details
@@ -161,34 +162,34 @@ function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
         <div className="mt-3 pt-3 border-t border-surface-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
           {agent.model && (
             <div>
-              <span className="text-gray-500 flex items-center gap-1"><Bot className="w-3 h-3" /> Model</span>
-              <p className="text-gray-300 mt-0.5 font-mono text-[10px]">{agent.model}</p>
+              <span className="text-[var(--color-text-muted)] flex items-center gap-1"><Bot className="w-3 h-3" /> Model</span>
+              <p className="text-[var(--color-text-secondary)] mt-0.5 font-mono text-[10px]">{agent.model}</p>
             </div>
           )}
           {agent.memoryId && (
             <div>
-              <span className="text-gray-500 flex items-center gap-1"><Database className="w-3 h-3" /> Memory</span>
-              <p className="text-gray-300 mt-0.5 font-mono text-[10px] truncate">{agent.memoryId}</p>
+              <span className="text-[var(--color-text-muted)] flex items-center gap-1"><Database className="w-3 h-3" /> Memory</span>
+              <p className="text-[var(--color-text-secondary)] mt-0.5 font-mono text-[10px] truncate">{agent.memoryId}</p>
             </div>
           )}
           {agent.logGroup && (
             <div>
-              <span className="text-gray-500 flex items-center gap-1"><Terminal className="w-3 h-3" /> Log Group</span>
-              <p className="text-gray-300 mt-0.5 font-mono text-[10px] truncate">{agent.logGroup}</p>
+              <span className="text-[var(--color-text-muted)] flex items-center gap-1"><Terminal className="w-3 h-3" /> Log Group</span>
+              <p className="text-[var(--color-text-secondary)] mt-0.5 font-mono text-[10px] truncate">{agent.logGroup}</p>
             </div>
           )}
           {agent.createdAt && (
             <div>
-              <span className="text-gray-500">Created</span>
-              <p className="text-gray-300 mt-0.5">{new Date(agent.createdAt).toLocaleDateString()}</p>
+              <span className="text-[var(--color-text-muted)]">Created</span>
+              <p className="text-[var(--color-text-secondary)] mt-0.5">{new Date(agent.createdAt).toLocaleDateString()}</p>
             </div>
           )}
           {agent.tools && agent.tools.length > 0 && (
             <div className="col-span-full">
-              <span className="text-gray-500 flex items-center gap-1 mb-1.5"><Wrench className="w-3 h-3" /> Tools ({agent.tools.length})</span>
+              <span className="text-[var(--color-text-muted)] flex items-center gap-1 mb-1.5"><Wrench className="w-3 h-3" /> Tools ({agent.tools.length})</span>
               <div className="flex flex-wrap gap-1.5">
                 {agent.tools.map((tool, i) => (
-                  <span key={i} className="text-[10px] px-2 py-0.5 bg-surface-3 rounded border border-surface-4 text-gray-300">
+                  <span key={i} className="text-[10px] px-2 py-0.5 bg-surface-3 rounded border border-surface-4 text-[var(--color-text-secondary)]">
                     <Server className="w-2.5 h-2.5 inline mr-0.5" />
                     {tool.name || tool.type}
                   </span>
@@ -198,8 +199,8 @@ function AgentInfoHeader({ agent }: { agent: AgentDetail }) {
           )}
           {agent.systemPrompt && (
             <div className="col-span-full">
-              <span className="text-gray-500">System Prompt</span>
-              <pre className="text-[10px] text-gray-400 mt-1 bg-surface-0 rounded p-2 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">
+              <span className="text-[var(--color-text-muted)]">System Prompt</span>
+              <pre className="text-[10px] text-[var(--color-text-muted)] mt-1 bg-surface-0 rounded p-2 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">
                 {agent.systemPrompt}
               </pre>
             </div>
@@ -713,53 +714,66 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   };
 
   return (
-    <div className="flex h-[calc(100vh-16rem)] gap-4 overflow-hidden">
-      {/* Left — Sessions */}
-      <div className="w-52 flex-shrink-0 flex flex-col border-r border-surface-4 pr-3">
-        <button
-          onClick={startNewSession}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600/20 border border-brand-600/30 text-brand-400 text-xs font-medium hover:bg-brand-600/30 transition-colors mb-3"
-        >
-          <Plus className="w-3 h-3" />
-          New Session
-        </button>
-
+    <div className="flex h-[calc(100vh-16rem)] gap-0 overflow-hidden rounded-xl border border-surface-4">
+      {/* Left — Collapsible Sessions Panel */}
+      <CollapsiblePanel
+        storageKey="agent-sessions-sidebar"
+        side="left"
+        defaultWidth={210}
+        minWidth={180}
+        maxWidth={350}
+        title="Sessions"
+        collapsedIcon={
+          <MessageSquare className="w-4 h-4 text-[var(--color-text-muted)]" />
+        }
+        headerActions={
+          <button
+            onClick={startNewSession}
+            className="p-1 rounded-md bg-brand-600/20 border border-brand-600/30 text-brand-400 hover:bg-brand-600/30 transition-colors"
+            title="New Session"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        }
+      >
         {/* Source Toggle */}
-        <div className="flex items-center gap-1 mb-2 p-0.5 bg-surface-3 rounded-lg">
-          <button
-            onClick={() => setSessionSource("memory")}
-            className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
-              sessionSource === "memory"
-                ? "bg-surface-1 text-brand-400 shadow-sm"
-                : "text-gray-500 hover:text-gray-300"
-            }`}
-          >
-            <Database className="w-2.5 h-2.5" />
-            Memory
-          </button>
-          <button
-            onClick={() => setSessionSource("traces")}
-            className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
-              sessionSource === "traces"
-                ? "bg-surface-1 text-brand-400 shadow-sm"
-                : "text-gray-500 hover:text-gray-300"
-            }`}
-          >
-            <Terminal className="w-2.5 h-2.5" />
-            Traces
-          </button>
+        <div className="px-2 pt-2">
+          <div className="flex items-center gap-1 p-0.5 bg-surface-3 rounded-lg">
+            <button
+              onClick={() => setSessionSource("memory")}
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
+                sessionSource === "memory"
+                  ? "bg-surface-1 text-brand-400 shadow-sm"
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+              }`}
+            >
+              <Database className="w-2.5 h-2.5" />
+              Memory
+            </button>
+            <button
+              onClick={() => setSessionSource("traces")}
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
+                sessionSource === "traces"
+                  ? "bg-surface-1 text-brand-400 shadow-sm"
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+              }`}
+            >
+              <Terminal className="w-2.5 h-2.5" />
+              Traces
+            </button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto space-y-1">
-          <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium mb-1">
+        <div className="flex-1 overflow-y-auto px-2 pt-2 space-y-1 scrollbar-thin">
+          <p className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wide font-medium mb-1 px-1">
             {sessionSource === "memory" ? "History" : "Trace Sessions"}
           </p>
           {loadingSessions ? (
-            <div className="flex items-center gap-2 text-xs text-gray-500 py-2">
+            <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] py-2 px-1">
               <Loader2 className="w-3 h-3 animate-spin" /> Loading...
             </div>
           ) : (sessionSource === "memory" ? sessions : traceSessions).length === 0 ? (
-            <p className="text-xs text-gray-600 py-2">
+            <p className="text-xs text-[var(--color-text-muted)] py-2 px-1">
               {sessionSource === "memory" ? "No previous sessions" : "No trace sessions found"}
             </p>
           ) : (
@@ -769,8 +783,8 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                 onClick={() => sessionSource === "memory" ? resumeSession(session) : resumeTraceSession(session)}
                 className={`w-full text-left px-2 py-1.5 rounded-lg text-xs transition-colors ${
                   sessionId === session.sessionId
-                    ? "bg-brand-600/20 border border-brand-600/30 text-brand-300"
-                    : "hover:bg-surface-3 text-gray-400"
+                    ? "bg-brand-600/20 border border-brand-600/30 text-brand-300 shadow-sm shadow-brand-600/5"
+                    : "hover:bg-surface-3 text-[var(--color-text-secondary)] border border-transparent"
                 }`}
               >
                 <div className="flex items-center gap-1.5">
@@ -782,7 +796,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                     {session.sessionId.length > 16 ? session.sessionId.slice(0, 16) + "..." : session.sessionId}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 mt-0.5 text-gray-600 text-[10px]">
+                <div className="flex items-center gap-1 mt-0.5 text-[var(--color-text-muted)] text-[10px]">
                   <Clock className="w-2 h-2" />
                   <span>{timeAgo(session.createdAt)}</span>
                 </div>
@@ -792,14 +806,14 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
         </div>
 
         {/* Memory Selector */}
-        <div className="mt-3 pt-3 border-t border-surface-4">
-          <label className="text-[10px] text-gray-500 uppercase tracking-wide font-medium flex items-center gap-1 mb-1.5">
+        <div className="px-2 py-2 border-t border-surface-4">
+          <label className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wide font-medium flex items-center gap-1 mb-1.5">
             <Database className="w-3 h-3" /> Memory
           </label>
           <select
             value={linkedMemory}
             onChange={(e) => handleMemoryChange(e.target.value)}
-            className="w-full bg-surface-3 border border-surface-4 rounded-lg px-2 py-1.5 text-[10px] text-gray-300 font-mono focus:outline-none focus:border-brand-600/50"
+            className="w-full bg-surface-3 border border-surface-4 rounded-lg px-2 py-1.5 text-[10px] text-[var(--color-text-secondary)] font-mono focus:outline-none focus:border-brand-600/50"
           >
             <option value="">None</option>
             {availableMemories.map((mem) => (
@@ -809,15 +823,15 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
             ))}
           </select>
           {linkedMemory && (
-            <p className="text-[9px] text-gray-600 mt-1 truncate">{linkedMemory}</p>
+            <p className="text-[9px] text-[var(--color-text-muted)] mt-1 truncate">{linkedMemory}</p>
           )}
         </div>
-      </div>
+      </CollapsiblePanel>
 
       {/* Center — Chat / Playground */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 bg-surface-1">
         {/* Header with mode toggle */}
-        <div className="flex items-center justify-between mb-2 pb-2 border-b border-surface-4">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-surface-4">
           <div className="flex items-center gap-3">
             {/* Mode toggle */}
             <div className="flex items-center gap-0.5 p-0.5 bg-surface-3 rounded-lg">
@@ -826,7 +840,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
                   invokeMode === "chat"
                     ? "bg-surface-1 text-brand-400 shadow-sm"
-                    : "text-gray-500 hover:text-gray-300"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
                 }`}
               >
                 <MessageSquare className="w-3 h-3" />
@@ -837,14 +851,14 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
                   invokeMode === "playground"
                     ? "bg-surface-1 text-brand-400 shadow-sm"
-                    : "text-gray-500 hover:text-gray-300"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
                 }`}
               >
                 <Code2 className="w-3 h-3" />
                 Playground
               </button>
             </div>
-            <p className="text-[10px] text-gray-600 font-mono">{sessionId ? sessionId.slice(0, 24) + "..." : "..."}</p>
+            <p className="text-[10px] text-[var(--color-text-muted)] font-mono">{sessionId ? sessionId.slice(0, 24) + "..." : "..."}</p>
           </div>
           <div className="flex items-center gap-2">
             {sessionStatus === "active" && (
@@ -860,8 +874,8 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
             )}
             {sessionStatus === "complete" && (
               <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface-3 border border-surface-4">
-                <CheckCircle2 className="w-3 h-3 text-gray-500" />
-                <span className="text-[10px] text-gray-500 font-medium">Complete</span>
+                <CheckCircle2 className="w-3 h-3 text-[var(--color-text-muted)]" />
+                <span className="text-[10px] text-[var(--color-text-muted)] font-medium">Complete</span>
               </span>
             )}
           </div>
@@ -870,16 +884,16 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
         {invokeMode === "chat" ? (
           <>
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin space-y-4 pb-4">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin space-y-4 p-4">
               {loadingHistory ? (
                 <div className="flex flex-col items-center justify-center h-full">
                   <Loader2 className="w-6 h-6 text-brand-400 animate-spin mb-2" />
-                  <p className="text-sm text-gray-500">Loading session history...</p>
+                  <p className="text-sm text-[var(--color-text-muted)]">Loading session history...</p>
                 </div>
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center">
-                  <Bot className="w-10 h-10 text-gray-600 mb-3" />
-                  <p className="text-sm text-gray-500">Send a message to start chatting with {agent.name}.</p>
+                  <Bot className="w-10 h-10 text-[var(--color-text-muted)] opacity-40 mb-3" />
+                  <p className="text-sm text-[var(--color-text-muted)]">Send a message to start chatting with {agent.name}.</p>
                 </div>
               ) : (
                 messages.map((msg) => (
@@ -897,7 +911,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                       {msg.role === "agent" && msg.agent_name && (
                         <p className="text-xs text-brand-400 mb-1 font-medium">{msg.agent_name}</p>
                       )}
-                      <div className="text-sm text-gray-200 prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-pre:overflow-x-auto prose-code:text-cyan-300 prose-code:bg-surface-1 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-surface-1 prose-pre:border prose-pre:border-surface-4 prose-a:text-brand-400 break-words [overflow-wrap:anywhere]">
+                      <div className="text-sm text-[var(--color-text-primary)] prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-pre:overflow-x-auto prose-code:text-cyan-300 prose-code:bg-surface-1 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-surface-1 prose-pre:border prose-pre:border-surface-4 prose-a:text-brand-400 break-words [overflow-wrap:anywhere]">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                       </div>
                       {msg.role === "agent" && isStreaming && msg.id === messages[messages.length - 1]?.id && (
@@ -910,7 +924,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                     </div>
                     {msg.role === "user" && (
                       <div className="w-7 h-7 bg-surface-3 rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
-                        <User className="w-3.5 h-3.5 text-gray-400" />
+                        <User className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
                       </div>
                     )}
                   </div>
@@ -920,7 +934,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
             </div>
 
             {/* Input — auto-expanding textarea */}
-            <div className="border-t border-surface-4 pt-3">
+            <div className="border-t border-surface-4 p-3">
               {isReadOnly && (
                 <div className="mb-2 flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-yellow-600/10 border border-yellow-600/30">
                   <p className="text-[11px] text-yellow-300/90 leading-tight">
@@ -947,7 +961,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                   }}
                   placeholder={isReadOnly ? "Read-only — start a new session to chat" : `Message ${agent.name}...`}
                   rows={1}
-                  className="flex-1 bg-surface-2 border border-surface-4 rounded-xl px-4 py-2.5 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-brand-500/50 resize-none overflow-y-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 bg-surface-2 border border-surface-4 rounded-xl px-4 py-2.5 text-sm text-[var(--color-text-secondary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-brand-500/50 resize-none overflow-y-auto disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ maxHeight: "120px" }}
                   disabled={isStreaming || isReadOnly}
                 />
@@ -959,25 +973,25 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                   <Send className="w-4 h-4" />
                 </button>
               </div>
-              <p className="text-[10px] text-gray-600 mt-1">Shift+Enter for new line</p>
+              <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Shift+Enter for new line</p>
             </div>
           </>
         ) : (
           <>
             {/* Playground Mode */}
-            <div className="flex-1 flex flex-col gap-3 min-h-0">
+            <div className="flex-1 flex flex-col gap-3 min-h-0 p-4">
               {/* Payload editor */}
               <div className="flex-1 flex flex-col min-h-0">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Request Payload</span>
-                  <span className="text-[10px] text-gray-600">
+                  <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wide font-medium">Request Payload</span>
+                  <span className="text-[10px] text-[var(--color-text-muted)]">
                     POST /api/agentcore/invoke • agent: {agent.name}
                   </span>
                 </div>
                 <textarea
                   value={playgroundPayload}
                   onChange={(e) => setPlaygroundPayload(e.target.value)}
-                  className="flex-1 bg-surface-1 border border-surface-4 rounded-lg px-3 py-2.5 text-xs text-gray-300 font-mono focus:outline-none focus:border-brand-500/50 resize-none"
+                  className="flex-1 bg-surface-0 border border-surface-4 rounded-lg px-3 py-2.5 text-xs text-[var(--color-text-secondary)] font-mono focus:outline-none focus:border-brand-500/50 resize-none"
                   spellCheck={false}
                   disabled={isStreaming}
                 />
@@ -986,14 +1000,14 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
               {/* Response viewer */}
               <div className="flex-1 flex flex-col min-h-0">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Response</span>
+                  <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wide font-medium">Response</span>
                   {isStreaming && <Loader2 className="w-3 h-3 text-brand-400 animate-spin" />}
                 </div>
-                <div className="flex-1 bg-surface-1 border border-surface-4 rounded-lg px-3 py-2.5 overflow-y-auto overflow-x-hidden">
+                <div className="flex-1 bg-surface-0 border border-surface-4 rounded-lg px-3 py-2.5 overflow-y-auto overflow-x-hidden">
                   {playgroundResponse ? (
-                    <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap break-words">{playgroundResponse}</pre>
+                    <pre className="text-xs text-[var(--color-text-secondary)] font-mono whitespace-pre-wrap break-words">{playgroundResponse}</pre>
                   ) : (
-                    <p className="text-xs text-gray-600 italic">Response will appear here after invoking...</p>
+                    <p className="text-xs text-[var(--color-text-muted)] italic">Response will appear here after invoking...</p>
                   )}
                 </div>
               </div>
@@ -1036,21 +1050,28 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
         )}
       </div>
 
-      {/* Right — Execution Trace */}
-      <div className="w-64 flex-shrink-0 flex flex-col border-l border-surface-4 pl-3">
-        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-surface-4">
-          <Terminal className="w-4 h-4 text-gray-500" />
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Execution Trace</h3>
-          {isStreaming && <span className="ml-auto w-2 h-2 bg-green-400 rounded-full animate-pulse" />}
-        </div>
-
+      {/* Right — Collapsible Execution Trace */}
+      <CollapsiblePanel
+        storageKey="agent-trace-sidebar"
+        side="right"
+        defaultWidth={260}
+        minWidth={200}
+        maxWidth={450}
+        title="Execution Trace"
+        collapsedIcon={
+          <Terminal className="w-4 h-4 text-[var(--color-text-muted)]" />
+        }
+        headerActions={
+          isStreaming ? <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" /> : undefined
+        }
+      >
         <TraceDiagnosticBanner diagnostics={traceDiagnostics} traceCount={traceSteps.length} />
 
-        <div className="flex-1 overflow-y-auto space-y-1">
+        <div className="flex-1 overflow-y-auto px-2 pt-2 space-y-1 scrollbar-thin">
           {traceSteps.length === 0 ? (
             <div className="text-center py-8">
-              <Terminal className="w-6 h-6 text-gray-700 mx-auto mb-2" />
-              <p className="text-xs text-gray-600">Trace events will appear here.</p>
+              <Terminal className="w-6 h-6 text-[var(--color-text-muted)] opacity-40 mx-auto mb-2" />
+              <p className="text-xs text-[var(--color-text-muted)]">Trace events will appear here.</p>
             </div>
           ) : (
             traceSteps.map((step, idx) => {
@@ -1068,15 +1089,15 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                     className="w-full flex items-start gap-2 px-2 py-1.5 hover:bg-surface-3/50 transition-colors text-left"
                   >
                     {step.details ? (
-                      isExpanded ? <ChevronDown className="w-3 h-3 text-gray-600 mt-0.5" /> : <ChevronRight className="w-3 h-3 text-gray-600 mt-0.5" />
+                      isExpanded ? <ChevronDown className="w-3 h-3 text-[var(--color-text-muted)] mt-0.5" /> : <ChevronRight className="w-3 h-3 text-[var(--color-text-muted)] mt-0.5" />
                     ) : (
-                      <span className="w-3 h-3 flex items-center justify-center text-gray-700 text-[9px] mt-0.5">{idx + 1}</span>
+                      <span className="w-3 h-3 flex items-center justify-center text-[var(--color-text-muted)] text-[9px] mt-0.5">{idx + 1}</span>
                     )}
                     <Icon className={`w-3 h-3 flex-shrink-0 mt-0.5 ${config.color}`} />
                     <div className="flex-1 min-w-0">
-                      <span className="text-[11px] text-gray-300 block truncate">{step.name || config.label}</span>
+                      <span className="text-[11px] text-[var(--color-text-secondary)] block truncate">{step.name || config.label}</span>
                       {(dur !== undefined || tokensIn !== undefined) && (
-                        <span className="text-[9px] text-gray-500 block">
+                        <span className="text-[9px] text-[var(--color-text-muted)] block">
                           {dur !== undefined && dur > 0 ? `${dur.toFixed(1)}s` : ""}
                           {tokensIn !== undefined && tokensIn > 0 && (
                             <span className="ml-1 text-purple-400/70">{tokensIn.toLocaleString()}→{(tokensOut || 0).toLocaleString()} tok</span>
@@ -1087,7 +1108,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                   </button>
                   {isExpanded && step.details && (
                     <div className="px-2 pb-2 border-t border-surface-4/30">
-                      <pre className="text-[10px] text-gray-500 mt-1 font-mono whitespace-pre-wrap">
+                      <pre className="text-[10px] text-[var(--color-text-muted)] mt-1 font-mono whitespace-pre-wrap">
                         {JSON.stringify(step.details, null, 2)}
                       </pre>
                     </div>
@@ -1098,7 +1119,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
           )}
           <div ref={traceEndRef} />
         </div>
-      </div>
+      </CollapsiblePanel>
     </div>
   );
 }
@@ -1256,10 +1277,10 @@ function TraceDiagnosticBanner({
   }
 
   const bg = tone === "warning" ? "bg-yellow-600/10 border-yellow-600/30" : "bg-surface-3/70 border-surface-4";
-  const text = tone === "warning" ? "text-yellow-300/90" : "text-gray-400";
+  const text = tone === "warning" ? "text-yellow-300/90" : "text-[var(--color-text-muted)]";
 
   return (
-    <div className={`mb-3 px-2.5 py-2 rounded-lg border ${bg}`}>
+    <div className={`mx-2 mt-2 px-2.5 py-2 rounded-lg border ${bg}`}>
       <p className={`text-[10px] font-semibold uppercase tracking-wide ${text}`}>{title}</p>
       <p className={`text-[10px] mt-1 leading-snug ${text}`}>{body}</p>
     </div>
