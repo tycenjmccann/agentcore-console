@@ -15,6 +15,7 @@ const PHASE_DISPLAY: Record<WorkflowPhase, { label: string; description: string 
   verification: { label: "Verification", description: "Testing & QA" },
   review: { label: "Review", description: "Verifying & validating" },
   complete: { label: "Complete", description: "Workflow finished successfully" },
+  cancelled: { label: "Cancelled", description: "Workflow was cancelled by user" },
   error: { label: "Error", description: "Workflow encountered an error" },
 };
 
@@ -24,6 +25,7 @@ export default function StatusBar({ phase, isConnected }: StatusBarProps) {
   const phaseNameClass = [
     "status-phase-name",
     phase === "complete" ? "complete" : "",
+    phase === "cancelled" ? "cancelled" : "",
     phase === "error" ? "error" : "",
   ]
     .filter(Boolean)

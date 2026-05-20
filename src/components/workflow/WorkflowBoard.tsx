@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { StopCircle } from "lucide-react";
 import type {
   WorkflowState,
   WorkflowEvent,
@@ -10,6 +11,7 @@ import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
 
 interface WorkflowBoardProps {
   workflowId: string;
+  onCancelRequest?: () => void;
 }
 
 // ─── Phase Order (derived from config) ──────────────────────────────────────
@@ -27,13 +29,17 @@ const PHASE_ORDER: Record<string, number> = (() => {
   // Special states
   order["review"] = PIPELINE_PHASES.length - 1;
   order["complete"] = PIPELINE_PHASES.length;
+  order["cancelled"] = PIPELINE_PHASES.length;
   order["error"] = -1;
   return order;
 })();
 
+/** Phases where the workflow is still active and can be cancelled */
+const CANCELLABLE_PHASES = ["intake", "requirements", "design", "development", "verification", "review"];
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
+export default function WorkflowBoard({ workflowId, onCancelRequest }: WorkflowBoardProps) {
   const [state, setState] = useState<WorkflowState | null>(null);
   const [celebrating, setCelebrating] = useState(false);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
@@ -188,6 +194,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         setCelebrating(true);
         setTimeout(() => setCelebrating(false), 1300);
         break;
+      case "workflow_cancelled":
+        setState((s) => s ? { ...s, phase: "cancelled" } : s);
+        break;
       default:
         break;
     }
@@ -196,8 +205,12 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   // Derive visual states from workflow state
   const currentPhaseIndex = state ? (PHASE_ORDER[state.phase] ?? -1) : -1;
   const isComplete = state?.phase === "complete";
-  // "settled" = loaded a completed workflow (not a live completion animation)
-  const isSettled = isComplete && !celebrating;
+  const isCancelled = state?.phase === "cancelled";
+  // "settled" = loaded a completed/cancelled workflow (not a live completion animation)
+  const isSettled = (isComplete || isCancelled) && !celebrating;
+
+  // Check if workflow can be cancelled
+  const canCancel = state ? CANCELLABLE_PHASES.includes(state.phase) : false;
 
   // Check if a pipeline phase still has running agents (for parallel execution across phases)
   const phaseHasRunningAgents = (phaseIndex: number): boolean => {
@@ -214,6 +227,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     if (currentPhaseIndex === -1) return "";
     if (isSettled) return "active done settled";
     if (isComplete) return "active done";
+    if (isCancelled) return "active done cancelled";
     // Phase still has running agents — show as active, not done
     if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "active";
     if (phaseIndex < currentPhaseIndex) return "active done";
@@ -223,8 +237,10 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   const getBoxClass = (phaseIndex: number) => {
     if (currentPhaseIndex === -1) return "";
+    if (isSettled && isCancelled) return "done cancelled";
     if (isSettled) return "done settled";
     if (isComplete) return "done";
+    if (isCancelled) return "done cancelled";
     // Phase still has running agents — show as awake, not done
     if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "awake";
     if (phaseIndex < currentPhaseIndex) return "done";
@@ -234,8 +250,10 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   const getItemClass = (phaseIndex: number): string => {
     if (!state) return "";
+    if (isSettled && isCancelled) return "done cancelled";
     if (isSettled) return "done settled";
     if (isComplete) return "done";
+    if (isCancelled) return "done cancelled";
     // Phase still has running agents — steady glow (not pulsating)
     if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "active-glow";
     if (phaseIndex < currentPhaseIndex) return "done";
@@ -264,6 +282,27 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       <div className="pipeline-viz">
         <div className="pipeline-title">Agentis Hub</div>
         <div className="pipeline-subtitle">Autonomous Multi-Agent Development Pipeline</div>
+
+        {/* Cancel Workflow Button — visible only for active workflows */}
+        {canCancel && onCancelRequest && (
+          <div className="pipeline-cancel-btn-wrapper">
+            <button
+              onClick={onCancelRequest}
+              className="pipeline-cancel-btn"
+            >
+              <StopCircle className="w-4 h-4" />
+              Cancel Workflow
+            </button>
+          </div>
+        )}
+
+        {/* Cancelled banner */}
+        {isCancelled && (
+          <div className="pipeline-cancelled-banner">
+            <StopCircle className="w-4 h-4" />
+            <span>This workflow was cancelled</span>
+          </div>
+        )}
 
         {/* Legend */}
         <div className="pipeline-legend">
@@ -319,12 +358,12 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
               const x1 = 290 * (i + 1) + 44 * i;
               const x2 = x1 + 44;
               const y = 200;
-              const showConnector = i < currentPhaseIndex || isComplete;
-              const isActiveConnector = i === currentPhaseIndex - 1 && !isComplete;
+              const showConnector = i < currentPhaseIndex || isComplete || isCancelled;
+              const isActiveConnector = i === currentPhaseIndex - 1 && !isComplete && !isCancelled;
               return (
                 <path
                   key={`connector-${i}`}
-                  className={`flow-path ${showConnector ? "show" : ""} ${isActiveConnector ? "active" : ""} ${isSettled ? "settled" : ""}`}
+                  className={`flow-path ${showConnector ? "show" : ""} ${isActiveConnector ? "active" : ""} ${isSettled ? "settled" : ""} ${isCancelled ? "cancelled" : ""}`}
                   d={`M ${x1} ${y} C ${x1 + 22} ${y}, ${x2 - 22} ${y}, ${x2} ${y}`}
                 />
               );
@@ -421,7 +460,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                           return (
                             <div
                               key={agent.id}
-                              className={`item ${isSettled ? "done settled" : agentItemClass} cursor-pointer`}
+                              className={`item ${isSettled ? (isCancelled ? "done cancelled" : "done settled") : agentItemClass} cursor-pointer`}
                               onClick={() => setExpandedAgent(expandedAgent === agent.id ? null : agent.id)}
                             >
                               <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
@@ -481,13 +520,15 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         </div>
 
         {/* Status bar */}
-        <div className={`pipeline-status ${isSettled ? "settled" : ""}`}>
-          <div className="status-phase" style={isSettled ? { color: "#f97316" } : undefined}>
-            {isComplete ? "Complete" : (state.phase === "error" ? "Error" : PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase)}
+        <div className={`pipeline-status ${isSettled ? "settled" : ""} ${isCancelled ? "cancelled" : ""}`}>
+          <div className="status-phase" style={isSettled ? { color: isCancelled ? "#ef4444" : "#f97316" } : undefined}>
+            {isComplete ? "Complete" : isCancelled ? "Cancelled" : (state.phase === "error" ? "Error" : PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase)}
           </div>
           <div className="status-text">
             {isComplete
               ? "All agents have completed their work"
+              : isCancelled
+              ? "Workflow was cancelled by user"
               : state.phase === "error"
               ? state.error || "An error occurred"
               : `Processing phase ${currentPhaseIndex + 1} of ${PIPELINE_PHASES.length}`}
@@ -519,6 +560,14 @@ const PIPELINE_STYLES = `
 .pipeline-subtitle{font-size:12px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px}
 @keyframes shimmer{to{background-position:200% center}}
 
+/* Cancel button in header */
+.pipeline-cancel-btn-wrapper{margin-bottom:12px}
+.pipeline-cancel-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;font-size:12px;font-weight:600;color:#fca5a5;background:#ef444410;border:1px solid #ef444440;border-radius:8px;cursor:pointer;transition:all .2s}
+.pipeline-cancel-btn:hover{background:#ef444420;border-color:#ef4444;color:#f87171;box-shadow:0 0 12px rgba(239,68,68,.2)}
+
+/* Cancelled banner */
+.pipeline-cancelled-banner{display:flex;align-items:center;gap:8px;padding:8px 16px;margin-bottom:12px;font-size:12px;font-weight:600;color:#fca5a5;background:#ef444410;border:1px solid #ef444430;border-radius:8px}
+
 .pipeline-legend{display:flex;gap:18px;margin-bottom:14px;font-size:10px;color:#64748b;flex-wrap:wrap;justify-content:center}
 .legend-item{display:flex;align-items:center;gap:4px}
 .legend-item .aws-ico{width:18px;height:18px;border-radius:3px;object-fit:contain}
@@ -531,16 +580,19 @@ const PIPELINE_STYLES = `
 .flow-path{fill:none;stroke:#1e293b;stroke-width:2;stroke-linecap:round;opacity:0;transition:opacity .3s}
 .flow-path.show{opacity:1}
 .flow-path.active{stroke:url(#flowGrad);stroke-width:2.5;filter:url(#pathGlow)}
+.flow-path.cancelled{stroke:#ef444450;opacity:.4}
 
 .pipeline-phases{display:flex;align-items:flex-start;gap:44px;position:relative;z-index:2}
 
 .phase{display:flex;flex-direction:column;align-items:center;width:290px;opacity:0.35;transition:opacity .5s,transform .4s;transform:translateY(6px)}
 .phase.active{opacity:1;transform:translateY(0)}
 .phase.done{opacity:0.8;transform:translateY(0)}
+.phase.cancelled{opacity:0.6}
 
 .agent-box{width:100%;border-radius:11px;padding:12px 14px;text-align:center;transition:all .4s;background:#1a2332;border:2px solid #1e293b}
 .agent-box.awake{border-color:#0ea5e9;box-shadow:0 0 20px rgba(14,165,233,.3)}
 .agent-box.done{border-color:#22c55e50;box-shadow:0 0 8px rgba(34,197,94,.1)}
+.agent-box.done.cancelled{border-color:#ef444440;box-shadow:0 0 8px rgba(239,68,68,.1)}
 .agent-box .phase-num{font-size:8px;color:#64748b;letter-spacing:2px;text-transform:uppercase}
 .agent-box .phase-name{font-size:15px;font-weight:700;color:#e2e8f0;margin-top:2px}
 .agent-box .phase-type{display:inline-flex;align-items:center;gap:4px;margin-top:5px;padding:3px 8px;border-radius:5px;font-size:9px;font-weight:600;letter-spacing:0.5px}
@@ -567,6 +619,9 @@ const PIPELINE_STYLES = `
 .item.active .item-label{color:#e2e8f0}
 .item.done{border-color:#22c55e20;opacity:0.7}
 .item.done .item-status{background:#22c55e}
+.item.done.cancelled{border-color:#ef444420;opacity:0.6}
+.item.done.cancelled .item-status{background:#ef4444}
+.item.done.cancelled .item-label{color:#fca5a5}
 .item.trigger{border-color:#f97316;background:#f9731610;animation:pulse .6s}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.02)}}
 @keyframes agentPulse{0%{border-color:#0ea5e960;box-shadow:0 0 8px rgba(14,165,233,.3)}50%{border-color:#0ea5e9;box-shadow:0 0 16px rgba(14,165,233,.5)}100%{border-color:#0ea5e960;box-shadow:0 0 8px rgba(14,165,233,.3)}}
@@ -594,6 +649,7 @@ const PIPELINE_STYLES = `
 
 .pipeline-status{text-align:center;margin-top:16px;min-height:44px}
 .status-phase{font-size:11px;color:#0ea5e9;letter-spacing:2px;text-transform:uppercase;margin-bottom:2px}
+.pipeline-status.cancelled .status-phase{color:#ef4444}
 .status-text{font-size:15px;font-weight:500;color:#e2e8f0}
 
 @keyframes celebrateBurst{0%{border-color:#f97316;box-shadow:0 0 30px rgba(255,255,255,.6)}100%{border-color:#22c55e50;box-shadow:0 0 8px rgba(34,197,94,.1)}}
@@ -617,6 +673,13 @@ const PIPELINE_STYLES = `
 .item.done.settled .item-status{background:#f97316;box-shadow:0 0 4px rgba(249,115,22,.4)}
 .item.done.settled .item-label{color:#e2e8f0}
 .flow-path.settled{stroke:#f9731650;opacity:.5;stroke-width:2}
+
+/* Cancelled settled state — red-tinted */
+@keyframes cancelledGlow{0%,100%{border-color:#ef444430;box-shadow:0 0 10px rgba(239,68,68,.1)}50%{border-color:#ef444450;box-shadow:0 0 16px rgba(239,68,68,.18)}}
+@keyframes cancelledItemGlow{0%,100%{border-color:#ef444418;background:#ef444406}50%{border-color:#ef444430;background:#ef444410}}
+.agent-box.done.cancelled{animation:cancelledGlow 4s ease-in-out infinite;border-color:#ef444430}
+.item.done.cancelled{animation:cancelledItemGlow 4s ease-in-out infinite;opacity:0.7}
+.item.done.cancelled .item-status{background:#ef4444;box-shadow:0 0 4px rgba(239,68,68,.3)}
 
 .agent-output-panel{margin-top:16px;width:100%;max-width:1720px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;overflow:hidden}
 .agent-output-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#0f1419;border-bottom:1px solid #1e293b;font-size:11px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase}

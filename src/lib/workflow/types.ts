@@ -75,6 +75,7 @@ export type WorkflowPhase =
   | "verification"
   | "review"
   | "complete"
+  | "cancelled"
   | "error";
 
 export type AgentTaskStatus =
@@ -220,4 +221,5 @@ export type WorkflowEvent =
   | { type: "ticket_update"; ticketId: string; status: TicketStatus }
   | { type: "notification"; notification: HumanNotification }
   | { type: "workflow_complete"; summary: string }
+  | { type: "workflow_cancelled" }
   | { type: "error"; agentId?: string; error: string };

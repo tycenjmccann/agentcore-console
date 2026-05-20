@@ -1,19 +1,30 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Search, Plus, Play, Radio } from "lucide-react";
+import { Search, Plus, Play, Radio, Square, CheckCircle, AlertTriangle, XOctagon } from "lucide-react";
 import WorkflowBoard from "@/components/workflow/WorkflowBoard";
 import IntakeForm from "@/components/workflow/IntakeForm";
+import CancelConfirmDialog from "@/components/workflow/CancelConfirmDialog";
+import Toast, { type ToastType } from "@/components/workflow/Toast";
 import type { WorkflowState, WorkflowInput } from "@/lib/workflow/types";
 
 interface WorkflowSummary {
   id: string;
-  phase: string;
+  phase: "intake" | "requirements" | "design" | "development" | "verification" | "review" | "complete" | "cancelled" | "error";
   epicId: string;
   input: { title: string; description: string };
   startedAt: string;
   completedAt?: string;
 }
+
+/** Phases that are considered "active" (not terminal) */
+const ACTIVE_PHASES = ["intake", "requirements", "design", "development", "verification", "review"];
+
+/** Phases that are considered "completed/terminal" — includes cancelled */
+const TERMINAL_PHASES = ["complete", "cancelled", "error"];
+
+/** Phases where cancel is allowed */
+const CANCELLABLE_PHASES = ["intake", "requirements", "design", "development", "verification", "review"];
 
 export default function WorkflowPage() {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
@@ -21,6 +32,12 @@ export default function WorkflowPage() {
   const [showIntake, setShowIntake] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cancelTargetId, setCancelTargetId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: ToastType; visible: boolean }>({
+    message: "",
+    type: "success",
+    visible: false,
+  });
 
   // Load workflow list
   const fetchWorkflows = useCallback(async () => {
@@ -38,8 +55,8 @@ export default function WorkflowPage() {
       }));
       // Sort: active first, then by date descending
       list.sort((a, b) => {
-        const aActive = a.phase !== "complete" && a.phase !== "error";
-        const bActive = b.phase !== "complete" && b.phase !== "error";
+        const aActive = !TERMINAL_PHASES.includes(a.phase);
+        const bActive = !TERMINAL_PHASES.includes(b.phase);
         if (aActive && !bActive) return -1;
         if (!aActive && bActive) return 1;
         return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
@@ -91,6 +108,31 @@ export default function WorkflowPage() {
     }
   };
 
+  // Handle cancel workflow
+  const handleCancelWorkflow = async () => {
+    if (!cancelTargetId) return;
+    try {
+      const res = await fetch(`/api/workflow/${cancelTargetId}/cancel`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(errData.error || "Failed to cancel workflow");
+      }
+      setCancelTargetId(null);
+      setToast({ message: "Workflow cancelled successfully", type: "success", visible: true });
+      // Refresh the workflow list
+      setTimeout(fetchWorkflows, 500);
+    } catch (err) {
+      setCancelTargetId(null);
+      setToast({
+        message: err instanceof Error ? err.message : "Failed to cancel workflow",
+        type: "error",
+        visible: true,
+      });
+    }
+  };
+
   // Filter workflows by search
   const filtered = workflows.filter((w) => {
     if (!searchQuery) return true;
@@ -102,8 +144,8 @@ export default function WorkflowPage() {
     );
   });
 
-  const activeWorkflows = filtered.filter((w) => w.phase !== "complete" && w.phase !== "error");
-  const pastWorkflows = filtered.filter((w) => w.phase === "complete" || w.phase === "error");
+  const activeWorkflows = filtered.filter((w) => !TERMINAL_PHASES.includes(w.phase));
+  const pastWorkflows = filtered.filter((w) => TERMINAL_PHASES.includes(w.phase));
 
   const handleSelectWorkflow = (id: string) => {
     setSelectedId(id);
@@ -162,12 +204,13 @@ export default function WorkflowPage() {
                   isSelected={selectedId === w.id}
                   isActive
                   onClick={() => handleSelectWorkflow(w.id)}
+                  onCancel={() => setCancelTargetId(w.id)}
                 />
               ))}
             </div>
           )}
 
-          {/* Past Runs */}
+          {/* Past Runs (includes completed, cancelled, and error) */}
           {pastWorkflows.length > 0 && (
             <div className="p-2">
               <p className="px-2 py-1 text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">
@@ -199,7 +242,10 @@ export default function WorkflowPage() {
             <IntakeForm onSubmit={handleSubmit} isLoading={isSubmitting} />
           </div>
         ) : selectedId ? (
-          <WorkflowBoard workflowId={selectedId} />
+          <WorkflowBoard
+            workflowId={selectedId}
+            onCancelRequest={() => setCancelTargetId(selectedId)}
+          />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center p-8">
             <div className="w-16 h-16 rounded-full bg-blue-600/10 flex items-center justify-center mb-4">
@@ -220,6 +266,21 @@ export default function WorkflowPage() {
           </div>
         )}
       </div>
+
+      {/* Cancel Confirmation Dialog */}
+      <CancelConfirmDialog
+        isOpen={cancelTargetId !== null}
+        onConfirm={handleCancelWorkflow}
+        onDismiss={() => setCancelTargetId(null)}
+      />
+
+      {/* Toast Notification */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isVisible={toast.visible}
+        onClose={() => setToast((t) => ({ ...t, visible: false }))}
+      />
     </div>
   );
 }
@@ -231,19 +292,21 @@ function WorkflowListItem({
   isSelected,
   isActive,
   onClick,
+  onCancel,
 }: {
   workflow: WorkflowSummary;
   isSelected: boolean;
   isActive?: boolean;
   onClick: () => void;
+  onCancel?: () => void;
 }) {
-  const isRunning = workflow.phase !== "complete" && workflow.phase !== "error";
+  const isRunning = !TERMINAL_PHASES.includes(workflow.phase);
   const timeStr = formatRelativeTime(workflow.startedAt);
 
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-3 py-2.5 rounded-lg mb-1 transition-all ${
+      className={`w-full text-left px-3 py-2.5 rounded-lg mb-1 transition-all group ${
         isSelected
           ? "bg-blue-600/15 border border-blue-500/30"
           : "hover:bg-[var(--color-bg-tertiary)] border border-transparent"
@@ -259,10 +322,12 @@ function WorkflowListItem({
                 <Radio className="w-3.5 h-3.5 text-green-400 opacity-30" />
               </div>
             </div>
+          ) : workflow.phase === "cancelled" ? (
+            <XOctagon className="w-3.5 h-3.5 text-red-400" />
           ) : workflow.phase === "error" ? (
-            <div className="w-2 h-2 rounded-full bg-red-500 mt-0.5" />
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
           ) : (
-            <div className="w-2 h-2 rounded-full bg-green-500/60 mt-0.5" />
+            <CheckCircle className="w-3.5 h-3.5 text-green-400/60" />
           )}
         </div>
 
@@ -274,12 +339,37 @@ function WorkflowListItem({
             <span className="text-[10px] text-blue-400 font-mono">{workflow.epicId}</span>
             <span className="text-[10px] text-[var(--color-text-muted)]">{timeStr}</span>
           </div>
+          {/* Phase badge */}
           {isRunning && (
             <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium uppercase tracking-wider">
               {workflow.phase}
             </span>
           )}
+          {workflow.phase === "cancelled" && (
+            <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-medium uppercase tracking-wider">
+              CANCELLED
+            </span>
+          )}
+          {workflow.phase === "error" && (
+            <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium uppercase tracking-wider">
+              ERROR
+            </span>
+          )}
         </div>
+
+        {/* Cancel button for active workflows */}
+        {isActive && onCancel && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancel();
+            }}
+            className="mt-0.5 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-[var(--color-text-muted)] hover:text-red-400 transition-all"
+            title="Cancel workflow"
+          >
+            <Square className="w-3 h-3" />
+          </button>
+        )}
       </div>
     </button>
   );
