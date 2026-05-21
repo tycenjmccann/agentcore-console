@@ -1,30 +1,40 @@
 "use client";
 
-import React, { useState, useCallback, memo } from "react";
+import React, { useState, useCallback, useRef, useEffect, memo } from "react";
 import { Copy, Check } from "lucide-react";
 
 interface CodeBlockProps {
-  children: string;
+  /** Pre-highlighted HTML from rehype-highlight, rendered via dangerouslySetInnerHTML. */
+  highlightedHtml: string;
   language?: string;
   className?: string;
 }
 
 export const CodeBlock = memo(function CodeBlock({
-  children,
+  highlightedHtml,
   language,
   className,
 }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Clear copy-reset timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(children);
+      await navigator.clipboard.writeText(highlightedHtml);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       // Fallback for older browsers
       const textarea = document.createElement("textarea");
-      textarea.value = children;
+      textarea.value = highlightedHtml;
       textarea.style.position = "fixed";
       textarea.style.opacity = "0";
       document.body.appendChild(textarea);
@@ -32,9 +42,10 @@ export const CodeBlock = memo(function CodeBlock({
       document.execCommand("copy");
       document.body.removeChild(textarea);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 2000);
     }
-  }, [children]);
+  }, [highlightedHtml]);
 
   return (
     <div
@@ -64,7 +75,7 @@ export const CodeBlock = memo(function CodeBlock({
         </button>
       </div>
       <pre className="code-block-content">
-        <code className={className} dangerouslySetInnerHTML={{ __html: children }} />
+        <code className={className} dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
       </pre>
     </div>
   );

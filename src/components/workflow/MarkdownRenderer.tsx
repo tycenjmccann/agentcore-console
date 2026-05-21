@@ -4,6 +4,7 @@ import React, { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import rehypeSanitize from "rehype-sanitize";
 import { CodeBlock } from "./CodeBlock";
 
 interface MarkdownRendererProps {
@@ -17,7 +18,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
     <div className="prose prose-sm prose-invert max-w-none agent-output-prose">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        rehypePlugins={[rehypeHighlight, rehypeSanitize]}
         components={{
           pre({ children }) {
             // Unwrap <pre> so CodeBlock handles the presentation
@@ -36,9 +37,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
               // rehype-highlight adds hljs classes and renders HTML inside code
               // We need to pass the raw HTML content
               return (
-                <CodeBlock language={match?.[1]} className={className}>
-                  {content}
-                </CodeBlock>
+                <CodeBlock language={match?.[1]} className={className} highlightedHtml={content} />
               );
             }
 

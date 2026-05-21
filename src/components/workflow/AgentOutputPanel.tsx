@@ -120,7 +120,7 @@ export default function AgentOutputPanel({
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isOpen, isAnimatingOut]);
+  }, [isOpen, isAnimatingOut, handleClose]);
 
   const handleClose = useCallback(() => {
     setIsAnimatingOut(true);
@@ -181,7 +181,6 @@ export default function AgentOutputPanel({
     <div
       className={`modal-backdrop ${isAnimatingOut ? "modal-backdrop-exit" : "modal-backdrop-enter"}`}
       onClick={handleBackdropClick}
-      aria-hidden="true"
     >
       <div
         role="dialog"
