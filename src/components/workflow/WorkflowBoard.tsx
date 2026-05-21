@@ -4,9 +4,11 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import type {
   WorkflowState,
   WorkflowEvent,
+  StoredEvent,
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
+import { ReplayScrubber } from "./ReplayScrubber";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -92,6 +94,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const [playbackSpeed, setPlaybackSpeed] = useState(3); // multiplier: 3x = 3 times real-time
   const replayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // StoredEvent array for the enhanced ReplayScrubber (includes timestamps)
+  const [storedEvents, setStoredEvents] = useState<StoredEvent[]>([]);
+  // Whether to use the enhanced scrubber (only for completed workflows, not catch-up)
+  const [useEnhancedScrubber, setUseEnhancedScrubber] = useState(false);
+
   // Nudge pulse effect — hot pink full-screen flash during replay
   const [nudgePulse, setNudgePulse] = useState(false);
 
@@ -140,20 +147,27 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                 originalOutputsRef.current = outputs;
               }
               if (data.phase === "complete") {
-                // Completed workflow → full replay mode
+                // Completed workflow → full replay mode with enhanced scrubber
                 setReplayMode(true);
+                setUseEnhancedScrubber(true);
                 if (interval) { clearInterval(interval); interval = null; }
                 fetch(`/api/workflow/${workflowId}/events`)
                   .then((r) => r.json())
                   .then((evData) => {
                     if (evData.events?.length) {
                       setReplayEvents(evData.events);
+                      // Store the full StoredEvent objects for the enhanced scrubber
+                      setStoredEvents(evData.events.map((ev: WorkflowEvent & { timestamp?: string; eventId?: string }) => ({
+                        timestamp: ev.timestamp || new Date().toISOString(),
+                        event: ev,
+                      })));
                     }
                   })
                   .catch(() => {});
               } else {
                 // Live workflow → catch-up replay then transition to SSE
                 setCatchingUp(true);
+                setUseEnhancedScrubber(false);
                 if (interval) { clearInterval(interval); interval = null; }
                 fetch(`/api/workflow/${workflowId}/events`)
                   .then((r) => r.json())
@@ -384,6 +398,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       setIsPlaying((p) => !p);
     }
   }, [replayIndex, replayEvents.length]);
+
+  // Enhanced scrubber seek handler — maps event index from ReplayScrubber to existing seekTo
+  const handleEnhancedScrubberSeek = useCallback((eventIndex: number) => {
+    seekTo(eventIndex);
+  }, [seekTo]);
 
   const handleEvent = useCallback((event: WorkflowEvent) => {
     switch (event.type) {
@@ -974,15 +993,23 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           </div>
         </div>
 
-        {/* Replay scrubber bar */}
-        {replayMode && replayEvents.length > 0 && (
+        {/* Enhanced Replay Scrubber — for completed workflows */}
+        {replayMode && useEnhancedScrubber && storedEvents.length > 0 && !catchingUp && (
+          <ReplayScrubber
+            eventLog={storedEvents}
+            onSeek={handleEnhancedScrubberSeek}
+          />
+        )}
+
+        {/* Legacy replay bar — for catch-up mode (live workflows) */}
+        {replayMode && replayEvents.length > 0 && (!useEnhancedScrubber || catchingUp) && (
           <div className="replay-bar">
             {catchingUp ? (
               <>
                 <span className="catching-up-indicator">Catching up...</span>
                 <input
                   type="range"
-                  className="replay-scrubber"
+                  className="replay-scrubber-legacy"
                   min={0}
                   max={replayEvents.length - 1}
                   value={replayIndex}
@@ -993,11 +1020,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             ) : (
               <>
                 <button className="replay-btn" onClick={togglePlay}>
-                  {isPlaying ? "⏸" : "▶"}
+                  {isPlaying ? "\u23F8" : "\u25B6"}
                 </button>
                 <input
                   type="range"
-                  className="replay-scrubber"
+                  className="replay-scrubber-legacy"
                   min={0}
                   max={replayEvents.length - 1}
                   value={replayIndex}
@@ -1025,8 +1052,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         {expandedAgent && (
           <div className="agent-output-panel">
             <div className="agent-output-header">
-              <span>Agent Output — {expandedAgent}</span>
-              <button onClick={() => setExpandedAgent(null)} className="agent-output-close">✕</button>
+              <span>Agent Output \u2014 {expandedAgent}</span>
+              <button onClick={() => setExpandedAgent(null)} className="agent-output-close">\u2715</button>
             </div>
             <div className="agent-output-body">
               {streamingText[expandedAgent] || agentFullOutput[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || originalOutputsRef.current[expandedAgent] || "No output yet..."}
@@ -1150,9 +1177,9 @@ const PIPELINE_STYLES = `
 .replay-bar{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 16px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;width:100%;max-width:1720px}
 .replay-btn{background:none;border:1px solid #334155;color:#e2e8f0;font-size:14px;width:32px;height:32px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .replay-btn:hover{border-color:#0ea5e9;background:#0ea5e920}
-.replay-scrubber{flex:1;height:4px;-webkit-appearance:none;appearance:none;background:#334155;border-radius:2px;cursor:pointer;outline:none}
-.replay-scrubber::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#0ea5e9;cursor:pointer;box-shadow:0 0 6px rgba(14,165,233,.5)}
-.replay-scrubber::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#0ea5e9;cursor:pointer;border:none}
+.replay-scrubber-legacy{flex:1;height:4px;-webkit-appearance:none;appearance:none;background:#334155;border-radius:2px;cursor:pointer;outline:none}
+.replay-scrubber-legacy::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#0ea5e9;cursor:pointer;box-shadow:0 0 6px rgba(14,165,233,.5)}
+.replay-scrubber-legacy::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#0ea5e9;cursor:pointer;border:none}
 .replay-counter{font-size:11px;color:#64748b;font-family:"JetBrains Mono",monospace;min-width:80px;text-align:center}
 .replay-speed{background:#0f1419;border:1px solid #334155;color:#e2e8f0;font-size:11px;padding:4px 8px;border-radius:4px;cursor:pointer}
 .replay-speed:hover{border-color:#0ea5e9}
