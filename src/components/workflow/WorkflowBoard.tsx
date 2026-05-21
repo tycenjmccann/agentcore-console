@@ -7,6 +7,7 @@ import type {
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
+import AgentOutputPanel from "./AgentOutputPanel";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -1021,18 +1022,20 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           </div>
         )}
 
-        {/* Expanded agent output panel */}
-        {expandedAgent && (
-          <div className="agent-output-panel">
-            <div className="agent-output-header">
-              <span>Agent Output — {expandedAgent}</span>
-              <button onClick={() => setExpandedAgent(null)} className="agent-output-close">✕</button>
-            </div>
-            <div className="agent-output-body">
-              {streamingText[expandedAgent] || agentFullOutput[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || originalOutputsRef.current[expandedAgent] || "No output yet..."}
-            </div>
-          </div>
-        )}
+        {/* Agent Output Pop-Out Card */}
+        <AgentOutputPanel
+          isOpen={!!expandedAgent}
+          onClose={() => setExpandedAgent(null)}
+          task={expandedAgent ? {
+            id: `task_${expandedAgent}`,
+            agentId: expandedAgent,
+            ticketId: Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.ticketId || "",
+            status: Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.status || "running",
+            input: "",
+            output: streamingText[expandedAgent] || agentFullOutput[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || originalOutputsRef.current[expandedAgent] || "",
+            branch: Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.branch,
+          } : null}
+        />
       </div>
     </div>
   );
