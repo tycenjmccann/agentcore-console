@@ -29,7 +29,7 @@ async function streamToBuffer(stream: ReadableStream | NodeJS.ReadableStream | n
   // Handle Node.js Readable
   const chunks: Buffer[] = [];
   for await (const chunk of stream as NodeJS.ReadableStream) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayLike<number> | string));
   }
   return Buffer.concat(chunks);
 }
@@ -190,7 +190,7 @@ export async function GET(
 
     const zipBuffer = createZipArchive(entries);
 
-    return new NextResponse(zipBuffer, {
+    return new NextResponse(new Uint8Array(zipBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
