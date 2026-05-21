@@ -1166,3 +1166,224 @@ Image pushed to ECR, deployed via `update_agent_runtime` API with `container_uri
 **Key learning**: Cannot switch a runtime from CodeZip → Container in-place. Must create a new runtime. The `agentcore` CLI handles this via `agentcore configure -dt container` + `agentcore deploy --local-build`.
 
 **Trade-off**: Larger image (~1GB compressed). Accepted because cold start is still fast on AgentCore (microVM boots in <3s regardless of image size).
+
+---
+
+### DL-018: Dual-Write Ticket Lambda — Jira-First, Same ID in DynamoDB
+
+**Date**: 2026-05-20
+**Decision**: The agent tool Lambda (`agentis-jira-real`) ALWAYS writes tickets to BOTH Jira Cloud AND DynamoDB, using Jira's auto-generated key as the canonical ID in both systems.
+**Status**: ACTIVE (deployed 2026-05-20)
+
+**Context**: The system supports two deployment modes via `TICKET_PROVIDER` flag on the orchestrator Lambda:
+- `jira` → orchestrator listens to Jira webhooks only (ignores DDB stream)
+- `dynamodb` → orchestrator listens to DDB stream only (ignores webhooks)
+
+Both modes need ticket data to exist. The agents have ONE tool Lambda — it can't conditionally write to "the right one" because it doesn't know which mode the orchestrator is in (and shouldn't need to).
+
+**Problem solved**: Without dual-write, switching `TICKET_PROVIDER` breaks the pipeline because tickets only exist in one system.
+
+**Solution — Jira-first, then DDB with same key**:
+
+```
+Agent calls JiraIntegration___create_ticket
+  ↓
+1. Create in Jira Cloud → get TEAM-XX key (Jira auto-generates)
+2. Write to DynamoDB with ticketId = TEAM-XX (same key)
+3. Return TEAM-XX to agent
+  ↓
+Agent uses TEAM-XX for all references (blocked_by, transitions, comments)
+  ↓
+Both systems have the ticket under the same ID
+```
+
+**Why Jira-first (not parallel with our own ID)**:
+- You CANNOT set Jira's issue key — it auto-generates from project counter
+- Agent uses the returned ID for `blocked_by` references
+- If DDB has TEAM-85 but Jira has TEAM-90, the Jira-mode orchestrator can't find TEAM-85
+- Same ID in both = orchestrator works regardless of which system it reads from
+
+**What dual-writes**:
+| Operation | Jira | DynamoDB |
+|-----------|------|----------|
+| `create_ticket` | Creates issue, gets key | PutItem with same key |
+| `transition_ticket` | Jira transition API | UpdateCommand status |
+| `update_ticket` | PUT issue fields | UpdateCommand fields |
+| `add_comment` | POST comment | Append to comments array |
+
+**What does NOT dual-write** (read-only operations):
+- `list_tickets` — reads from Jira only (source of truth for the tool)
+- `get_issue` — reads from Jira only
+- `search_issues` — reads from Jira only
+- `get_transitions` — reads from Jira only
+
+**DDB writes are best-effort**: If DDB write fails, the operation still succeeds (Jira is primary). Logged as warning. The orchestrator in Jira mode doesn't need DDB anyway. In DDB mode, a missing write means the nudge system will eventually detect the stall.
+
+**Orchestrator behavior by mode**:
+
+| Mode | Listens to | Reads tickets from | DDB Stream mapping | Webhook route |
+|------|-----------|-------------------|-------------------|---------------|
+| `dynamodb` | DDB Stream (agentis-tickets) | DynamoDB | Enabled | Ignored |
+| `jira` | Jira webhooks (via App Runner) | Jira API | Disabled/ignored | Active |
+
+**CRITICAL**: These are mutually exclusive at runtime. ONE orchestrator Lambda, ONE `TICKET_PROVIDER` value. Deploy-time choice. You cannot run both modes simultaneously on the same Lambda.
+
+**Why this is the correct architecture**:
+1. Agents are mode-agnostic — they just call their tool, get a ticket ID back
+2. Orchestrator is mode-aware — picks its event source based on flag
+3. Both systems always have the data — switching modes never requires data migration
+4. Ticket IDs are consistent — no cross-reference mapping needed
+
+**Files**:
+- `lambda/jira-real/index.mjs` — The dual-write tool Lambda (source of truth)
+- `lambda/jira-unified/index.mjs` — DEPRECATED (old approach: DDB-first with Jira mirror, different IDs). Scheduled for deletion in cleanup.
+
+**Env vars on `agentis-jira-real` Lambda**:
+- `JIRA_SITE_URL` — Jira Cloud site (e.g., agentis-demo.atlassian.net)
+- `JIRA_EMAIL` — Auth email
+- `JIRA_API_TOKEN` — API token
+- `JIRA_PROJECT_KEY` — Project key (TEAM)
+- `JIRA_TABLE_NAME` — DynamoDB table (agentis-tickets)
+- `AWS_REGION` — Region (us-east-1)
+
+**DO NOT**:
+- Deploy `lambda/jira-unified/index.mjs` to this Lambda (wrong approach — DDB-first, different IDs)
+- Remove the DDB write from this Lambda (breaks DDB-mode orchestration)
+- Remove the Jira write from this Lambda (breaks Jira-mode orchestration)
+- Add `TICKET_PROVIDER` logic to this Lambda (it ALWAYS writes both, unconditionally)
+
+---
+
+### DL-019: Symmetric Event Source Guards (Anti-Double-Invocation)
+
+**Date**: 2026-05-21
+**Decision**: Orchestrator rejects events from the WRONG source based on `TICKET_PROVIDER` flag. Both directions guarded symmetrically.
+**Status**: ACTIVE (deployed 2026-05-21)
+
+**Context**: The dual-write Lambda (DL-018) writes tickets to BOTH Jira and DynamoDB. This means BOTH event sources fire for every ticket operation:
+- DynamoDB INSERT/MODIFY → DDB Stream → triggers orchestrator
+- Jira issue_created/issue_updated → Webhook → App Runner → invokes orchestrator
+
+Without guards, the orchestrator processes BOTH triggers, invoking agents twice per ticket.
+
+**Bug discovered**: We had a one-directional guard (DDB stream ignored when `TICKET_PROVIDER=jira`) but NOT the reverse. Webhook invocations were processed regardless of mode. This caused:
+- Requirements agent invoked 2x simultaneously
+- Both instances created tickets (duplicates + wrong features)
+- All downstream agents fired on both sets of tickets
+- 7509 events, 15 tickets (should be ~5-6), workflow stuck
+
+**Root cause timeline**:
+1. `agentis-jira-real` dual-write deployed (DL-018) — writes to Jira + DDB for every ticket operation
+2. In DDB mode: DDB stream fires → orchestrator invokes agent ✓
+3. Jira issue_created webhook ALSO fires → App Runner route invokes orchestrator → agent invoked AGAIN ✗
+4. Two requirements agents run simultaneously, interleave output, create duplicate/wrong tickets
+
+**Fix — Symmetric guards in handler** (lines 84-97 of `index.mjs`):
+
+```javascript
+// Webhook invocation — only process if TICKET_PROVIDER=jira
+if (event.source === "jira-webhook") {
+  if (TICKET_PROVIDER !== "jira") {
+    console.log(`[orchestrator] Ignoring Jira webhook — TICKET_PROVIDER=${TICKET_PROVIDER}, using DDB stream`);
+    return;
+  }
+  await processStatusChange(event.ticketId, event.newStatus, event.oldStatus);
+  return;
+}
+
+// DDB Stream invocation — only process if TICKET_PROVIDER=dynamodb
+if (TICKET_PROVIDER === "jira") {
+  console.log(`[orchestrator] Ignoring DDB stream — TICKET_PROVIDER=jira, using webhooks`);
+  return;
+}
+```
+
+**Result — Event source routing matrix**:
+
+| Event Source | TICKET_PROVIDER=dynamodb | TICKET_PROVIDER=jira |
+|---|---|---|
+| DDB Stream | ✅ Processes | ❌ Rejects (existing guard) |
+| Jira Webhook | ❌ Rejects (NEW guard) | ✅ Processes |
+
+**Why this is necessary with dual-write**: Before DL-018, only ONE system received writes, so only ONE event source fired. Now that both always receive writes, both event sources ALWAYS fire. The guards ensure only the configured path processes events.
+
+**Relationship to other DLs**:
+- DL-018 (dual-write) creates the problem — both systems always have data, both always fire events
+- DL-019 (this) solves it — orchestrator only listens to ONE source per mode
+- Together they form the complete architecture: write everywhere, listen to one
+
+**Files modified**:
+- `lambda/orchestrator/index.mjs` — Added webhook rejection guard for non-jira modes (line 86-89)
+
+---
+
+### DL-020: Remaining Reliability Issues (TODO)
+
+**Date**: 2026-05-21
+**Decision**: Document known remaining issues for future fixes
+**Status**: PLANNED
+
+**Issue 1 — No Idempotency Guard on Agent Invocation**
+
+DynamoDB Streams has at-least-once delivery. The same record CAN be delivered more than once. If the orchestrator processes a duplicate delivery, it will invoke the agent twice (because it doesn't check if the ticket is already `in_progress`).
+
+**Proposed fix**: Before invoking an agent in `handleTicketReadyUnified`, check `ticket.status`. If already `in_progress`, skip. Use a DynamoDB conditional update (`SET status = in_progress IF status = todo/ready`) as an atomic lock.
+
+```javascript
+// Atomic claim — only one invocation wins
+const claimed = await ddb.send(new UpdateCommand({
+  TableName: TICKETS_TABLE,
+  Key: { ticketId },
+  UpdateExpression: "SET #s = :ip, #u = :now",
+  ConditionExpression: "#s IN (:todo, :ready)",
+  ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+  ExpressionAttributeValues: { ":ip": "in_progress", ":todo": "todo", ":ready": "ready", ":now": new Date().toISOString() },
+})).catch(() => null);
+
+if (!claimed) {
+  console.log(`[orchestrator] ${ticketId} already claimed, skipping`);
+  return;
+}
+```
+
+**Priority**: MEDIUM — DL-019 eliminates the primary double-invocation source (dual event sources). Stream duplicates are rare but possible.
+
+---
+
+**Issue 2 — No Validation on Ticket blocked_by Field**
+
+If an agent creates a ticket without proper `blocked_by` references, it fires immediately. The orchestrator has no sanity check like "this is a dev ticket but no design tickets are done yet."
+
+**Proposed fix**: In `handleTicketReadyUnified`, validate that the agent's phase makes sense given the workflow state. E.g., don't invoke a dev agent if no design agents have completed for this workflow.
+
+**Priority**: LOW — primarily a prompt engineering problem. The requirements agent should always set `blocked_by`. With DL-019 fixing the double-invocation (which caused the confused agent output), this may self-resolve.
+
+---
+
+## Session Change Log (2026-05-21)
+
+### Changes Made This Session
+
+| # | What | Why | File(s) |
+|---|------|-----|---------|
+| 1 | Deployed dual-write `agentis-jira-real` Lambda | Agents always write to BOTH Jira + DDB with same ticket ID (DL-018) | `lambda/jira-real/index.mjs` |
+| 2 | Added symmetric webhook guard to orchestrator | Prevents double agent invocation when dual-write fires both event sources (DL-019) | `lambda/orchestrator/index.mjs` |
+| 3 | Documented DL-018 (dual-write architecture) | Cement the decision — never revisit | This file |
+| 4 | Documented DL-019 (symmetric guards) | Explain the double-invocation root cause and fix | This file |
+| 5 | Documented DL-020 (remaining TODOs) | Idempotency guard + blocked_by validation for future | This file |
+
+### Deployments
+
+| Lambda | Version | What Changed |
+|--------|---------|-------------|
+| `agentis-jira-real` | 2026-05-21T02:02:35Z | Dual-write: Jira-first → DDB with same key |
+| `agentis-orchestrator` | 2026-05-21T05:54:49Z | Webhook guard: reject when TICKET_PROVIDER≠jira |
+
+### Current State
+
+| Setting | Value | Notes |
+|---------|-------|-------|
+| `TICKET_PROVIDER` on orchestrator | `dynamodb` | User's choice for local dev |
+| DDB Stream mapping | Enabled | UUID: 4275fd71-9d4b-4690-ae24-11ca1dd9b0d0 |
+| App Runner | Deployed with `TICKET_PROVIDER=jira` | Cloud path — not active for local testing |
+| `agentis-jira-real` | Dual-write (DL-018) | Always writes both, mode-agnostic |

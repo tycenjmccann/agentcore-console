@@ -225,6 +225,44 @@ The Workflow tab runs an autonomous software development pipeline. Submit a feat
 - **Tools:** Agents connect to external tools via MCP (GitHub, GitLab, Jira, etc.) — configurable per deployment
 - **Model:** Claude Opus 4.6 (default, configurable via `MODEL_ID` env var)
 
+### Jira Integration (Real Jira Cloud)
+
+The platform supports two ticket backends, switchable via a single env var:
+
+| Mode | `TICKET_PROVIDER` | Backend | Trigger |
+|------|-------------------|---------|---------|
+| Mock | `dynamodb` (default) | DynamoDB tables | DynamoDB Streams → orchestrator Lambda |
+| Real | `jira` | Jira Cloud REST API | Jira webhook → `/api/jira/webhook` |
+
+**To switch to real Jira:**
+
+```bash
+# .env.local (or App Runner / container env vars)
+TICKET_PROVIDER=jira
+JIRA_SITE_URL=your-site.atlassian.net
+JIRA_EMAIL=you@company.com
+JIRA_API_TOKEN=your-api-token
+JIRA_PROJECT_KEY=TEAM
+```
+
+**Jira project requirements:**
+- Workflow statuses configured: `To Do`, `Ready`, `In Progress`, `In Review`, `Blocked`, `Done`
+- Issue link type: `Blocks` (standard, exists by default)
+- Agent assignments stored as labels: `agent:team-frontend-dev`
+- Workflow IDs stored as labels: `wf:wf_123456`
+
+**Webhook setup** (required for cascade orchestration):
+1. In Jira → Settings → Webhooks → Create webhook
+2. URL: `https://your-deployed-app.com/api/jira/webhook`
+3. Events: `issue_updated`
+4. Filter: project = YOUR_PROJECT_KEY
+
+**Agent Jira Lambda** (separate infra, agents call Jira through this):
+- Repo: `tinder-agentis-jira/` — SAM-deployed Lambda
+- Function: `agentis-jira-real`
+- Only invocable by `bedrock-agentcore.amazonaws.com`
+- Deploy: `cd tinder-agentis-jira && sam build && sam deploy`
+
 ### Deploying the Agent Fleet
 
 ```bash

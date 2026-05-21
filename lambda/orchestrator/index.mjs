@@ -38,6 +38,15 @@ const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || "";
 const GITHUB_LAMBDA = process.env.GITHUB_LAMBDA || "agentis-github-mcp";
 const EVENT_BUS = process.env.EVENT_BUS || "default";
 const MAX_QA_RETRIES = 3;
+const TICKET_PROVIDER = process.env.TICKET_PROVIDER || "dynamodb";
+
+// Jira config (only used when TICKET_PROVIDER=jira)
+const JIRA_SITE_URL = process.env.JIRA_SITE_URL || "";
+const JIRA_EMAIL = process.env.JIRA_EMAIL || "";
+const JIRA_API_TOKEN = process.env.JIRA_API_TOKEN || "";
+const JIRA_AUTH = JIRA_EMAIL && JIRA_API_TOKEN
+  ? `Basic ${Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64")}`
+  : "";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },
@@ -70,9 +79,26 @@ function getAgentDef(id) {
   return AGENT_ROSTER.find((a) => a.id === id);
 }
 
-// ─── DynamoDB Stream Handler ───────────────────────────────────────────────────
+// ─── Handler (DDB Stream OR direct webhook invocation) ───────────────────────
 
 export const handler = async (event) => {
+  // Direct invocation from Jira webhook (TICKET_PROVIDER=jira ONLY)
+  if (event.source === "jira-webhook") {
+    if (TICKET_PROVIDER !== "jira") {
+      console.log(`[orchestrator] Ignoring Jira webhook — TICKET_PROVIDER=${TICKET_PROVIDER}, using DDB stream`);
+      return;
+    }
+    console.log(`[orchestrator] Jira webhook: ${event.ticketId} → ${event.newStatus}`);
+    await processStatusChange(event.ticketId, event.newStatus, event.oldStatus);
+    return;
+  }
+
+  // DDB Stream invocation (TICKET_PROVIDER=dynamodb only)
+  if (TICKET_PROVIDER === "jira") {
+    console.log(`[orchestrator] Ignoring DDB stream — TICKET_PROVIDER=jira, using webhooks`);
+    return;
+  }
+
   console.log(`[orchestrator] Received ${event.Records.length} stream records`);
 
   for (const record of event.Records) {
@@ -80,10 +106,249 @@ export const handler = async (event) => {
       await processRecord(record);
     } catch (err) {
       console.error(`[orchestrator] Error processing record:`, err);
-      // Don't throw — process remaining records
     }
   }
 };
+
+/**
+ * Unified status change handler — called from both DDB stream and Jira webhook paths.
+ */
+async function processStatusChange(ticketId, newStatus, oldStatus) {
+  if (newStatus === oldStatus) return;
+
+  console.log(`[orchestrator] ${ticketId}: ${oldStatus || "NEW"} → ${newStatus}`);
+
+  switch (newStatus) {
+    case "done":
+      await handleTicketDoneUnified(ticketId);
+      break;
+    case "todo": {
+      // Ticket created — check blockers, transition to Ready if unblocked
+      if (TICKET_PROVIDER === "jira") {
+        const ticket = await getTicket(ticketId);
+        if (!ticket || ticket.type === "epic") return;
+        const blockers = ticket.blockedBy || [];
+        if (blockers.length === 0 && ticket.assignee) {
+          await jiraTransition(ticketId, "Ready");
+        }
+      } else {
+        // DynamoDB mode — todo with no blockers means ready to go
+        const ticket = await getTicket(ticketId);
+        if (!ticket) return;
+        const blockers = ticket.blockedBy || [];
+        if (blockers.length === 0) {
+          await handleTicketReadyUnified(ticketId, ticket);
+        }
+      }
+      break;
+    }
+    case "ready": {
+      // Ticket is ready — invoke the agent
+      const ticket = await getTicket(ticketId);
+      if (!ticket) return;
+      await handleTicketReadyUnified(ticketId, ticket);
+      break;
+    }
+    case "in_progress": {
+      const ticket = await getTicket(ticketId);
+      const assignee = ticket?.assignee;
+      await publishEvent(ticketId, "agent.started", { ticketId, assignee, agentId: assignee });
+      break;
+    }
+  }
+}
+
+/**
+ * Unified "ticket done" handler — works with both DynamoDB and Jira backends.
+ * Called from processStatusChange (Jira webhook path).
+ */
+async function handleTicketDoneUnified(ticketId) {
+  const ticket = await getTicket(ticketId);
+  if (!ticket) return;
+
+  const parentId = ticket.parentId;
+  const workflowId = ticket.workflowId;
+  const assignee = ticket.assignee;
+
+  if (!parentId) {
+    console.log(`[orchestrator] ${ticketId} has no parent — likely an epic. Skipping cascade.`);
+    return;
+  }
+
+  const workflow = await resolveWorkflow(workflowId, parentId);
+  if (!workflow) {
+    console.warn(`[orchestrator] No workflow found for ${ticketId}`);
+    return;
+  }
+
+  // Update agent task status
+  if (ticketId && workflow.agentTasks?.[ticketId]) {
+    workflow.agentTasks[ticketId].status = "complete";
+    workflow.agentTasks[ticketId].completedAt = new Date().toISOString();
+    await saveWorkflow(workflow);
+  }
+
+  // Unblock dependents
+  const siblings = await getChildTickets(parentId);
+  const unblocked = [];
+
+  for (const sibling of siblings) {
+    if (sibling.ticketId === ticketId) continue;
+    const blockers = sibling.blockedBy || [];
+    if (blockers.includes(ticketId)) {
+      const remaining = blockers.filter(id => id !== ticketId);
+      if (remaining.length === 0 && (sibling.status === "blocked" || sibling.status === "todo")) {
+        // All blockers resolved — transition to ready
+        if (TICKET_PROVIDER === "jira") {
+          await jiraTransition(sibling.ticketId, "Ready");
+        } else {
+          await ddb.send(new UpdateCommand({
+            TableName: TICKETS_TABLE,
+            Key: { ticketId: sibling.ticketId },
+            UpdateExpression: "SET #s = :s, #bb = :bb, #u = :u",
+            ExpressionAttributeNames: { "#s": "status", "#bb": "blockedBy", "#u": "updatedAt" },
+            ExpressionAttributeValues: { ":s": "todo", ":bb": [], ":u": new Date().toISOString() },
+          }));
+        }
+        unblocked.push(sibling.ticketId);
+      } else if (remaining.length > 0 && TICKET_PROVIDER !== "jira") {
+        // Still blocked — update blockedBy list (DynamoDB only, Jira handles via links)
+        await ddb.send(new UpdateCommand({
+          TableName: TICKETS_TABLE,
+          Key: { ticketId: sibling.ticketId },
+          UpdateExpression: "SET #bb = :bb, #u = :u",
+          ExpressionAttributeNames: { "#bb": "blockedBy", "#u": "updatedAt" },
+          ExpressionAttributeValues: { ":bb": remaining, ":u": new Date().toISOString() },
+        }));
+      }
+    }
+  }
+
+  console.log(`[orchestrator] ${ticketId} done. Unblocked: [${unblocked.join(", ")}]`);
+  await publishEvent(ticketId, "agent.complete", { ticketId, assignee, agentId: assignee, unblocked, workflowId: workflow?.id });
+
+  // Check workflow completion
+  if (unblocked.length === 0) {
+    if (await isWorkflowComplete(parentId)) {
+      await completeWorkflow(workflow);
+    }
+  }
+}
+
+/**
+ * Unified "ticket ready" handler — works with both backends.
+ * Called from processStatusChange (Jira webhook path).
+ */
+async function handleTicketReadyUnified(ticketId, ticket) {
+  const assignee = ticket.assignee;
+  const parentId = ticket.parentId;
+  const workflowId = ticket.workflowId;
+
+  console.log(`[orchestrator] handleTicketReady: ${ticketId} assignee=${assignee} parentId=${parentId} workflowId=${workflowId}`);
+
+  if (!assignee || ticket.type === "epic") return;
+
+  const agentDef = getAgentDef(assignee);
+  if (!agentDef) {
+    console.warn(`[orchestrator] Unknown agent: ${assignee}`);
+    return;
+  }
+
+  const workflow = await resolveWorkflow(workflowId, parentId);
+  if (!workflow) {
+    console.warn(`[orchestrator] No workflow for ticket ${ticketId}`);
+    return;
+  }
+
+  // Initialize manifest if needed
+  try { await initManifestIfNeeded(workflow); } catch (err) {
+    console.warn(`[orchestrator] Manifest init failed (non-fatal): ${err.message}`);
+  }
+
+  // Phase advancement
+  const phaseOrder = ["intake", "requirements", "design", "development", "verification", "review", "complete"];
+  const agentPhaseIdx = phaseOrder.indexOf(agentDef.phase);
+  const currentPhaseIdx = phaseOrder.indexOf(workflow.phase);
+  if (agentPhaseIdx > currentPhaseIdx) {
+    workflow.phase = agentDef.phase;
+    await publishEvent(ticketId, "workflow.phase_change", { phase: agentDef.phase, workflowId: workflow.id });
+
+    // Feature branch on dev phase entry
+    if (agentDef.phase === "development" && !workflow.featureBranch) {
+      try {
+        const { owner, repo } = parseRepoUrl(workflow.repoConfig);
+        const baseBranch = workflow.repoConfig?.repos?.[0]?.defaultBranch || "main";
+        const slug = workflow.input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40).replace(/-$/, "");
+        const branchName = `feature/${workflow.epicId}-${slug}`;
+        await callGitHub("create_branch", { owner, repo, branch_name: branchName, from_branch: baseBranch });
+        workflow.featureBranch = branchName;
+        console.log(`[orchestrator] Created shared feature branch: ${branchName}`);
+      } catch (err) {
+        console.warn(`[orchestrator] Failed to create branch: ${err.message}`);
+      }
+    }
+  }
+
+  // Mark in-progress (Jira: transition; DynamoDB: update)
+  if (TICKET_PROVIDER === "jira") {
+    await jiraTransition(ticketId, "In Progress");
+  } else {
+    await ddb.send(new UpdateCommand({
+      TableName: TICKETS_TABLE,
+      Key: { ticketId },
+      UpdateExpression: "SET #s = :s, #u = :u",
+      ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+      ExpressionAttributeValues: { ":s": "in_progress", ":u": new Date().toISOString() },
+    }));
+  }
+
+  // Record agent task in workflow
+  const task = {
+    id: `task_${Date.now()}_${assignee}`,
+    agentId: assignee,
+    ticketId,
+    status: "running",
+    startedAt: new Date().toISOString(),
+  };
+  if (!workflow.agentTasks) workflow.agentTasks = {};
+  workflow.agentTasks[ticketId] = task;
+  await saveWorkflow(workflow);
+
+  // Build context and invoke — SAME buildAgentContext for both paths
+  const context = await buildAgentContext(ticket, workflow);
+
+  console.log(`[orchestrator] Invoking agent ${assignee} for ticket ${ticketId}`);
+  await publishEvent(ticketId, "agent.invoked", { ticketId, assignee, agentId: assignee, phase: agentDef.phase, workflowId: workflow.id });
+
+  await invokeAgent(agentDef, context, workflow);
+}
+
+/**
+ * Transition a Jira issue to a target status.
+ */
+async function jiraTransition(issueKey, targetStatusName) {
+  try {
+    const data = await jiraFetch(`/rest/api/3/issue/${issueKey}/transitions`);
+    const match = data.transitions.find(
+      t => t.name.toLowerCase() === targetStatusName.toLowerCase() ||
+           t.to.name.toLowerCase() === targetStatusName.toLowerCase()
+    );
+    if (!match) {
+      console.warn(`[orchestrator] No transition to "${targetStatusName}" for ${issueKey}`);
+      return;
+    }
+    const url = `https://${JIRA_SITE_URL}/rest/api/3/issue/${issueKey}/transitions`;
+    await fetch(url, {
+      method: "POST",
+      headers: { Authorization: JIRA_AUTH, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ transition: { id: match.id } }),
+    });
+  } catch (err) {
+    console.warn(`[orchestrator] Jira transition failed for ${issueKey}: ${err.message}`);
+  }
+}
+
+// ─── DynamoDB Stream Processing (legacy DynamoDB path) ────────────────────────
 
 async function processRecord(record) {
   const eventName = record.eventName; // INSERT, MODIFY, REMOVE
@@ -538,10 +803,20 @@ async function buildAgentContext(ticket, workflow) {
   // Workflow context (epic ID, workflow ID, ticket ID)
   context += `## Workflow Context\nworkflow_id: ${workflow.id}\nepic_id: ${workflow.epicId}\nticket_id: ${ticket.ticketId}\n\n`;
 
-  // For requirements agent: inject ticket creation context
+  // For requirements agent: inject ticket creation context with EXACT tool format
   if (ticket.assignee === "team-requirements-analyst") {
-    context += `## Ticket Creation Instructions\nYou are responsible for creating tickets for all agents that need to work on this feature.\nUse JiraIntegration___create_ticket with:\n- parent_id: "${workflow.epicId}"\n- workflow_id: "${workflow.id}"\n- blocked_by: comma-separated ticket IDs for dependencies\n- assignee: agent ID from the roster (e.g., "team-frontend-dev")\n\nYour own ticket_id: "${ticket.ticketId}" — transition it to "done" when finished.\n\n`;
+    context += `## Ticket Creation Instructions\nYou are responsible for creating tickets for all agents that need to work on this feature.\n\n**EXACT tool call format (use these parameter names EXACTLY):**\n\`\`\`\nJiraIntegration___create_ticket(\n    title="Frontend: Implement [feature]",\n    description="## Summary\\n...",\n    parent_id="${workflow.epicId}",\n    assignee="team-frontend-dev",\n    ticket_type="task",\n    blocked_by="",\n    workflow_id="${workflow.id}"\n)\n\`\`\`\n\nParameter names: title, description, parent_id, assignee, ticket_type, blocked_by, workflow_id.\nDo NOT use "summary", "parent_key", or any other names.\n\nYour own ticket_id: "${ticket.ticketId}" — transition it to "done" when finished.\n\n`;
   }
+
+  // For ALL agents: include canonical identifiers they need for tool calls
+  context += `## Tool Call Reference\n`;
+  context += `When calling JiraIntegration tools, use these values:\n`;
+  context += `- parent_id: "${workflow.epicId}" (epic for this workflow)\n`;
+  context += `- workflow_id: "${workflow.id}"\n`;
+  context += `- your ticket_id: "${ticket.ticketId}"\n`;
+  context += `\nWhen reporting completion:\n`;
+  context += `\`\`\`\nWorkflowOutput___report_completion(ticket_id="${ticket.ticketId}", summary="...", pr_url="...", branch="...")\n\`\`\`\n`;
+  context += `Call report_completion EXACTLY ONCE. Multiple calls will create duplicate events.\n\n`;
 
   // Requirements artifact (from epic)
   try {
@@ -642,6 +917,22 @@ async function resolveWorkflow(workflowId, parentId) {
     }
   }
 
+  // Jira fallback: scan workflows table for epicId match
+  // (Jira epics don't store workflowId — it lives in our workflows table)
+  if (parentId && TICKET_PROVIDER === "jira") {
+    try {
+      const result = await ddb.send(new QueryCommand({
+        TableName: WORKFLOWS_TABLE,
+        IndexName: "epicId-index",
+        KeyConditionExpression: "epicId = :eid",
+        ExpressionAttributeValues: { ":eid": parentId },
+      }));
+      if (result.Items?.length > 0) return result.Items[0];
+    } catch {
+      // epicId-index may not exist — fall through
+    }
+  }
+
   return null;
 }
 
@@ -650,11 +941,17 @@ async function saveWorkflow(workflow) {
 }
 
 async function getTicket(ticketId) {
+  if (TICKET_PROVIDER === "jira") {
+    return await getTicketFromJira(ticketId);
+  }
   const result = await ddb.send(new GetCommand({ TableName: TICKETS_TABLE, Key: { ticketId } }));
   return result.Item || null;
 }
 
 async function getChildTickets(parentId) {
+  if (TICKET_PROVIDER === "jira") {
+    return await getChildTicketsFromJira(parentId);
+  }
   const result = await ddb.send(new QueryCommand({
     TableName: TICKETS_TABLE,
     IndexName: "parentId-index",
@@ -662,6 +959,73 @@ async function getChildTickets(parentId) {
     ExpressionAttributeValues: { ":pid": parentId },
   }));
   return result.Items || [];
+}
+
+// ─── Jira Ticket Provider ─────────────────────────────────────────────────────
+
+async function jiraFetch(path) {
+  const url = `https://${JIRA_SITE_URL}${path}`;
+  const resp = await fetch(url, {
+    headers: { Authorization: JIRA_AUTH, Accept: "application/json" },
+  });
+  if (resp.status === 204) return null;
+  if (!resp.ok) throw new Error(`Jira API ${resp.status}: ${await resp.text()}`);
+  return resp.json();
+}
+
+function mapJiraStatus(name) {
+  const map = { "to do": "todo", "ready": "ready", "in progress": "in_progress", "in review": "in_review", "blocked": "blocked", "done": "done", "backlog": "backlog" };
+  return map[name.toLowerCase()] || name.toLowerCase().replace(/\s+/g, "_");
+}
+
+function mapJiraIssueToTicket(issue) {
+  const f = issue.fields || {};
+  const labels = f.labels || [];
+  const agentLabel = labels.find(l => l.startsWith("agent:"));
+  const wfLabel = labels.find(l => l.startsWith("wf:"));
+
+  // Extract blockedBy from issue links
+  const blockedBy = [];
+  for (const link of (f.issuelinks || [])) {
+    // outwardIssue with type "Blocks" = the outward issue blocks this one
+    if (link.type?.inward === "is blocked by" && link.outwardIssue) {
+      blockedBy.push(link.outwardIssue.key);
+    }
+  }
+
+  return {
+    ticketId: issue.key,
+    title: f.summary || "",
+    description: extractAdfText(f.description),
+    status: mapJiraStatus(f.status?.name || "To Do"),
+    assignee: agentLabel ? agentLabel.replace("agent:", "") : null,
+    parentId: f.parent?.key || null,
+    workflowId: wfLabel ? wfLabel.replace("wf:", "") : null,
+    type: (f.issuetype?.name || "Task").toLowerCase() === "epic" ? "epic" : "task",
+    blockedBy,
+    comments: [],
+    artifacts: [],
+  };
+}
+
+function extractAdfText(adf) {
+  if (!adf || !adf.content) return "";
+  return adf.content.map(block => {
+    if (block.content) return block.content.map(n => n.text || "").join("");
+    return "";
+  }).join("\n");
+}
+
+async function getTicketFromJira(ticketId) {
+  const issue = await jiraFetch(`/rest/api/3/issue/${ticketId}?fields=summary,description,status,issuetype,parent,labels,issuelinks,assignee`);
+  if (!issue) return null;
+  return mapJiraIssueToTicket(issue);
+}
+
+async function getChildTicketsFromJira(parentId) {
+  const jql = encodeURIComponent(`parent = ${parentId} ORDER BY created ASC`);
+  const data = await jiraFetch(`/rest/api/3/search/jql?jql=${jql}&fields=summary,status,labels,issuetype,parent,issuelinks,assignee,description&maxResults=100`);
+  return (data?.issues || []).map(mapJiraIssueToTicket);
 }
 
 async function nextTicketId() {

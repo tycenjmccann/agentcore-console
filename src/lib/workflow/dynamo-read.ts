@@ -15,14 +15,21 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
 });
 
 export async function listWorkflowsFromDynamo() {
-  const result = await ddb.send(new ScanCommand({
-    TableName: WORKFLOWS_TABLE,
-    Limit: 50,
-  }));
-  // Sort by startedAt descending
-  const items = result.Items || [];
-  items.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
-  return items;
+  // Paginate to get all workflows (table is small, <200 items)
+  let items: Record<string, unknown>[] = [];
+  let lastKey: Record<string, unknown> | undefined;
+  do {
+    const result = await ddb.send(new ScanCommand({
+      TableName: WORKFLOWS_TABLE,
+      ExclusiveStartKey: lastKey,
+    }));
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey;
+  } while (lastKey);
+
+  // Sort by startedAt descending, return latest 50
+  items.sort((a, b) => new Date(b.startedAt as string).getTime() - new Date(a.startedAt as string).getTime());
+  return items.slice(0, 50);
 }
 
 export async function getWorkflowFromDynamo(workflowId: string) {

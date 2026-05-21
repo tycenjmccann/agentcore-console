@@ -74,6 +74,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const [celebrating, setCelebrating] = useState(false);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
+  // Full agent output fetched directly from DDB (independent of replay scrubber)
+  const [agentFullOutput, setAgentFullOutput] = useState<Record<string, string>>({});
   // Tool flash state: maps "phaseId:iconKey" to a timeout so items flash when tools fire
   const [toolFlashes, setToolFlashes] = useState<Record<string, boolean>>({});
   const toolFlashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -113,11 +115,14 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         .then((data) => {
           if (data && data.id) {
             // Re-key agentTasks from ticket IDs (DDB) to agentIds (UI expects)
+            // When multiple tickets exist for the same agent, prefer the one with output
             if (data.agentTasks) {
               const reKeyed: Record<string, typeof data.agentTasks[string]> = {};
-              for (const [key, task] of Object.entries(data.agentTasks) as [string, { agentId?: string }][]) {
+              for (const [key, task] of Object.entries(data.agentTasks) as [string, { agentId?: string; output?: string }][]) {
                 const id = task.agentId || key;
-                reKeyed[id] = task;
+                if (!reKeyed[id] || (task.output && !reKeyed[id].output)) {
+                  reKeyed[id] = task;
+                }
               }
               data.agentTasks = reKeyed;
             }
@@ -884,7 +889,20 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                             <div
                               key={agent.id}
                               className={`item ${isSettled ? "done settled" : agentItemClass} cursor-pointer`}
-                              onClick={() => setExpandedAgent(expandedAgent === agent.id ? null : agent.id)}
+                              onClick={() => {
+                                const targetAgent = expandedAgent === agent.id ? null : agent.id;
+                                setExpandedAgent(targetAgent);
+                                if (targetAgent) {
+                                  fetch(`/api/workflow/${workflowId}/agent-output?agentId=${targetAgent}`)
+                                    .then((r) => r.json())
+                                    .then((data) => {
+                                      if (data.output) {
+                                        setAgentFullOutput((prev) => ({ ...prev, [targetAgent]: data.output }));
+                                      }
+                                    })
+                                    .catch(() => {});
+                                }
+                              }}
                             >
                               <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
                               <span className="item-label">{agent.displayName}</span>
@@ -1011,7 +1029,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
               <button onClick={() => setExpandedAgent(null)} className="agent-output-close">✕</button>
             </div>
             <div className="agent-output-body">
-              {streamingText[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || originalOutputsRef.current[expandedAgent] || "No output yet..."}
+              {streamingText[expandedAgent] || agentFullOutput[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || originalOutputsRef.current[expandedAgent] || "No output yet..."}
             </div>
           </div>
         )}

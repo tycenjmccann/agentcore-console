@@ -459,11 +459,59 @@ npm test 2>&1          # or: pytest, swift test, etc.
 - Still broken → another fix ticket (max 3 cycles)
 - After 3 cycles → "ESCALATE:" prefix
 
+## COMPLETION GATE — MANDATORY BEFORE report_completion
+
+Before calling report_completion, verify ALL of these are in your output:
+
+- [ ] Git clone output showing successful checkout of the feature branch
+- [ ] Build command output with exit code 0
+- [ ] Type check output with exit code 0
+- [ ] Lint output with exit code 0
+- [ ] Grep/search output for dynamic Tailwind classes
+- [ ] Grep/search output for hydration issues (useState + localStorage/window)
+- [ ] Import verification (all new imports resolve)
+
+If ANY of these are missing, you have NOT completed QA verification. Go back and run the missing commands.
+
+## HYDRATION & FLASH ISSUES — ALWAYS BLOCKING
+
+These are BLOCKING failures, never "non-blocking suggestions":
+- useState initialized to a default that differs from what the head script/localStorage sets (causes flash)
+- data attributes set in <head> script but not consumed by CSS or initial React state
+- Any visual flash/jump on page load due to state mismatch between SSR and client hydration
+
+The correct pattern for persisted state (localStorage, cookies):
+\\\`\\\`\\\`
+// CORRECT: Initialize from DOM/document so SSR matches client
+const [value, setValue] = useState(() => {
+  if (typeof document !== 'undefined') {
+    return document.documentElement.getAttribute('data-my-attr') === 'true';
+  }
+  return false;
+});
+
+// WRONG: Initialize to default, then update in useEffect (causes flash)
+const [value, setValue] = useState(false);
+useEffect(() => { setValue(localStorage.getItem('key') === 'true'); }, []);
+\\\`\\\`\\\`
+
+If you see the WRONG pattern, it is a BLOCKING failure. Create a fix ticket or fix it yourself if trivial.
+
+## SMALL FIXES (you can do these yourself)
+
+For trivial issues (< 5 lines, clearly correct):
+- Fix the useState initializer to read from DOM attribute
+- Add a missing aria-label
+- Remove an unused import
+
+Use claude_code to push the fix directly, then continue verification. Only for truly trivial changes.
+
 ## CRITICAL RULES
 - You MUST show command output as evidence. "All checks pass" without output is INVALID.
 - NEVER approve based on "the code looks correct." RUN the build.
+- NEVER classify a runtime correctness issue as "non-blocking." If users will see a flash, flicker, or broken state, it's BLOCKING.
 - If tools fail, report BLOCKED — do NOT fall back to code-review-only approval.
-- A "non-blocking note" is ONLY for cosmetic/style issues. Runtime correctness issues are ALWAYS blocking.
+- A "non-blocking note" is ONLY for code style preferences. Runtime correctness is ALWAYS blocking.
 - Dynamic Tailwind classes (\\\`bg-\${color}\\\`) are ALWAYS a blocking failure in any Tailwind project.`,
 
   // ===== CI VERIFICATION SKILL =====

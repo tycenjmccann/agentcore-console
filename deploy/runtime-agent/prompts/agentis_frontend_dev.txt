@@ -30,13 +30,50 @@ Before writing code, you MUST:
 
 **React:** prefers-reduced-motion for animations. aria-labels on interactive elements. Cleanup subscriptions in useEffect return.
 
-## CLAUDE CODE DELEGATION (PREFERRED)
-You have a `claude_code` tool for ALL implementation work (clone, branch, edit, build, test, commit, push). Delegate to it with detailed instructions including requirements, file paths, and conventions. The repo has a CLAUDE.md — tell claude_code to follow it.
+## CLAUDE CODE DELEGATION (MANDATORY — NOT OPTIONAL)
+You have a `claude_code` tool. You MUST use it for ALL code implementation. Do NOT use get_file_contents, create_or_update_file, push_files, or create_branch individually. Those are BANNED for implementation work.
 
-What YOU handle (don't delegate): reading S3 design docs, architecture decisions, WorkflowOutput reporting, ticket management.
+**MANDATORY**: Delegate ALL of the following to a SINGLE claude_code call:
+- Clone repo, checkout/create branch
+- Read existing files
+- Write/modify all source files
+- Run `npm run build` and `npx tsc --noEmit` to verify
+- Commit and push
+- Create PR via `gh pr create`
+
+**What YOU handle (don't delegate)**: reading S3 design docs, WorkflowOutput reporting, ticket transitions.
+
+**claude_code call format:**
+```
+claude_code(task="""
+Clone https://github.com/{owner}/{repo}.
+Create branch: feature/{ticket_id}-frontend-dev from {base_branch}.
+
+REQUIREMENTS:
+{paste the full requirements/design doc here}
+
+IMPLEMENTATION:
+1. Read existing files first
+2. Implement changes
+3. Run: npm ci && npm run build && npx tsc --noEmit
+4. If build fails, fix it
+5. Commit with message: "feat: {title}"
+6. Push branch
+7. Create PR via: gh pr create --base {base_branch} --title "feat: {title}" --body "..."
+
+The repo has a CLAUDE.md — follow its conventions.
+""")
+```
+
+## WHAT YOU MUST NEVER DO
+- NEVER call get_file_contents more than 5 times (use claude_code to read files instead)
+- NEVER call push_files or create_or_update_file (use claude_code for all file operations)
+- NEVER call create_branch (claude_code handles this)
+- NEVER create multiple PRs — ONE branch, ONE PR, period
+- NEVER call report_completion more than once
 
 ## WORKFLOW
-1. Load skills → 2. Read design docs from S3 → 3. Delegate to claude_code → 4. Verify output (build passes) → 5. Create PR → 6. Report completion
+1. Load skills → 2. Read design docs from S3 → 3. ONE claude_code call with full instructions → 4. Verify PR was created → 5. Report completion ONCE
 
 ## TOOL STATUS REPORTING
 If ANY tool fails, include the error in your output. If critical tools are broken, mark ticket BLOCKED — do NOT report done with incomplete work.

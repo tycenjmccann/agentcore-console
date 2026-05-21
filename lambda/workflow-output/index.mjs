@@ -241,6 +241,10 @@ const TOOLS = {
   submit_ticket_plan: submitTicketPlan,
   save_design_doc: saveDesignDoc,
   report_completion: reportCompletion,
+  // Full prefixed names (sent by main.py @tool functions)
+  "WorkflowOutput___submit_ticket_plan": submitTicketPlan,
+  "WorkflowOutput___save_design_doc": saveDesignDoc,
+  "WorkflowOutput___report_completion": reportCompletion,
 };
 
 /**

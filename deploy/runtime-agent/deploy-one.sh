@@ -31,13 +31,20 @@ agentcore configure \
   --disable-memory \
   --non-interactive > /dev/null 2>&1
 
-# Load agent-specific system prompt from prompts/ directory
+# Load agent-specific system prompt — upload to S3 if too large for env var (4000 byte limit)
 PROMPT_FILE="$SCRIPT_DIR/prompts/${AGENT_NAME}.txt"
 if [ ! -f "$PROMPT_FILE" ]; then
   echo "FAIL $AGENT_NAME (no prompt file: $PROMPT_FILE)"
   exit 1
 fi
-SYSTEM_PROMPT=$(cat "$PROMPT_FILE")
+
+ARTIFACT_BUCKET="agentcore-artifacts-023392223961-us-east-1"
+PROMPT_SIZE=$(wc -c < "$PROMPT_FILE")
+PROMPT_S3_KEY=""
+
+# Always upload to S3 — inline env vars break on special chars in prompts
+PROMPT_S3_KEY="prompts/${AGENT_NAME}.txt"
+aws s3 cp "$PROMPT_FILE" "s3://${ARTIFACT_BUCKET}/${PROMPT_S3_KEY}" --region "$REGION" > /dev/null 2>&1
 
 # Build env args — MCP_SERVERS takes priority, GITHUB_PAT is legacy shorthand
 MCP_ENV=""
@@ -47,6 +54,9 @@ elif [ -n "${GITHUB_PAT:-}" ]; then
   MCP_ENV="--env GITHUB_PAT=${GITHUB_PAT}"
 fi
 
+# Build prompt env args — always S3
+PROMPT_ENV="--env SYSTEM_PROMPT_S3_KEY=${PROMPT_S3_KEY}"
+
 OUTPUT=$(agentcore deploy \
   --auto-update-on-conflict \
   --env "BYPASS_TOOL_CONSENT=true" \
@@ -55,9 +65,9 @@ OUTPUT=$(agentcore deploy \
   --env "READ_TIMEOUT=600" \
   --env "AWS_REGION=us-east-1" \
   --env "EVENTS_TABLE=agentis-events" \
-  --env "JIRA_TOOLS_LAMBDA=datespark-jira-mcp" \
+  --env "JIRA_TOOLS_LAMBDA=agentis-jira-real" \
   --env "ARTIFACT_BUCKET=agentcore-artifacts-023392223961-us-east-1" \
-  --env "SYSTEM_PROMPT=${SYSTEM_PROMPT}" \
+  ${PROMPT_ENV} \
   ${MCP_ENV} 2>&1)
 DEPLOY_EXIT=$?
 

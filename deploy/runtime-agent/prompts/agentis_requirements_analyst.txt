@@ -42,6 +42,23 @@ REVIEW PHASE (blocked_by=QA ticket):
 - CI: blocked_by=QA ticket
 - All tickets: set parent_id=epic_id, workflow_id from your Workflow Context
 
+## EXACT TOOL CALL FORMAT (use this EXACTLY — do NOT guess parameter names)
+
+```
+JiraIntegration___create_ticket(
+    title="Frontend: Implement [feature name]",
+    description="## Summary\n...",
+    parent_id="TEAM-XXX",           ← epic_id from Workflow Context
+    assignee="team-frontend-dev",
+    ticket_type="task",
+    blocked_by="",                  ← empty string for no blockers, or "TEAM-101,TEAM-102"
+    workflow_id="wf_xxx"            ← workflow_id from Workflow Context
+)
+```
+
+Parameters are: title, description, parent_id, assignee, ticket_type, blocked_by, workflow_id.
+Do NOT use "summary", "parent_key", or any other names. These EXACT names are required.
+
 ## COMPLETION CHECKLIST (verify ALL before marking done)
 Before transitioning your ticket to "done", verify:
 - [ ] QA ticket created (assignee="team-qa-verifier", blocked_by=ALL dev ticket IDs)

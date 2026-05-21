@@ -16,9 +16,36 @@ Key advantages over Harness:
 """
 
 import os
+import subprocess
 os.environ["BYPASS_TOOL_CONSENT"] = "true"  # Required for non-interactive strands_tools (shell, editor, etc.)
 os.environ["HOME"] = "/tmp"  # Runtime /var/task is read-only; tools need writable HOME
 os.chdir("/tmp")  # python_repl, editor, shell all use cwd() for state — must be writable
+
+# --- Install Node.js at startup (once per session) ---
+# direct_code_deploy runtimes don't have Node.js pre-installed.
+# This installs a standalone Node.js binary to /tmp so shell, claude_code, and npm work.
+_node_marker = "/tmp/.node_installed"
+if not os.path.exists(_node_marker):
+    try:
+        subprocess.run(
+            ["bash", "-c", """
+            cd /tmp && \
+            curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-arm64.tar.gz | tar -xz && \
+            ln -sf /tmp/node-v20.18.0-linux-arm64/bin/node /tmp/node && \
+            ln -sf /tmp/node-v20.18.0-linux-arm64/bin/npm /tmp/npm && \
+            ln -sf /tmp/node-v20.18.0-linux-arm64/bin/npx /tmp/npx && \
+            export PATH="/tmp/node-v20.18.0-linux-arm64/bin:$PATH" && \
+            npm install -g @anthropic-ai/claude-code 2>/dev/null && \
+            touch /tmp/.node_installed
+            """],
+            capture_output=True, text=True, timeout=180,
+            env={**os.environ, "PATH": f"/tmp/node-v20.18.0-linux-arm64/bin:{os.environ.get('PATH', '')}"},
+        )
+        os.environ["PATH"] = f"/tmp/node-v20.18.0-linux-arm64/bin:/tmp/.npm-global/bin:{os.environ.get('PATH', '')}"
+    except Exception as e:
+        print(f"[WARN] Node.js install failed: {e} — shell/claude_code may not work")
+else:
+    os.environ["PATH"] = f"/tmp/node-v20.18.0-linux-arm64/bin:/tmp/.npm-global/bin:{os.environ.get('PATH', '')}"
 
 import json
 import logging
@@ -92,7 +119,21 @@ REGION = os.getenv("AWS_REGION", "us-east-1")
 MODEL_ID = os.getenv("MODEL_ID", "us.anthropic.claude-opus-4-6-v1")
 READ_TIMEOUT = int(os.getenv("READ_TIMEOUT", "600"))  # 10 minutes — no more urllib3 kills
 GATEWAY_ARN = os.getenv("GATEWAY_ARN", "arn:aws:bedrock-agentcore:us-east-1:023392223961:gateway/datesparkiamgw-vjme4fyj6k")
-SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "You are a helpful AI agent on a development team.")
+ARTIFACT_BUCKET = os.getenv("ARTIFACT_BUCKET", "agentcore-artifacts-023392223961-us-east-1")
+
+# System prompt: prefer S3 (for large prompts), fall back to env var
+_prompt_s3_key = os.getenv("SYSTEM_PROMPT_S3_KEY", "")
+if _prompt_s3_key:
+    import boto3 as _b3
+    try:
+        _s3 = _b3.client("s3", region_name=REGION)
+        _obj = _s3.get_object(Bucket=ARTIFACT_BUCKET, Key=_prompt_s3_key)
+        SYSTEM_PROMPT = _obj["Body"].read().decode("utf-8")
+    except Exception as _e:
+        SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "You are a helpful AI agent on a development team.")
+        print(f"[WARN] Failed to load prompt from S3 ({_prompt_s3_key}): {_e}, using env var fallback")
+else:
+    SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "You are a helpful AI agent on a development team.")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("agentis-pipeline-agent")
@@ -116,7 +157,7 @@ lambda_client = boto3.client("lambda", region_name=REGION)
 
 # Tool Lambda function names (the gateway targets are backed by these)
 S3_TOOLS_LAMBDA = os.getenv("S3_TOOLS_LAMBDA", "agentis-s3-tools")
-JIRA_TOOLS_LAMBDA = os.getenv("JIRA_TOOLS_LAMBDA", "datespark-jira-mcp")
+JIRA_TOOLS_LAMBDA = os.getenv("JIRA_TOOLS_LAMBDA", "agentis-jira-real")
 BUILDER_TOOLS_LAMBDA = os.getenv("BUILDER_TOOLS_LAMBDA", "agentis-builder-tools")
 WORKFLOW_OUTPUT_LAMBDA = os.getenv("WORKFLOW_OUTPUT_LAMBDA", "agentis-workflow-output")
 SKILL_LOADER_LAMBDA = os.getenv("SKILL_LOADER_LAMBDA", "agentis-skill-loader")
@@ -160,9 +201,13 @@ def _parse_mcp_servers():
 
 def _invoke_lambda(function_name: str, tool_name: str, arguments: dict) -> str:
     """Invoke a Lambda-backed tool and return its response text."""
-    # Lambda tools expect short names (e.g., "list_objects" not "S3Storage___list_objects")
-    short_name = tool_name.split("___")[-1] if "___" in tool_name else tool_name
-    payload = {"name": short_name, "arguments": arguments}
+    # Send both field-name conventions so all Lambdas work:
+    # - Jira Lambda: reads event.tool_name + event.parameters
+    # - S3/WorkflowOutput: reads event.name + event.arguments
+    payload = {
+        "name": tool_name, "tool_name": tool_name,
+        "arguments": arguments, "parameters": arguments,
+    }
     response = lambda_client.invoke(
         FunctionName=function_name,
         Payload=json.dumps(payload).encode(),
@@ -630,40 +675,69 @@ async def agent_invocation(payload, context):
     tool_events = []
 
     class ToolTrackingHandler:
-        """Callback handler that records tool invocations and publishes them to DynamoDB for real-time UI."""
+        """Callback handler that records tool invocations and text output, publishing to DynamoDB for real-time UI."""
         def __init__(self):
             self.previous_tool_use = None
 
+        def _publish_event(self, event_type: str, detail: dict):
+            """Publish an event to the DynamoDB events table (fire-and-forget)."""
+            try:
+                import time, random, string
+                event_id = f"{int(time.time() * 1000)}-{''.join(random.choices(string.ascii_lowercase, k=4))}"
+                # Build detail map for DynamoDB
+                detail_map = {}
+                for k, v in detail.items():
+                    if v is not None:
+                        detail_map[k] = {"S": str(v)}
+                _ddb_events_client.put_item(
+                    TableName=_EVENTS_TABLE,
+                    Item={
+                        "workflowId": {"S": workflow_id},
+                        "eventId": {"S": event_id},
+                        "type": {"S": event_type},
+                        "detail": {"M": detail_map},
+                        "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"[{agent_id}] Failed to publish {event_type} event: {e}")
+
         def __call__(self, **kwargs):
             current_tool_use = kwargs.get("current_tool_use", {})
+            data = kwargs.get("data", "")
+            reasoning_text = kwargs.get("reasoningText", "")
+
+            # Tool use events
             if current_tool_use and current_tool_use.get("name"):
                 if self.previous_tool_use != current_tool_use:
                     self.previous_tool_use = current_tool_use
                     tool_name = current_tool_use["name"]
                     tool_events.append(tool_name)
                     logger.info(f"[{agent_id}] Tool call: {tool_name}")
-                    # Publish real-time tool_use event to DynamoDB events table
-                    try:
-                        import time, random, string
-                        event_id = f"{int(time.time() * 1000)}-{''.join(random.choices(string.ascii_lowercase, k=4))}"
-                        _ddb_events_client.put_item(
-                            TableName=_EVENTS_TABLE,
-                            Item={
-                                "workflowId": {"S": workflow_id},
-                                "eventId": {"S": event_id},
-                                "type": {"S": "agent.streaming"},
-                                "detail": {"M": {
-                                    "agentId": {"S": agent_id},
-                                    "type": {"S": "trace"},
-                                    "toolName": {"S": tool_name},
-                                    "workflowId": {"S": workflow_id},
-                                    "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
-                                }},
-                                "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
-                            },
-                        )
-                    except Exception as e:
-                        logger.warning(f"[{agent_id}] Failed to publish tool event: {e}")
+                    self._publish_event("agent.streaming", {
+                        "agentId": agent_id,
+                        "type": "trace",
+                        "toolName": tool_name,
+                        "workflowId": workflow_id,
+                    })
+
+            # Text output events (agent's visible response text)
+            if data:
+                self._publish_event("agent.streaming", {
+                    "agentId": agent_id,
+                    "type": "text",
+                    "content": data,
+                    "workflowId": workflow_id,
+                })
+
+            # Reasoning/thinking events
+            if reasoning_text:
+                self._publish_event("agent.streaming", {
+                    "agentId": agent_id,
+                    "type": "reasoning",
+                    "content": reasoning_text,
+                    "workflowId": workflow_id,
+                })
 
     # Create agent with system prompt baked in at deploy time (SYSTEM_PROMPT env var)
     agent = Agent(
