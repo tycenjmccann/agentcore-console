@@ -151,7 +151,7 @@ export default function WorkflowPage() {
       <div className={`${historyCollapsed ? 'w-8' : 'w-72'} transition-all duration-300 border-r border-[var(--color-border)] bg-[var(--color-bg-secondary)] flex flex-col flex-shrink-0 overflow-hidden`}>
         {historyCollapsed ? (
           <div className="flex flex-col items-center pt-3 h-full">
-            <button onClick={toggleHistory} className="p-1 rounded hover:bg-[var(--color-bg-tertiary)]">
+            <button onClick={toggleHistory} className="p-1 rounded hover:bg-[var(--color-bg-tertiary)]" aria-label="Expand workflow history sidebar">
               <ChevronRight className="w-4 h-4 text-[var(--color-text-muted)]" />
             </button>
             <span className="mt-4 text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider" style={{ writingMode: 'vertical-rl' }}>
@@ -164,7 +164,7 @@ export default function WorkflowPage() {
             <div className="p-4 border-b border-[var(--color-border)]">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-1">
-                  <button onClick={toggleHistory} className="p-1 rounded hover:bg-[var(--color-bg-tertiary)]">
+                  <button onClick={toggleHistory} className="p-1 rounded hover:bg-[var(--color-bg-tertiary)]" aria-label="Collapse workflow history sidebar">
                     <ChevronLeft className="w-4 h-4 text-[var(--color-text-muted)]" />
                   </button>
                   <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Workflows</h2>
