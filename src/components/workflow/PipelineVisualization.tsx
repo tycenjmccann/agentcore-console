@@ -9,6 +9,8 @@ import awsIcons from "@/lib/aws-icons.json";
 interface PipelineVisualizationProps {
   workflowState: WorkflowState | null;
   onStepClick?: (phaseId: string, itemId: string) => void;
+  /** When provided, overrides the live state for rendering (used by replay scrubber) */
+  overrideState?: WorkflowState | null;
 }
 
 type PhaseVisualState = "idle" | "active" | "done";
@@ -321,7 +323,7 @@ function getStatusDescription(phase: WorkflowPhase): { label: string; text: stri
 
 // ─── Component ─────────────────────────────────────────────────────────────────
 
-export default function PipelineVisualization({ workflowState, onStepClick }: PipelineVisualizationProps) {
+export default function PipelineVisualization({ workflowState, onStepClick, overrideState }: PipelineVisualizationProps) {
   const [celebrating, setCelebrating] = useState(false);
   const [liveState, setLiveState] = useState<WorkflowState | null>(workflowState);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -398,8 +400,10 @@ export default function PipelineVisualization({ workflowState, onStepClick }: Pi
     });
   }, []);
 
-  const currentPhase = liveState?.phase ?? "intake";
-  const agentTasks = liveState?.agentTasks ?? {};
+  // Use overrideState for rendering if provided, otherwise use liveState
+  const renderState = overrideState !== undefined ? overrideState : liveState;
+  const currentPhase = renderState?.phase ?? "intake";
+  const agentTasks = renderState?.agentTasks ?? {};
   const status = getStatusDescription(currentPhase);
 
   return (
