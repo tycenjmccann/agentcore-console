@@ -36,9 +36,13 @@ export function ReplayScrubber({ eventLog, onSeek }: ReplayScrubberProps) {
   const [isSnapping, setIsSnapping] = useState(false);
   const prevProgressRef = useRef(state.progress);
 
-  // Notify parent of position changes
+  // Notify parent of position changes (guarded to prevent infinite loops if onSeek isn't memoized)
+  const prevEventIndexRef = useRef(eventIndex);
   useEffect(() => {
-    onSeek?.(eventIndex);
+    if (prevEventIndexRef.current !== eventIndex) {
+      prevEventIndexRef.current = eventIndex;
+      onSeek?.(eventIndex);
+    }
   }, [eventIndex, onSeek]);
 
   // Detect snap for visual feedback
@@ -100,6 +104,8 @@ export function ReplayScrubber({ eventLog, onSeek }: ReplayScrubberProps) {
 
   const handleTrackPointerDown = useCallback(
     (e: React.PointerEvent) => {
+      // Skip if clicking on a phase marker (marker has its own onClick handler)
+      if ((e.target as HTMLElement).closest('.scrubber-marker')) return;
       e.preventDefault();
       const progress = getProgressFromEvent(e.clientX);
       actions.dragStart();

@@ -35,7 +35,8 @@ type ReplayAction =
   | { type: "DRAG_START" }
   | { type: "DRAG_END"; progress: number }
   | { type: "HOVER"; progress: number | null }
-  | { type: "REACHED_END" };
+  | { type: "REACHED_END" }
+  | { type: "SYNC_TIMELINE"; totalDuration: number; phaseMarkers: PhaseMarkerData[] };
 
 // ─── Phase label mapping ───────────────────────────────────────────────────────
 
@@ -107,6 +108,8 @@ function replayReducer(state: ReplayState, action: ReplayAction): ReplayState {
       return { ...state, hoverProgress: action.progress };
     case "REACHED_END":
       return { ...state, status: "at-end", progress: 1, currentTime: state.totalDuration };
+    case "SYNC_TIMELINE":
+      return { ...state, totalDuration: action.totalDuration, phaseMarkers: action.phaseMarkers };
     default:
       return state;
   }
@@ -165,9 +168,11 @@ export function useReplayState(eventLog: StoredEvent[]) {
 
   const [state, dispatch] = useReducer(replayReducer, initialState);
 
-  // Update totalDuration and phaseMarkers when eventLog changes
-  // Since useReducer doesn't auto-sync, we keep them in state via an effect workaround.
-  // In practice the eventLog won't change after mount for completed workflows.
+  // Sync reducer state when eventLog arrives asynchronously (totalDuration/phaseMarkers change)
+  useEffect(() => {
+    dispatch({ type: "SYNC_TIMELINE", totalDuration, phaseMarkers });
+  }, [totalDuration, phaseMarkers]);
+
   const stateRef = useRef(state);
   stateRef.current = state;
 
