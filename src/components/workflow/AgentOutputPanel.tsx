@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { X, AlertCircle, FileText } from "lucide-react";
 import type { AgentTask } from "@/lib/workflow/types";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import "./pipeline.css";
 
 interface AgentOutputPanelProps {
   task: AgentTask | null;
