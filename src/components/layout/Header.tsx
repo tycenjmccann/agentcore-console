@@ -10,12 +10,18 @@ const pageTitles: Record<string, string> = {
   "/": "Dashboard",
   "/agents": "Agents",
   "/build": "Build",
+  "/workflow": "Workflow",
+  "/routing": "Routing",
+  "/tickets": "Ticket History",
+  "/invoke": "Invoke",
 };
 
 export default function Header() {
   const pathname = usePathname();
   const title = pathname.startsWith("/agents/") && pathname !== "/agents"
     ? "Agent Detail"
+    : pathname.startsWith("/workflow/") && pathname !== "/workflow"
+    ? "Workflow Detail"
     : pageTitles[pathname] || "AgentCore Console";
 
   const [region, setRegion] = useState("us-east-1");
