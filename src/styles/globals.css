@@ -116,6 +116,25 @@
   .status-pending {
     @apply status-dot bg-yellow-400 animate-pulse;
   }
+
+  /* ===== Sidebar CSS-only Tooltips ===== */
+  .sidebar-tooltip {
+    @apply absolute left-full ml-3 px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap;
+    background-color: var(--color-surface-3);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-surface-4);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 200ms ease, visibility 200ms ease;
+    z-index: 100;
+  }
+
+  .group:hover .sidebar-tooltip {
+    opacity: 1;
+    visibility: visible;
+  }
 }
 
 @layer utilities {

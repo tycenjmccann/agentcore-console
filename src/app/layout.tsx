@@ -4,6 +4,7 @@ import "@/styles/globals.css";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
 import { ThemeProvider } from "@/components/theme-provider";
+import { SidebarLayout } from "@/components/layout/SidebarLayout";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -33,6 +34,13 @@ export default function RootLayout({
                 } catch (e) {
                   document.documentElement.setAttribute('data-theme', 'dark');
                 }
+                // Sidebar collapse state - prevent layout flash
+                try {
+                  var sidebarCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+                  document.documentElement.setAttribute('data-sidebar-collapsed', String(sidebarCollapsed));
+                } catch (e) {
+                  document.documentElement.setAttribute('data-sidebar-collapsed', 'false');
+                }
               })();
             `,
           }}
@@ -42,10 +50,10 @@ export default function RootLayout({
         <ThemeProvider>
           <div className="flex min-h-screen">
             <Sidebar />
-            <div className="flex-1 ml-64">
+            <SidebarLayout>
               <Header />
               <main className="p-6">{children}</main>
-            </div>
+            </SidebarLayout>
           </div>
         </ThemeProvider>
       </body>
