@@ -1,0 +1,350 @@
+/* ─── Replay Scrubber ─────────────────────────────────────────────────────── */
+
+:root {
+  --scrubber-track-height: 4px;
+  --scrubber-track-hover-height: 6px;
+  --scrubber-track-bg: var(--pipeline-border, #1e293b);
+  --scrubber-track-filled: var(--pipeline-active, #0ea5e9);
+  --scrubber-playhead-size: 14px;
+  --scrubber-playhead-hover-size: 18px;
+  --scrubber-playhead-color: var(--pipeline-active, #0ea5e9);
+  --scrubber-playhead-glow: rgba(14, 165, 233, 0.4);
+  --scrubber-marker-color: var(--pipeline-text-dim, #475569);
+  --scrubber-marker-active-color: var(--pipeline-text, #e2e8f0);
+}
+
+.replay-scrubber {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: rgba(15, 20, 25, 0.95);
+  border-top: 1px solid #1e293b;
+  border-radius: 0 0 12px 12px;
+  user-select: none;
+  animation: scrubberSlideIn 300ms ease-out;
+  width: 100%;
+  max-width: 1720px;
+  margin-top: 0;
+}
+
+/* ─── Play/Pause Button ───────────────────────────────────────────────────── */
+
+.scrubber-play-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(100, 116, 139, 0.15);
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, transform 200ms ease;
+  flex-shrink: 0;
+}
+
+.scrubber-play-btn:hover {
+  background: rgba(100, 116, 139, 0.3);
+  color: #e2e8f0;
+  transform: scale(1.05);
+}
+
+.scrubber-play-btn:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
+}
+
+.scrubber-play-btn.playing {
+  background: #0ea5e9;
+  color: #fff;
+}
+
+.scrubber-play-btn.playing:hover {
+  background: #0284c7;
+}
+
+.scrubber-play-btn.at-end {
+  color: #0ea5e9;
+}
+
+/* ─── Timeline Track ──────────────────────────────────────────────────────── */
+
+.scrubber-track {
+  flex: 1;
+  position: relative;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.scrubber-track-rail {
+  width: 100%;
+  height: var(--scrubber-track-height);
+  background: var(--scrubber-track-bg);
+  border-radius: 2px;
+  position: relative;
+  transition: height 150ms ease;
+}
+
+.scrubber-track:hover .scrubber-track-rail {
+  height: var(--scrubber-track-hover-height);
+}
+
+.scrubber-track-filled {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--scrubber-track-filled);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* ─── Playhead ────────────────────────────────────────────────────────────── */
+
+.scrubber-playhead {
+  position: absolute;
+  width: var(--scrubber-playhead-size);
+  height: var(--scrubber-playhead-size);
+  border-radius: 50%;
+  background: var(--scrubber-playhead-color);
+  border: 2px solid rgba(14, 165, 233, 0.8);
+  box-shadow: 0 0 8px var(--scrubber-playhead-glow);
+  transform: translate(-50%, -50%);
+  top: 50%;
+  pointer-events: none;
+  transition: width 200ms ease, height 200ms ease, box-shadow 150ms ease;
+  z-index: 5;
+}
+
+.scrubber-track:hover .scrubber-playhead {
+  width: var(--scrubber-playhead-hover-size);
+  height: var(--scrubber-playhead-hover-size);
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.6);
+}
+
+.scrubber-playhead.dragging {
+  width: 20px;
+  height: 20px;
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.7);
+}
+
+.scrubber-playhead.snapping {
+  animation: playheadSnap 200ms ease-out;
+}
+
+@keyframes playheadSnap {
+  0% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.3); }
+  100% { transform: translate(-50%, -50%) scale(1); }
+}
+
+/* ─── Phase Markers ───────────────────────────────────────────────────────── */
+
+.scrubber-markers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+.scrubber-marker {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 3;
+}
+
+.scrubber-marker-tick {
+  width: 1px;
+  height: 12px;
+  background: #475569;
+  transition: height 200ms ease, background 150ms ease;
+}
+
+.scrubber-marker.active .scrubber-marker-tick {
+  height: 16px;
+  background: #0ea5e9;
+}
+
+.scrubber-marker-label {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 4px;
+  white-space: nowrap;
+  transition: color 150ms ease;
+}
+
+.scrubber-marker.active .scrubber-marker-label {
+  color: #e2e8f0;
+}
+
+/* ─── Hover Tooltip ───────────────────────────────────────────────────────── */
+
+.scrubber-tooltip {
+  position: absolute;
+  top: -28px;
+  transform: translateX(-50%);
+  background: #1a2332;
+  border: 1px solid #1e293b;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  color: #94a3b8;
+  pointer-events: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 100ms ease;
+  z-index: 10;
+}
+
+.scrubber-track:hover .scrubber-tooltip {
+  opacity: 1;
+}
+
+/* ─── Speed Controls ──────────────────────────────────────────────────────── */
+
+.scrubber-speed-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: #1a2332;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.scrubber-speed-pill {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+  min-width: 40px;
+  text-align: center;
+}
+
+.scrubber-speed-pill:hover {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.scrubber-speed-pill:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: -2px;
+}
+
+.scrubber-speed-pill.active {
+  background: rgba(14, 165, 233, 0.2);
+  color: #0ea5e9;
+}
+
+/* ─── Screen Reader Only ──────────────────────────────────────────────────── */
+
+.scrubber-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  .scrubber-marker-label {
+    font-size: 9px;
+  }
+}
+
+@media (max-width: 639px) {
+  .replay-scrubber {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .scrubber-track {
+    order: 1;
+    flex-basis: calc(100% - 52px);
+  }
+
+  .scrubber-play-btn {
+    order: 0;
+    width: 44px;
+    height: 44px;
+  }
+
+  .scrubber-speed-group {
+    order: 2;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .scrubber-speed-pill {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .scrubber-marker-label {
+    display: none;
+  }
+}
+
+/* ─── Reduced Motion ──────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .replay-scrubber {
+    animation: none;
+  }
+
+  .scrubber-playhead,
+  .scrubber-track-rail,
+  .scrubber-track-filled,
+  .scrubber-marker-tick,
+  .scrubber-marker-label,
+  .scrubber-tooltip,
+  .scrubber-play-btn,
+  .scrubber-speed-pill {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ─── Animations ──────────────────────────────────────────────────────────── */
+
+@keyframes scrubberSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
