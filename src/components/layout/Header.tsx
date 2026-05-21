@@ -18,12 +18,15 @@ export default function Header() {
     ? "Agent Detail"
     : pageTitles[pathname] || "AgentCore Console";
 
-  const [region, setRegion] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("aws-region") || "us-east-1";
-    }
-    return "us-east-1";
-  });
+  const [region, setRegion] = useState("us-east-1");
+
+  // Sync from localStorage after hydration to avoid SSR mismatch
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("aws-region");
+      if (stored) setRegion(stored);
+    } catch {}
+  }, []);
   const [regions, setRegions] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
 
