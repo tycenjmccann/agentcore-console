@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { Globe, ChevronDown } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { invalidateCachePrefix } from "@/lib/client-cache";
 import ThemeToggle from "./ThemeToggle";
 
@@ -10,13 +10,36 @@ const pageTitles: Record<string, string> = {
   "/": "Dashboard",
   "/agents": "Agents",
   "/build": "Build",
+  "/workflow": "Workflow",
 };
 
-export default function Header() {
+function HeaderInner() {
   const pathname = usePathname();
-  const title = pathname.startsWith("/agents/") && pathname !== "/agents"
-    ? "Agent Detail"
-    : pageTitles[pathname] || "AgentCore Console";
+  const searchParams = useSearchParams();
+  const [workflowTitle, setWorkflowTitle] = useState<string>("");
+
+  // Fetch workflow title when on /workflow with an id param
+  useEffect(() => {
+    if (pathname === "/workflow") {
+      const id = searchParams.get("id");
+      if (id) {
+        fetch(`/api/workflow/${id}/state`)
+          .then((r) => r.json())
+          .then((data) => {
+            setWorkflowTitle(data?.input?.title || "");
+          })
+          .catch(() => setWorkflowTitle(""));
+      } else {
+        setWorkflowTitle("");
+      }
+    }
+  }, [pathname, searchParams]);
+
+  const title = pathname === "/workflow"
+    ? (workflowTitle ? `Workflow: ${workflowTitle}` : "Workflow")
+    : pathname.startsWith("/agents/") && pathname !== "/agents"
+      ? "Agent Detail"
+      : pageTitles[pathname] || "AgentCore Console";
 
   const [region, setRegion] = useState("us-east-1");
 
@@ -100,5 +123,19 @@ export default function Header() {
         </div>
       </div>
     </header>
+  );
+}
+
+export default function Header() {
+  return (
+    <Suspense
+      fallback={
+        <header className="h-14 bg-surface-1 border-b border-surface-4 flex items-center justify-between px-6">
+          <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Loading...</h2>
+        </header>
+      }
+    >
+      <HeaderInner />
+    </Suspense>
   );
 }

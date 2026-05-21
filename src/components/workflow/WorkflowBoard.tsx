@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { FolderOpen } from "lucide-react";
 import type {
   WorkflowState,
   WorkflowEvent,
@@ -8,6 +9,7 @@ import type {
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
 import AgentOutputPanel from "./AgentOutputPanel";
+import ArtifactsModal from "./ArtifactsModal";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -84,6 +86,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const [connectorPaths, setConnectorPaths] = useState<string[]>([]);
   const eventSourceRef = useRef<EventSource | null>(null);
   const pipelineRef = useRef<HTMLDivElement>(null);
+
+  // Artifacts modal state
+  const [artifactsModalOpen, setArtifactsModalOpen] = useState(false);
 
   // Replay state for completed workflows
   const [replayMode, setReplayMode] = useState(false);
@@ -720,8 +725,6 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       )}
 
       <div className="pipeline-viz">
-        <div className="pipeline-title">Agentis Hub</div>
-        <div className="pipeline-subtitle">Autonomous Multi-Agent Development Pipeline</div>
 
         {/* Legend */}
         <div className="pipeline-legend">
@@ -955,6 +958,20 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                       })}
                     </>
                   )}
+
+                  {/* S3 Artifacts Button */}
+                  {phase.type === "agent" && idx <= currentPhaseIndex && (
+                    <button
+                      className={`item artifacts-trigger ${getItemClass(idx)}`}
+                      onClick={() => setArtifactsModalOpen(true)}
+                      aria-label={`View S3 artifacts for ${phase.name} phase`}
+                      title="View S3 Artifacts"
+                    >
+                      <FolderOpen className="artifacts-icon" size={14} aria-hidden="true" />
+                      <span className="item-label">S3 Artifacts</span>
+                      <span className="item-status" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -1035,6 +1052,13 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             output: streamingText[expandedAgent] || agentFullOutput[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || originalOutputsRef.current[expandedAgent] || "",
             branch: Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.branch,
           } : null}
+        />
+
+        {/* Artifacts Modal */}
+        <ArtifactsModal
+          isOpen={artifactsModalOpen}
+          onClose={() => setArtifactsModalOpen(false)}
+          workflowId={workflowId}
         />
       </div>
     </div>
@@ -1170,4 +1194,78 @@ const PIPELINE_STYLES = `
 
 .nudge-pulse-overlay{position:fixed;inset:0;z-index:9999;pointer-events:none;animation:nudgePulse 1.5s ease-out forwards}
 @keyframes nudgePulse{0%{background:rgba(236,72,153,0.35);box-shadow:inset 0 0 120px rgba(236,72,153,0.6)}30%{background:rgba(236,72,153,0.15);box-shadow:inset 0 0 60px rgba(236,72,153,0.3)}100%{background:transparent;box-shadow:none}}
+
+/* ─── Artifacts Button ───────────────────────────────────────────────────── */
+.item.artifacts-trigger{cursor:pointer;transition:all .15s ease}
+.item.artifacts-trigger:hover{background:rgba(14,165,233,0.06);border-color:rgba(14,165,233,0.2)}
+.item.artifacts-trigger:hover .item-label{color:#94a3b8}
+.item.artifacts-trigger:hover .artifacts-icon{color:#94a3b8}
+.item.artifacts-trigger:active{transform:scale(0.97)}
+.item.artifacts-trigger:focus-visible{outline:none;box-shadow:0 0 0 2px #0ea5e9}
+.artifacts-icon{width:14px;height:14px;color:#64748b;transition:color .15s ease;flex-shrink:0}
+
+/* ─── Artifacts Modal ────────────────────────────────────────────────────── */
+.artifacts-modal{position:relative;z-index:201;width:800px;max-width:calc(100vw - 32px);max-height:80vh;background:#1a2332;border:1px solid #1e293b;border-radius:12px;display:flex;flex-direction:column;overflow:hidden}
+.artifacts-modal-header-left{display:flex;align-items:center;gap:12px;min-width:0;flex:1}
+.artifacts-modal-header-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.artifacts-download-all-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;border:none;background:#0ea5e9;color:white;font-size:12px;font-weight:500;cursor:pointer;transition:background .15s ease,opacity .15s ease}
+.artifacts-download-all-btn:hover{background:#0284c7}
+.artifacts-download-all-btn:disabled{opacity:0.7;cursor:not-allowed}
+.artifacts-download-all-btn:focus-visible{outline:none;box-shadow:0 0 0 2px white,0 0 0 4px #0ea5e9}
+.artifacts-content{flex:1;overflow-y:auto;padding:16px 24px 24px}
+.artifacts-content::-webkit-scrollbar{width:6px}
+.artifacts-content::-webkit-scrollbar-track{background:transparent}
+.artifacts-content::-webkit-scrollbar-thumb{background:#1e293b;border-radius:3px}
+.artifacts-content::-webkit-scrollbar-thumb:hover{background:#475569}
+.artifacts-folder{margin-bottom:12px}
+.artifacts-folder:last-child{margin-bottom:0}
+.artifacts-folder-header{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;border:none;background:rgba(30,41,59,0.3);width:100%;text-align:left;cursor:pointer;transition:background .15s ease}
+.artifacts-folder-header:hover{background:rgba(30,41,59,0.6)}
+.artifacts-folder-header:focus-visible{outline:none;box-shadow:0 0 0 2px #0ea5e9}
+.artifacts-folder-chevron{width:14px;height:14px;color:#64748b;transition:transform .2s ease;flex-shrink:0}
+.artifacts-folder-chevron.expanded{transform:rotate(90deg)}
+.artifacts-folder-icon{width:14px;height:14px;color:#64748b;flex-shrink:0}
+.artifacts-folder-name{font-size:12px;font-weight:600;color:#e2e8f0;flex:1}
+.artifacts-folder-count{font-size:10px;color:#64748b;background:rgba(100,116,139,0.15);padding:2px 6px;border-radius:8px}
+.artifacts-folder-files{overflow:hidden;transition:max-height .2s ease;padding-left:12px;margin-top:4px}
+.artifacts-folder-files.collapsed{max-height:0;margin-top:0}
+.artifact-row{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:6px;border:1px solid transparent;margin-bottom:2px;cursor:pointer;transition:background .15s ease,border-color .15s ease;width:100%;text-align:left;background:transparent}
+.artifact-row:hover{background:rgba(30,41,59,0.5);border-color:#1e293b}
+.artifact-row:focus-visible{outline:none;box-shadow:0 0 0 2px #0ea5e9}
+.artifact-row:active{transform:scale(0.99)}
+.artifact-row-icon{width:14px;height:14px;color:#475569;flex-shrink:0}
+.artifact-row-name{font-size:12px;font-weight:500;color:#94a3b8;font-family:"JetBrains Mono","Fira Code",monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.artifact-row:hover .artifact-row-name{color:#e2e8f0}
+.artifact-row-size{font-size:11px;color:#64748b;flex-shrink:0;min-width:52px;text-align:right}
+.artifact-row-date{font-size:11px;color:#475569;flex-shrink:0;min-width:72px;text-align:right}
+.artifact-row-download{width:14px;height:14px;color:#64748b;flex-shrink:0;opacity:0;transition:opacity .15s ease}
+.artifact-row:hover .artifact-row-download{opacity:1}
+.artifacts-footer{display:flex;align-items:center;justify-content:space-between;padding:10px 24px;border-top:1px solid #1e293b;font-size:11px;color:#64748b;flex-shrink:0}
+.artifacts-footer-stat{display:flex;align-items:center;gap:4px}
+.artifacts-state-container{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:200px;text-align:center;padding:32px}
+.artifacts-state-icon{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:12px;background:rgba(100,116,139,0.1)}
+.artifacts-state-icon.error{background:rgba(239,68,68,0.1)}
+.artifacts-state-title{font-size:14px;color:#94a3b8;margin-bottom:4px}
+.artifacts-state-subtitle{font-size:12px;color:#64748b}
+.artifacts-retry-btn{margin-top:12px;padding:6px 12px;border-radius:6px;border:1px solid #1e293b;background:rgba(30,41,59,0.5);color:#94a3b8;font-size:12px;cursor:pointer;transition:all .15s ease}
+.artifacts-retry-btn:hover{border-color:#0ea5e9;background:rgba(14,165,233,0.1);color:#e2e8f0}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
+@media(max-width:639px){
+.artifacts-modal{width:calc(100vw - 32px);max-height:85vh}
+.artifacts-content{padding:12px 16px 16px}
+.artifacts-modal .modal-header{padding:12px 16px}
+.artifacts-footer{padding:8px 16px}
+.artifact-row-date{display:none}
+.artifacts-download-all-btn .btn-label{display:none}
+}
+@media(min-width:640px) and (max-width:1023px){
+.artifacts-modal{width:min(800px,90vw)}
+}
+@media(prefers-reduced-motion:reduce){
+.artifacts-folder-chevron{transition:none}
+.artifacts-folder-files{transition:none}
+.artifact-row{transition:none}
+.item.artifacts-trigger{transition:none}
+}
 `;
