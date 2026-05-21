@@ -111,6 +111,10 @@ export default function AgentOutputPanel({
     }
   }, [isOpen]);
 
+  const handleClose = useCallback(() => {
+    setIsAnimatingOut(true);
+  }, []);
+
   // Close on Escape key
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -121,10 +125,6 @@ export default function AgentOutputPanel({
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [isOpen, isAnimatingOut, handleClose]);
-
-  const handleClose = useCallback(() => {
-    setIsAnimatingOut(true);
-  }, []);
 
   const handleAnimationEnd = useCallback(() => {
     if (isAnimatingOut) {
