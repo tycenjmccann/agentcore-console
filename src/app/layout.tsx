@@ -4,6 +4,8 @@ import "@/styles/globals.css";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
 import { ThemeProvider } from "@/components/theme-provider";
+import { SidebarProvider } from "@/components/layout/sidebar/SidebarContext";
+import MainContent from "@/components/layout/MainContent";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -30,6 +32,9 @@ export default function RootLayout({
                     theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
                   }
                   document.documentElement.setAttribute('data-theme', theme);
+                  if (localStorage.getItem('sidebar-collapsed') === 'true') {
+                    document.documentElement.setAttribute('data-sidebar-collapsed', 'true');
+                  }
                 } catch (e) {
                   document.documentElement.setAttribute('data-theme', 'dark');
                 }
@@ -40,13 +45,15 @@ export default function RootLayout({
       </head>
       <body className={inter.className}>
         <ThemeProvider>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <div className="flex-1 ml-64">
-              <Header />
-              <main className="p-6">{children}</main>
+          <SidebarProvider>
+            <div className="flex min-h-screen">
+              <Sidebar />
+              <MainContent>
+                <Header />
+                <main className="p-6">{children}</main>
+              </MainContent>
             </div>
-          </div>
+          </SidebarProvider>
         </ThemeProvider>
       </body>
     </html>
