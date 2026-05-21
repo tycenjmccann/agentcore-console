@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Search, Plus, Play, Radio, Zap } from "lucide-react";
+import { Search, Plus, Play, Radio, Zap, ChevronLeft, ChevronRight } from "lucide-react";
 import WorkflowBoard from "@/components/workflow/WorkflowBoard";
 import IntakeForm from "@/components/workflow/IntakeForm";
 import type { WorkflowState, WorkflowInput } from "@/lib/workflow/types";
@@ -22,6 +22,18 @@ export default function WorkflowPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [nudgeToast, setNudgeToast] = useState<{ message: string; type: "success" | "info" | "error" } | null>(null);
+  const [historyCollapsed, setHistoryCollapsed] = useState(true);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('workflow-history-collapsed');
+    if (stored !== null) setHistoryCollapsed(stored === 'true');
+  }, []);
+
+  const toggleHistory = () => {
+    const next = !historyCollapsed;
+    setHistoryCollapsed(next);
+    localStorage.setItem('workflow-history-collapsed', String(next));
+  };
 
   // Load workflow list
   const fetchWorkflows = useCallback(async () => {
@@ -136,77 +148,95 @@ export default function WorkflowPage() {
   return (
     <div className="flex h-[calc(100vh-64px)] -m-6">
       {/* Left Sidebar — Epic History */}
-      <div className="w-72 border-r border-[var(--color-border)] bg-[var(--color-bg-secondary)] flex flex-col flex-shrink-0">
-        {/* Header */}
-        <div className="p-4 border-b border-[var(--color-border)]">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Workflows</h2>
-            <button
-              onClick={handleNewWorkflow}
-              className="p-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-colors"
-              title="New Workflow"
-            >
-              <Plus className="w-3.5 h-3.5" />
+      <div className={`${historyCollapsed ? 'w-8' : 'w-72'} transition-all duration-300 border-r border-[var(--color-border)] bg-[var(--color-bg-secondary)] flex flex-col flex-shrink-0 overflow-hidden`}>
+        {historyCollapsed ? (
+          <div className="flex flex-col items-center pt-3 h-full">
+            <button onClick={toggleHistory} className="p-1 rounded hover:bg-[var(--color-bg-tertiary)]">
+              <ChevronRight className="w-4 h-4 text-[var(--color-text-muted)]" />
             </button>
+            <span className="mt-4 text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider" style={{ writingMode: 'vertical-rl' }}>
+              Workflows
+            </span>
           </div>
+        ) : (
+          <>
+            {/* Header */}
+            <div className="p-4 border-b border-[var(--color-border)]">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-1">
+                  <button onClick={toggleHistory} className="p-1 rounded hover:bg-[var(--color-bg-tertiary)]">
+                    <ChevronLeft className="w-4 h-4 text-[var(--color-text-muted)]" />
+                  </button>
+                  <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Workflows</h2>
+                </div>
+                <button
+                  onClick={handleNewWorkflow}
+                  className="p-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+                  title="New Workflow"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
 
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--color-text-muted)]" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search epics..."
-              className="w-full pl-8 pr-3 py-1.5 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-md text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-blue-500"
-            />
-          </div>
-        </div>
-
-        {/* Workflow List */}
-        <div className="flex-1 overflow-y-auto">
-          {/* Active Runs */}
-          {activeWorkflows.length > 0 && (
-            <div className="p-2">
-              <p className="px-2 py-1 text-[10px] font-semibold text-green-400 uppercase tracking-wider">
-                Active
-              </p>
-              {activeWorkflows.map((w) => (
-                <WorkflowListItem
-                  key={w.id}
-                  workflow={w}
-                  isSelected={selectedId === w.id}
-                  isActive
-                  onClick={() => handleSelectWorkflow(w.id)}
-                  onNudge={handleNudge}
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search epics..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-md text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-blue-500"
                 />
-              ))}
+              </div>
             </div>
-          )}
 
-          {/* Past Runs */}
-          {pastWorkflows.length > 0 && (
-            <div className="p-2">
-              <p className="px-2 py-1 text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">
-                Completed
-              </p>
-              {pastWorkflows.map((w) => (
-                <WorkflowListItem
-                  key={w.id}
-                  workflow={w}
-                  isSelected={selectedId === w.id}
-                  onClick={() => handleSelectWorkflow(w.id)}
-                />
-              ))}
-            </div>
-          )}
+            {/* Workflow List */}
+            <div className="flex-1 overflow-y-auto">
+              {/* Active Runs */}
+              {activeWorkflows.length > 0 && (
+                <div className="p-2">
+                  <p className="px-2 py-1 text-[10px] font-semibold text-green-400 uppercase tracking-wider">
+                    Active
+                  </p>
+                  {activeWorkflows.map((w) => (
+                    <WorkflowListItem
+                      key={w.id}
+                      workflow={w}
+                      isSelected={selectedId === w.id}
+                      isActive
+                      onClick={() => handleSelectWorkflow(w.id)}
+                      onNudge={handleNudge}
+                    />
+                  ))}
+                </div>
+              )}
 
-          {filtered.length === 0 && (
-            <div className="p-4 text-center text-xs text-[var(--color-text-muted)]">
-              {searchQuery ? "No matching workflows" : "No workflows yet"}
+              {/* Past Runs */}
+              {pastWorkflows.length > 0 && (
+                <div className="p-2">
+                  <p className="px-2 py-1 text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">
+                    Completed
+                  </p>
+                  {pastWorkflows.map((w) => (
+                    <WorkflowListItem
+                      key={w.id}
+                      workflow={w}
+                      isSelected={selectedId === w.id}
+                      onClick={() => handleSelectWorkflow(w.id)}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {filtered.length === 0 && (
+                <div className="p-4 text-center text-xs text-[var(--color-text-muted)]">
+                  {searchQuery ? "No matching workflows" : "No workflows yet"}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
 
       {/* Main Content */}
