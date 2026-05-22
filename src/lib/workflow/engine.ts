@@ -56,19 +56,6 @@ function getIntakeAgent() {
   return agents[0];
 }
 
-/** Get a default development agent — first agent in the "development" phase. */
-function getDefaultDevAgent() {
-  const agents = getAgentsForPhase("development");
-  if (agents.length === 0) throw new Error("No agent configured for 'development' phase");
-  return agents[0];
-}
-
-/** Get a default design agent — first agent in the "design" phase. */
-function getDefaultDesignAgent() {
-  const agents = getAgentsForPhase("design");
-  if (agents.length === 0) throw new Error("No agent configured for 'design' phase");
-  return agents[0];
-}
 
 // Convenience: get the ticket provider (lazy singleton)
 function tickets(): TicketProvider {
@@ -134,32 +121,6 @@ async function syncDynamoTicketsToStore(epicId: string): Promise<void> {
 /**
  * Read the ticket plan from S3 (written by the requirements agent via WorkflowOutput tool).
  */
-async function readTicketPlanFromS3(workflowId: string): Promise<TicketPlan | null> {
-  try {
-    const content = await readArtifact({
-      workflowId,
-      shared: true,
-      filename: "ticket-plan.json",
-    });
-    if (!content) return null;
-    const parsed = JSON.parse(content);
-    if (parsed.tickets && Array.isArray(parsed.tickets)) {
-      return {
-        requirements: parsed.requirements || "",
-        tickets: parsed.tickets.map((t: Record<string, unknown>) => ({
-          title: t.title || "Untitled",
-          description: t.description || "",
-          assignee: t.assignee || getDefaultDevAgent().id,
-          blockedBy: Array.isArray(t.blockedBy) ? t.blockedBy : [],
-        })),
-      };
-    }
-    return null;
-  } catch (err) {
-    console.warn(`[engine] Failed to read ticket-plan.json from S3 for ${workflowId}:`, err);
-    return null;
-  }
-}
 
 // ─── Engine Entry Point ──────────────────────────────────────────────────────
 
@@ -486,43 +447,19 @@ export async function handleRequirementsCompletion(
 
   emitEvent(workflowId, { type: "agent_complete", agentId: reqAgent.id, output });
 
-  const providerType = process.env.TICKET_PROVIDER || "memory";
+  // Tickets already exist — the reqs agent created them via JiraIntegration___create_ticket tools.
+  // We just mark the epic done and sync state into the in-memory store for the UI.
+  console.log(`[engine] Tickets already created by agent via tools — syncing state`);
+  await tickets().markDone(epicId, workflowId);
 
-  if (providerType === "dynamodb") {
-    // ─── DynamoDB path: tickets already exist (agent created them via JiraIntegration tools) ───
-    // The agent called JiraIntegration___create_ticket for each ticket during its run.
-    // We just need to mark the epic done and sync DynamoDB state into the in-memory store.
-    console.log(`[engine] DynamoDB mode — tickets already created by agent via gateway tools`);
-    await tickets().markDone(epicId, workflowId);
+  await tickets().addArtifact(epicId, {
+    type: "requirements",
+    title: "Requirements Document",
+    content: output,
+    producedBy: reqAgent.id,
+  });
 
-    // Store requirements text as an artifact on the epic
-    await tickets().addArtifact(epicId, {
-      type: "requirements",
-      title: "Requirements Document",
-      content: output,
-      producedBy: reqAgent.id,
-    });
-
-    // Sync: pull tickets from DynamoDB into in-memory store so processReadyTickets works
-    await syncDynamoTicketsToStore(epicId);
-  } else {
-    // ─── Legacy path: read ticket plan from S3 or parse text, then create tickets ───
-    const s3Plan = await readTicketPlanFromS3(workflowId);
-    const ticketPlan = s3Plan || parseRequirementsOutput(output);
-    console.log(`[engine] Ticket plan source: ${s3Plan ? "S3 artifact" : "text parsing fallback"}, tickets: ${ticketPlan.tickets.length}, assignees: [${ticketPlan.tickets.map(t => t.assignee).join(", ")}]`);
-    await tickets().markDone(epicId, workflowId);
-
-    // Store requirements as artifact
-    await tickets().addArtifact(epicId, {
-      type: "requirements",
-      title: "Requirements Document",
-      content: ticketPlan.requirements,
-      producedBy: reqAgent.id,
-    });
-
-    // Create child tickets based on requirements agent's plan
-    await createTicketsFromPlan(ticketPlan, epicId, workflowId);
-  }
+  await syncDynamoTicketsToStore(epicId);
 
   // Transition to next phase after requirements — driven by ticket readiness
   const nextWorkflowPhase = nextPhase("requirements");
@@ -1740,229 +1677,6 @@ async function buildAgentContext(ticket: JiraTicket, state: WorkflowState): Prom
   return context;
 }
 
-// ─── Requirements Output Parsing ─────────────────────────────────────────────
-
-interface TicketPlan {
-  requirements: string;
-  tickets: Array<{
-    title: string;
-    description: string;
-    assignee: string;
-    blockedBy: string[];
-  }>;
-}
-
-function parseRequirementsOutput(output: string): TicketPlan {
-  // Strategy 1: Extract JSON from ```json code block
-  const codeBlockMatch = output.match(/```json\s*([\s\S]*?)```/);
-  if (codeBlockMatch) {
-    try {
-      const parsed = JSON.parse(codeBlockMatch[1]);
-      return {
-        requirements: parsed.requirements || output,
-        tickets: parsed.tickets || [],
-      };
-    } catch {
-      // JSON in code block had parse error — try to extract just the tickets array
-    }
-  }
-
-  // Strategy 2: Extract just the tickets array using regex
-  const ticketsMatch = output.match(/"tickets"\s*:\s*\[([\s\S]*)\]/);
-  if (ticketsMatch) {
-    try {
-      const ticketsJson = `[${ticketsMatch[1]}]`;
-      const tickets = JSON.parse(ticketsJson);
-      // Extract requirements text (everything before the JSON block)
-      const reqMatch = output.match(/"requirements"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"tickets")/);
-      return {
-        requirements: reqMatch ? reqMatch[1].replace(/\\n/g, "\n") : output,
-        tickets,
-      };
-    } catch {
-      // Fall through
-    }
-  }
-
-  // Strategy 3: Extract individual ticket objects with regex
-  const ticketPattern = /\{\s*"title"\s*:\s*"([^"]+)"\s*,\s*"description"\s*:\s*"([^"]*(?:\\.[^"]*)*)"[^}]*"assignee"\s*:\s*"([^"]+)"[^}]*"blockedBy"\s*:\s*\[([^\]]*)\]\s*\}/g;
-  const tickets: { title: string; description: string; assignee: string; blockedBy: string[] }[] = [];
-  let match;
-  while ((match = ticketPattern.exec(output)) !== null) {
-    const blockedByRaw = match[4].trim();
-    const blockedBy = blockedByRaw
-      ? blockedByRaw.split(",").map((s) => s.trim().replace(/"/g, "")).filter(Boolean)
-      : [];
-    tickets.push({
-      title: match[1],
-      description: match[2].replace(/\\n/g, "\n"),
-      assignee: match[3],
-      blockedBy,
-    });
-  }
-
-  if (tickets.length > 0) {
-    return { requirements: output, tickets };
-  }
-
-  // Fallback: couldn't parse structured output, create a generic ticket set
-  // Heuristic: if the requirements mention frontend/UI/React/component, skip designer
-  const lowerOutput = output.toLowerCase();
-  const isFrontendOnly = /\b(react|component|css|ui|visualization|frontend|next\.js|tailwind)\b/.test(lowerOutput) &&
-    !/\b(api endpoint|database|lambda|dynamodb|backend service)\b/.test(lowerOutput);
-
-  if (isFrontendOnly) {
-    return {
-      requirements: output,
-      tickets: [
-        {
-          title: "Frontend Implementation",
-          description: "Implement the frontend component based on requirements and design reference",
-          assignee: "team-frontend-dev",
-          blockedBy: [],
-        },
-      ],
-    };
-  }
-
-  return {
-    requirements: output,
-    tickets: [
-      {
-        title: "Design",
-        description: "Design the implementation based on requirements",
-        assignee: getDefaultDesignAgent().id,
-        blockedBy: [],
-      },
-      {
-        title: "Implementation",
-        description: "Implement the feature based on design specs",
-        assignee: getDefaultDevAgent().id,
-        blockedBy: ["Design"],
-      },
-    ],
-  };
-}
-
-/**
- * Build keyword map dynamically from agent roster.
- * Generates keywords from agent id, name, role, and phase.
- */
-function buildKeywordMap(): [string[], string][] {
-  return AGENT_ROSTER.map((agent) => {
-    const keywords: string[] = [];
-    // Derive keywords from agent id (e.g., "team-ios-designer" → "iosdesigner")
-    const idNormalized = agent.id.replace(/^team-/, "").replace(/[_\-\s]+/g, "");
-    keywords.push(idNormalized);
-    // Derive from name (e.g., "iOS Designer" → "iosdesigner")
-    const nameNormalized = agent.name.toLowerCase().replace(/[_\-\s]+/g, "");
-    keywords.push(nameNormalized);
-    // Derive from phase
-    keywords.push(agent.phase);
-    // Derive component words from role (first 3 significant words)
-    const roleWords = agent.role.toLowerCase()
-      .replace(/[^a-z0-9\s]/g, "")
-      .split(/\s+/)
-      .filter((w) => w.length > 3)
-      .slice(0, 5);
-    keywords.push(...roleWords);
-    return [keywords, agent.id] as [string[], string];
-  });
-}
-
-/** Cached keyword map — built once from AGENT_ROSTER. */
-const KEYWORD_MAP = buildKeywordMap();
-
-/**
- * Resolve a fuzzy assignee name from the requirements agent to a valid agent ID.
- * The requirements agent sometimes outputs names like "ios-developer", "backend",
- * "security" instead of exact IDs like "team-frontend-dev".
- */
-function resolveAssignee(rawAssignee: string): string {
-  // Exact match first
-  if (getAgentDef(rawAssignee)) return rawAssignee;
-
-  const lower = rawAssignee.toLowerCase().replace(/[_\-\s]+/g, "");
-
-  // Config-driven keyword → agent ID mapping (built from AGENT_ROSTER)
-  for (const [keywords, agentId] of KEYWORD_MAP) {
-    if (keywords.some((kw) => lower.includes(kw) || kw.includes(lower))) {
-      return agentId;
-    }
-  }
-
-  // Fuzzy: find agent whose name or role contains the input
-  for (const agent of AGENT_ROSTER) {
-    const agentLower = agent.name.toLowerCase().replace(/[_\-\s]+/g, "");
-    const roleLower = agent.role.toLowerCase().replace(/[_\-\s]+/g, "");
-    if (agentLower.includes(lower) || lower.includes(agentLower) ||
-        roleLower.includes(lower)) {
-      return agent.id;
-    }
-  }
-
-  // Last resort: default to first dev agent for generic "developer" references
-  if (lower.includes("dev") || lower.includes("implement") || lower.includes("engineer")) {
-    return getDefaultDevAgent().id;
-  }
-
-  // Return as-is (will cause a blocked ticket, but at least we tried)
-  console.warn(`[resolveAssignee] Could not resolve: "${rawAssignee}"`);
-  return rawAssignee;
-}
-
-async function createTicketsFromPlan(
-  plan: TicketPlan,
-  epicId: string,
-  workflowId: string
-): Promise<JiraTicket[]> {
-  const created: JiraTicket[] = [];
-  const titleToId = new Map<string, string>();
-
-  // First pass: create all tickets without blockers to get their IDs
-  for (const t of plan.tickets) {
-    const resolvedAssignee = resolveAssignee(t.assignee);
-    const ticket = await tickets().createTicket(
-      {
-        parentId: epicId,
-        title: t.title,
-        description: t.description,
-        assignee: resolvedAssignee,
-        blockedBy: [], // will update in second pass
-      },
-      workflowId
-    );
-    created.push(ticket);
-    titleToId.set(t.title, ticket.id);
-  }
-
-  // Second pass: resolve blocker references (title → ID) and update status
-  for (let i = 0; i < plan.tickets.length; i++) {
-    const planTicket = plan.tickets[i];
-    const realTicket = created[i];
-
-    if (planTicket.blockedBy && planTicket.blockedBy.length > 0) {
-      const resolvedBlockers = planTicket.blockedBy
-        .map((title) => titleToId.get(title))
-        .filter((id): id is string => !!id);
-
-      if (resolvedBlockers.length > 0) {
-        realTicket.blockedBy = resolvedBlockers;
-        // Check if actually blocked
-        const allDone = resolvedBlockers.every((bid) => {
-          const b = getTicket(bid);
-          return b?.status === "done";
-        });
-        if (!allDone) {
-          realTicket.status = "todo";
-        }
-        setTicket(realTicket);
-      }
-    }
-  }
-
-  return created;
-}
 
 // ─── Multimodal: Stage Images on MicroVM ────────────────────────────────────
 

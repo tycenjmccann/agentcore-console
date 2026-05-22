@@ -75,16 +75,26 @@ function formatDurationMs(ms: number): string {
   return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
 }
 
-function getStageBadge(agentName: string | undefined): { label: string; color: string } {
+function getPhaseBadge(agentName: string | undefined): { label: string; color: string } {
   if (!agentName) return { label: "Unknown", color: "bg-gray-600/20 text-gray-400 border-gray-600/30" };
   const lower = agentName.toLowerCase();
-  if (lower.includes("design")) {
-    return { label: "Design", color: "bg-purple-600/20 text-purple-400 border-purple-600/30" };
-  }
-  if (lower.includes("dev")) {
-    return { label: "Development", color: "bg-green-600/20 text-green-400 border-green-600/30" };
-  }
+  if (lower.includes("requirement")) return { label: "Requirements", color: "bg-orange-600/20 text-orange-400 border-orange-600/30" };
+  if (lower.includes("design")) return { label: "Design", color: "bg-purple-600/20 text-purple-400 border-purple-600/30" };
+  if (lower.includes("frontend_dev") || lower.includes("backend_dev") || lower.includes("api_dev")) return { label: "Development", color: "bg-green-600/20 text-green-400 border-green-600/30" };
+  if (lower.includes("qa") || lower.includes("verif")) return { label: "QA", color: "bg-yellow-600/20 text-yellow-400 border-yellow-600/30" };
+  if (lower.includes("security")) return { label: "Security", color: "bg-red-600/20 text-red-400 border-red-600/30" };
+  if (lower.includes("ci")) return { label: "CI/CD", color: "bg-cyan-600/20 text-cyan-400 border-cyan-600/30" };
+  if (lower.includes("legal") || lower.includes("compliance")) return { label: "Compliance", color: "bg-pink-600/20 text-pink-400 border-pink-600/30" };
+  if (lower.includes("locali")) return { label: "Localization", color: "bg-indigo-600/20 text-indigo-400 border-indigo-600/30" };
+  if (lower.includes("analytics")) return { label: "Analytics", color: "bg-teal-600/20 text-teal-400 border-teal-600/30" };
+  if (lower.includes("dev")) return { label: "Development", color: "bg-green-600/20 text-green-400 border-green-600/30" };
   return { label: "Agent", color: "bg-blue-600/20 text-blue-400 border-blue-600/30" };
+}
+
+function formatAgentName(raw: string | undefined): string {
+  if (!raw) return "Unknown Agent";
+  // Strip ".DEFAULT" suffix and "agentis_" prefix from OTEL service name
+  return raw.replace(/\.DEFAULT$/i, "").replace(/^agentis_/i, "").replace(/_/g, " ");
 }
 
 // --- Trace event config (reused pattern from agent detail) ---
@@ -153,7 +163,7 @@ export default function TicketHistoryPage() {
             s.agentName,
             s.ticketId,
             extractTicketId(s.sessionId),
-            getStageBadge(s.agentName).label,
+            getPhaseBadge(s.agentName).label,
           ]
             .filter(Boolean)
             .join(" ")
@@ -274,16 +284,17 @@ export default function TicketHistoryPage() {
               const ticketId = extractTicketId(session.sessionId);
               const prevTicketId = idx > 0 ? extractTicketId(displaySessions[idx - 1].sessionId) : null;
               const showGroupHeader = ticketId && ticketId !== prevTicketId;
-              const stage = getStageBadge(session.agentName);
+              const phase = getPhaseBadge(session.agentName);
               const isSelected = selectedSessionId === session.sessionId;
 
               return (
                 <div key={`${session.sessionId}_${session.agentName}_${idx}`}>
                   {showGroupHeader && (
-                    <div className="px-2 pt-3 pb-1">
-                      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                    <div className="px-2 pt-4 pb-1 flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">
                         {ticketId}
                       </span>
+                      <div className="flex-1 border-t border-surface-4" />
                     </div>
                   )}
                   <button
@@ -297,11 +308,8 @@ export default function TicketHistoryPage() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
-                        {ticketId && (
-                          <span className="text-xs font-semibold text-white">{ticketId}</span>
-                        )}
-                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded border", stage.color)}>
-                          {stage.label}
+                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded border", phase.color)}>
+                          {phase.label}
                         </span>
                       </div>
                       <span className="text-[10px] text-gray-500 flex items-center gap-1">
@@ -312,17 +320,11 @@ export default function TicketHistoryPage() {
 
                     <div className="flex items-center gap-2">
                       <Bot className="w-3 h-3 text-gray-500 flex-shrink-0" />
-                      <span className="text-xs text-gray-400 truncate">
-                        {session.agentName || "Unknown Agent"}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-[10px] text-gray-600 font-mono truncate max-w-[200px]">
-                        {session.sessionId}
+                      <span className="text-xs text-gray-300 truncate">
+                        {formatAgentName(session.agentName)}
                       </span>
                       {session.spanCount > 0 && (
-                        <span className="text-[10px] text-gray-500">
+                        <span className="text-[10px] text-gray-600 ml-auto flex-shrink-0">
                           {session.spanCount} spans
                         </span>
                       )}

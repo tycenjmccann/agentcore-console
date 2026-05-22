@@ -8,14 +8,13 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 
 export const dynamic = "force-dynamic";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
-const TICKETS_TABLE = process.env.JIRA_TABLE_NAME || "agentis-tickets";
 const BUCKET = process.env.ARTIFACT_BUCKET || "";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
@@ -98,22 +97,30 @@ async function fetchStreamingChunks(workflowId: string, agentId: string): Promis
 
 async function fetchSummaryFromS3(workflowId: string, agentId: string): Promise<string> {
   try {
-    // Find the ticket for this agent in this workflow
-    const ticketResult = await ddb.send(new ScanCommand({
-      TableName: TICKETS_TABLE,
-      FilterExpression: "workflowId = :wid AND assignee = :aid",
-      ExpressionAttributeValues: { ":wid": workflowId, ":aid": agentId },
+    // Get ticket IDs for this agent from the workflow state (agentTasks map)
+    const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
+    const wfResult = await ddb.send(new QueryCommand({
+      TableName: WORKFLOWS_TABLE,
+      KeyConditionExpression: "workflowId = :wid",
+      ExpressionAttributeValues: { ":wid": workflowId },
     }));
 
-    const tickets = (ticketResult.Items || []).filter(t => t.ticketId !== "__COUNTER__");
-    if (tickets.length === 0) return "";
+    const workflow = wfResult.Items?.[0];
+    if (!workflow) return "";
+
+    const agentTasks = (workflow.agentTasks || {}) as Record<string, { agentId?: string }>;
+    const ticketIds = Object.entries(agentTasks)
+      .filter(([, task]) => task.agentId === agentId)
+      .map(([ticketId]) => ticketId);
+
+    if (ticketIds.length === 0) return "";
 
     // Read completion report from S3 (try each ticket — agent may have multiple)
-    for (const ticket of tickets) {
+    for (const ticketId of ticketIds) {
       try {
         const obj = await s3.send(new GetObjectCommand({
           Bucket: BUCKET,
-          Key: `completions/${ticket.ticketId}.json`,
+          Key: `completions/${ticketId}.json`,
         }));
         const body = await obj.Body?.transformToString();
         if (body) {

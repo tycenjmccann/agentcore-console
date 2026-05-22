@@ -664,19 +664,28 @@ async def agent_invocation(payload, context):
     _publish_agent_started(workflow_id, agent_id)
 
     # Use model override if provided (orchestrator can specify per-agent)
+    MODEL_ALIASES = {
+        "opus": "us.anthropic.claude-opus-4-6-v1",
+        "sonnet": "us.anthropic.claude-sonnet-4-6",
+        "haiku": "us.anthropic.claude-haiku-4-5-20251001",
+        "claude-opus-46": "us.anthropic.claude-opus-4-6-v1",
+        "claude-sonnet-46": "us.anthropic.claude-sonnet-4-6",
+    }
     active_model = model
     if model_override and model_override != MODEL_ID:
+        resolved_model_id = MODEL_ALIASES.get(model_override, model_override)
         override_config = BotocoreConfig(
             read_timeout=READ_TIMEOUT,
             connect_timeout=30,
             retries={"max_attempts": 2},
         )
         active_model = BedrockModel(
-            model_id=model_override,
+            model_id=resolved_model_id,
             region_name=REGION,
             boto_client_config=override_config,
             streaming=True,
         )
+        logger.info(f"[{agent_id}] Model override: {model_override} → {resolved_model_id}")
 
     # Load built-in tools (lazy — avoids 30s init timeout)
     builtin_tools = _load_builtin_tools()
@@ -699,12 +708,18 @@ async def agent_invocation(payload, context):
         """Callback handler that records tool invocations and text output, publishing to DynamoDB for real-time UI."""
         def __init__(self):
             self.previous_tool_use = None
+            self._seq = 0
 
         def _publish_event(self, event_type: str, detail: dict):
-            """Publish an event to the DynamoDB events table (fire-and-forget)."""
+            """Publish an event to the DynamoDB events table (fire-and-forget).
+            Skips writing if no workflow context (chat/ad-hoc invocations)."""
+            if not workflow_id or workflow_id == "unknown":
+                return
             try:
-                import time, random, string
-                event_id = f"{int(time.time() * 1000)}-{''.join(random.choices(string.ascii_lowercase, k=4))}"
+                import time
+                self._seq += 1
+                # Zero-padded sequence ensures correct sort order within same millisecond
+                event_id = f"{int(time.time() * 1000)}-{self._seq:06d}"
                 # Build detail map for DynamoDB
                 detail_map = {}
                 for k, v in detail.items():
@@ -760,32 +775,84 @@ async def agent_invocation(payload, context):
                     "workflowId": workflow_id,
                 })
 
-    # Create agent with system prompt baked in at deploy time (SYSTEM_PROMPT env var)
+    # Create agent — callback_handler=None because we publish events inline from stream_async
     agent = Agent(
         model=active_model,
         system_prompt=SYSTEM_PROMPT,
         tools=all_tools,
-        callback_handler=ToolTrackingHandler(),
+        callback_handler=None,
     )
 
-    # Use non-streaming call to avoid idle timeout on SSE connection during tool calls.
-    # AgentCore's LB kills idle SSE connections after ~120s, which happens when the agent
-    # is waiting for Lambda tool responses. The non-streaming path buffers internally.
-    result = await agent.invoke_async(prompt)
-
-    # Extract text from AgentResult.message (Message has "role" and "content" keys)
+    # Iterate stream_async directly to capture every event in order and publish to DDB.
+    # Text is BUFFERED and flushed every ~200 chars (or on non-text event boundaries)
+    # to prevent synchronous DDB put_item from blocking the event loop and dropping tokens.
+    tracker = ToolTrackingHandler()
     final_text = ""
-    if hasattr(result, "message") and result.message:
-        msg = result.message
-        content = msg.get("content", []) if isinstance(msg, dict) else getattr(msg, "content", [])
-        for block in (content or []):
-            if isinstance(block, dict) and "text" in block:
-                final_text += block["text"]
+    result = None
+    _text_buffer = ""
+    _FLUSH_THRESHOLD = 50  # chars before forcing a DDB write
+
+    def _flush_text_buffer():
+        nonlocal _text_buffer
+        if _text_buffer:
+            tracker._publish_event("agent.streaming", {
+                "agentId": agent_id,
+                "type": "text",
+                "content": _text_buffer,
+                "workflowId": workflow_id,
+            })
+            _text_buffer = ""
+
+    async for event in agent.stream_async(prompt):
+        if "data" in event and event["data"]:
+            final_text += event["data"]
+            _text_buffer += event["data"]
+            # Only flush when buffer exceeds threshold — reduces DDB writes from ~500 to ~3-5
+            if len(_text_buffer) >= _FLUSH_THRESHOLD:
+                _flush_text_buffer()
+        elif "current_tool_use" in event:
+            # Flush any pending text before tool event (maintains ordering)
+            _flush_text_buffer()
+            current_tool_use = event["current_tool_use"]
+            if current_tool_use and current_tool_use.get("name"):
+                if tracker.previous_tool_use != current_tool_use:
+                    tracker.previous_tool_use = current_tool_use
+                    tool_name = current_tool_use["name"]
+                    tool_events.append(tool_name)
+                    logger.info(f"[{agent_id}] Tool call: {tool_name}")
+                    tracker._publish_event("agent.streaming", {
+                        "agentId": agent_id,
+                        "type": "trace",
+                        "toolName": tool_name,
+                        "workflowId": workflow_id,
+                    })
+        elif "reasoningText" in event and event["reasoningText"]:
+            # Flush any pending text before reasoning event (maintains ordering)
+            _flush_text_buffer()
+            tracker._publish_event("agent.streaming", {
+                "agentId": agent_id,
+                "type": "reasoning",
+                "content": event["reasoningText"],
+                "workflowId": workflow_id,
+            })
+        if "result" in event:
+            result = event["result"]
+
+    # Flush any remaining buffered text after stream ends
+    _flush_text_buffer()
+
+    # Extract final text from result if stream didn't produce text (fallback)
+    if not final_text and result:
+        msg = getattr(result, "message", None) or (result if isinstance(result, dict) else None)
+        if msg:
+            content = msg.get("content", []) if isinstance(msg, dict) else getattr(msg, "content", [])
+            for block in (content or []):
+                if isinstance(block, dict) and "text" in block:
+                    final_text += block["text"]
 
     logger.info(f"[{agent_id}] Invocation complete for workflow {workflow_id}, output: {len(final_text)} chars, tools used: {len(tool_events)}")
 
     # Emit tool_use events FIRST so the agent-invoker can publish them for real-time UI flashing.
-    # Format matches what agent-invoker.mjs parses: event.event.contentBlockStart.start.toolUse.name
     for tool_name in tool_events:
         yield {"event": {"contentBlockStart": {"start": {"toolUse": {"name": tool_name}}}}}
 

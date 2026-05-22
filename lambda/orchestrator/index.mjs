@@ -765,8 +765,11 @@ async function invokeAgent(agentDef, context, workflow) {
     let override = workflow.input.modelOverride;
     if (typeof override === "string") {
       const modelMap = {
+        "opus": "us.anthropic.claude-opus-4-6-v1",
+        "sonnet": "us.anthropic.claude-sonnet-4-6",
         "claude-opus-47": "us.anthropic.claude-opus-4-7",
         "claude-opus-46": "us.anthropic.claude-opus-4-6-v1",
+        "claude-sonnet-46": "us.anthropic.claude-sonnet-4-6",
         "claude-sonnet-45": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
       };
       override = { bedrockModelConfig: { modelId: modelMap[override] || override } };
@@ -778,7 +781,10 @@ async function invokeAgent(agentDef, context, workflow) {
     // Use BedrockAgentRuntime InvokeAgent — fire and forget
     // The agent stream will run to completion. When done, the agent's report_completion
     // tool writes "done" status to DynamoDB, which triggers this Lambda via stream.
-    const sessionId = `${workflow.id}-${agentDef.id}-${Date.now()}`;
+    // Prefix with ticketId so OTEL traces are discoverable by Jira ticket in the Ticket History page
+    const task = Object.values(workflow.agentTasks || {}).find(t => t.agentId === agentDef.id && t.status === "running");
+    const ticketPrefix = task?.ticketId ? `${task.ticketId}_` : "";
+    const sessionId = `${ticketPrefix}${workflow.id}-${agentDef.id}-${Date.now()}`;
 
     const command = new InvokeAgentCommand({
       agentAliasId: "TSTALIASID", // placeholder — real ARN used via agentId
