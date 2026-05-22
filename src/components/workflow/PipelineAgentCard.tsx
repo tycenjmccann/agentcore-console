@@ -1,5 +1,6 @@
 "use client";
 
+import { FolderOpen } from "lucide-react";
 import type { AgentTaskStatus } from "@/lib/workflow/types";
 
 interface PipelineAgentCardProps {
@@ -14,6 +15,7 @@ interface PipelineAgentCardProps {
   isCelebrating: boolean;
   suppressAnimation: boolean;
   onExpand?: () => void;
+  onViewArtifacts?: () => void;
 }
 
 const STATUS_CONFIG: Record<string, {
@@ -64,6 +66,7 @@ export default function PipelineAgentCard({
   isCelebrating,
   suppressAnimation,
   onExpand,
+  onViewArtifacts,
 }: PipelineAgentCardProps) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.idle;
 
@@ -96,6 +99,21 @@ export default function PipelineAgentCard({
             <span className="text-xs font-medium text-zinc-100 truncate">
               {name}
             </span>
+            {/* S3 artifacts button — only for non-idle agents */}
+            {status !== "idle" && onViewArtifacts && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewArtifacts();
+                }}
+                className="p-0.5 rounded hover:bg-surface-3 text-zinc-500 hover:text-brand-400 transition-colors shrink-0"
+                aria-label={`View S3 artifacts for ${name}`}
+                title="View artifacts"
+                type="button"
+              >
+                <FolderOpen size={12} />
+              </button>
+            )}
             <span className={`text-[10px] px-1.5 py-0.5 rounded ${
               isWorking
                 ? "bg-brand-500/20 text-brand-400"

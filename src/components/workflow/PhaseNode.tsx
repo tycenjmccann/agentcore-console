@@ -13,6 +13,8 @@ interface PhaseNodeProps {
   isCelebrating: boolean;
   suppressAnimation: boolean;
   onAgentExpand?: (agentId: string) => void;
+  workflowId?: string;
+  onViewArtifacts?: (agentId: string, agentName: string) => void;
 }
 
 const PHASE_LABELS: Partial<Record<WorkflowPhase, string>> = {
@@ -41,6 +43,8 @@ export default function PhaseNode({
   isCelebrating,
   suppressAnimation,
   onAgentExpand,
+  workflowId,
+  onViewArtifacts,
 }: PhaseNodeProps) {
   // Get agents assigned to this phase that have tasks
   const phaseAgents = AGENT_ROSTER.filter(
@@ -128,6 +132,11 @@ export default function PhaseNode({
                 isCelebrating={isCelebrating}
                 suppressAnimation={suppressAnimation}
                 onExpand={() => onAgentExpand?.(agent.id)}
+                onViewArtifacts={
+                  onViewArtifacts && workflowId
+                    ? () => onViewArtifacts(agent.id, agent.name)
+                    : undefined
+                }
               />
             );
           })
