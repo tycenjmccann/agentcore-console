@@ -297,9 +297,10 @@ All agent activity writes to `agentis-events` DynamoDB table:
 
 ### Nudge System
 `POST /api/workflow/[id]/nudge` — Fixes stuck tickets:
-- `todo` with no blockers → `ready`
-- `blocked` with all blockers done → `ready`
-- `in_progress` with no activity → `ready`
+- `todo` with no blockers → `ready` (missed stream event)
+- `blocked` with all blockers done → `ready` (missed unblock cascade)
+
+Note: `in_progress` tickets are never reset by nudge — an agent session is actively running. See DL-021 for why this was removed (caused duplicate agent sessions).
 
 ### UI Replay
 `GET /api/workflow/[id]/events` — Returns all events for timeline replay with scrubber.

@@ -205,22 +205,37 @@ echo ""
 
 # Deploy Orchestrator
 echo "▶ Step 5a: Deploying ${ORCHESTRATOR_FUNCTION}..."
-ENV_VARS="Variables={TICKETS_TABLE=${TICKETS_TABLE},WORKFLOWS_TABLE=${WORKFLOWS_TABLE},EVENTS_TABLE=${EVENTS_TABLE},ARTIFACT_BUCKET=${ARTIFACT_BUCKET},GITHUB_LAMBDA=${GITHUB_LAMBDA},EVENT_BUS=default,PROJECT_KEY=TEAM}"
+BASE_ENV="TICKETS_TABLE=${TICKETS_TABLE},WORKFLOWS_TABLE=${WORKFLOWS_TABLE},EVENTS_TABLE=${EVENTS_TABLE},ARTIFACT_BUCKET=${ARTIFACT_BUCKET},GITHUB_LAMBDA=${GITHUB_LAMBDA},EVENT_BUS=default,PROJECT_KEY=TEAM"
 
 if aws lambda get-function --function-name "$ORCHESTRATOR_FUNCTION" --region "$REGION" &>/dev/null; then
+  # Merge: preserve existing env vars (RUNTIME_ARN_*, etc.) and overlay base vars
+  EXISTING_ENV=$(aws lambda get-function-configuration \
+    --function-name "$ORCHESTRATOR_FUNCTION" --region "$REGION" \
+    --query 'Environment.Variables' --output json 2>/dev/null || echo "{}")
+  MERGED_ENV=$(python3 -c "
+import json, sys
+existing = json.loads('''${EXISTING_ENV}''')
+# Overlay base vars
+for pair in '${BASE_ENV}'.split(','):
+    k, v = pair.split('=', 1)
+    existing[k] = v
+print(json.dumps({'Variables': existing}))
+")
   aws lambda update-function-code \
     --function-name "$ORCHESTRATOR_FUNCTION" \
     --region "$REGION" \
     --zip-file fileb:///tmp/orchestrator.zip \
     --no-cli-pager > /dev/null
+  sleep 5
   aws lambda update-function-configuration \
     --function-name "$ORCHESTRATOR_FUNCTION" \
     --region "$REGION" \
     --timeout 60 \
     --memory-size 256 \
-    --environment "$ENV_VARS" \
+    --environment "$MERGED_ENV" \
     --no-cli-pager > /dev/null
 else
+  ENV_VARS="Variables={${BASE_ENV}}"
   aws lambda create-function \
     --function-name "$ORCHESTRATOR_FUNCTION" \
     --region "$REGION" \

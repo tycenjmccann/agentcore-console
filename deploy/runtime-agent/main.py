@@ -21,6 +21,19 @@ os.environ["BYPASS_TOOL_CONSENT"] = "true"  # Required for non-interactive stran
 os.environ["HOME"] = "/tmp"  # Runtime /var/task is read-only; tools need writable HOME
 os.chdir("/tmp")  # python_repl, editor, shell all use cwd() for state — must be writable
 
+# --- Fix Playwright driver permissions ---
+# direct_code_deploy strips execute bit from pip package binaries.
+# Playwright's bundled Node driver at /var/task/playwright/driver/node needs +x.
+_pw_node = "/var/task/playwright/driver/node"
+if os.path.exists(_pw_node) and not os.access(_pw_node, os.X_OK):
+    try:
+        os.chmod(_pw_node, 0o755)
+    except OSError:
+        # If /var/task is truly read-only, copy to /tmp and redirect
+        subprocess.run(["cp", _pw_node, "/tmp/playwright-node"], capture_output=True)
+        os.chmod("/tmp/playwright-node", 0o755)
+        os.environ["PLAYWRIGHT_NODEJS_PATH"] = "/tmp/playwright-node"
+
 # --- Install Node.js at startup (once per session) ---
 # direct_code_deploy runtimes don't have Node.js pre-installed.
 # This installs a standalone Node.js binary to /tmp so shell, claude_code, and npm work.
@@ -520,12 +533,17 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
         except Exception as e:
             return f"ERROR: Failed to install Claude Code CLI: {e}. Use shell/editor tools directly instead."
 
+    # Determine model for Claude Code (check both env vars Claude Code recognizes)
+    cc_model = os.environ.get("ANTHROPIC_MODEL") or os.environ.get("CLAUDE_MODEL") or "us.anthropic.claude-opus-4-6-v1"
+
     try:
         result = subprocess.run(
             [
                 claude_bin,
                 "--print",
+                "--dangerously-skip-permissions",
                 "--output-format", "text",
+                "--model", cc_model,
                 "--max-turns", "50",
                 task,
             ],
@@ -545,6 +563,9 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
             output += f"\n\nSTDERR: {result.stderr[-500:]}"
 
         logger.info(f"[claude_code] Complete. {len(output)} chars, exit code: {result.returncode}")
+        if result.returncode != 0:
+            logger.warning(f"[claude_code] FAILED — stdout: {result.stdout[:200]!r}")
+            logger.warning(f"[claude_code] FAILED — stderr: {result.stderr[:200]!r}")
         return output if output else f"Claude Code exited with code {result.returncode}. Stderr: {result.stderr[-300:]}"
 
     except subprocess.TimeoutExpired:

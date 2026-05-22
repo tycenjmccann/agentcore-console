@@ -26,7 +26,7 @@ agentcore configure \
   -r "$REGION" \
   -dt direct_code_deploy \
   --runtime PYTHON_3_10 \
-  --idle-timeout 900 \
+  --idle-timeout 3600 \
   --max-lifetime 3600 \
   --disable-memory \
   --non-interactive > /dev/null 2>&1
@@ -67,6 +67,12 @@ OUTPUT=$(agentcore deploy \
   --env "EVENTS_TABLE=agentis-events" \
   --env "JIRA_TOOLS_LAMBDA=agentis-jira-real" \
   --env "ARTIFACT_BUCKET=agentcore-artifacts-023392223961-us-east-1" \
+  --env "CLAUDE_CODE_USE_BEDROCK=1" \
+  --env "CLAUDE_MODEL=us.anthropic.claude-opus-4-6-v1" \
+  --env "ANTHROPIC_MODEL=us.anthropic.claude-opus-4-6-v1" \
+  --env "PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers" \
+  --env "HOME=/tmp" \
+  --env "TMPDIR=/tmp" \
   ${PROMPT_ENV} \
   ${MCP_ENV} 2>&1)
 DEPLOY_EXIT=$?

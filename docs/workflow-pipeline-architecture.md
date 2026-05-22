@@ -524,13 +524,17 @@ Switch: disable Streams, point Jira webhooks at `/api/workflow/webhook`, set `TI
 - QA gate/retry logic (should be QA agent's decision)
 - Workflow phase advancement (UI concern — derive from ticket state)
 
-**Current state**: Phase advancement is still in the orchestrator (acceptable for now — it's a UI metadata write). Feature branch creation and QA gate logic need to be moved to agents.
+**Current state**: Phase advancement is still in the orchestrator (acceptable for now — it's a UI metadata write). Feature branch creation needs to be moved to agents.
 
 **Target state**: Orchestrator does exactly two things:
 1. Ticket goes `todo` (no blockers) → async invoke `agentis-agent-invoker`
 2. Ticket goes `done` → remove from siblings' `blockedBy`, flip unblocked to `todo`
 
-**TODO**: Move branch creation to requirements agent prompt. ~~Move QA retry logic to QA agent.~~ ✅ Done (DL-011).
+**TODO**: Move branch creation to requirements agent prompt.
+
+**Cleaned up (2026-05-21)**:
+- ~~Move QA retry logic to QA agent.~~ ✅ Done (DL-011)
+- ~~"Fix: QA findings" title-matching re-trigger in `handleTicketDone`~~ ✅ Removed — was dead code that contradicted DL-011's agent-driven fix cycle and could have caused duplicate QA tickets if a fix title happened to match the prefix
 
 ---
 
@@ -1005,7 +1009,7 @@ TICKET_PROVIDER=jira
 **Behavior** (no time thresholds — just fixes whatever's wrong):
 - `todo` → `ready` (should have been picked up)
 - `blocked` → `ready` (if all blockers are done)
-- `in_progress` → `ready` (agent timed out or crashed)
+- ~~`in_progress` → `ready` (agent timed out or crashed)~~ **REMOVED in DL-021** — caused duplicate agent sessions
 
 **Critical detail**: Nudge sets `status: "ready"` (not just touching `updatedAt`). This is required because of the orchestrator's Stream filter.
 
@@ -1112,7 +1116,7 @@ Any workflow created without the start route will be missing `startedAt`, `epicI
 
 **Legacy harness agents** still use synchronous invocation (they don't have `report_completion`). Will be migrated to Runtime containers.
 
-**Trade-off**: If agent crashes silently, detection is delayed by ~90s (nudge interval). Accepted because crash-without-reporting is rare and the nudge handles it.
+**Trade-off**: If agent crashes silently, the ticket stays `in_progress` indefinitely (auto-nudge no longer resets it — see DL-021). Recovery requires manual nudge button or a future timed-recovery system. Accepted because crash-without-reporting is rare and the cost of duplicate sessions (the old auto-recovery) was worse than delayed detection.
 
 ---
 
@@ -1317,36 +1321,17 @@ if (TICKET_PROVIDER === "jira") {
 
 ---
 
-### DL-020: Remaining Reliability Issues (TODO)
+### DL-020: Remaining Reliability Issues
 
 **Date**: 2026-05-21
 **Decision**: Document known remaining issues for future fixes
-**Status**: PLANNED
+**Status**: PARTIALLY RESOLVED (Issue 1 fixed in DL-021)
 
-**Issue 1 — No Idempotency Guard on Agent Invocation**
+**Issue 1 — No Idempotency Guard on Agent Invocation** → ✅ FIXED (DL-021)
 
-DynamoDB Streams has at-least-once delivery. The same record CAN be delivered more than once. If the orchestrator processes a duplicate delivery, it will invoke the agent twice (because it doesn't check if the ticket is already `in_progress`).
+~~DynamoDB Streams has at-least-once delivery. The same record CAN be delivered more than once. If the orchestrator processes a duplicate delivery, it will invoke the agent twice (because it doesn't check if the ticket is already `in_progress`).~~
 
-**Proposed fix**: Before invoking an agent in `handleTicketReadyUnified`, check `ticket.status`. If already `in_progress`, skip. Use a DynamoDB conditional update (`SET status = in_progress IF status = todo/ready`) as an atomic lock.
-
-```javascript
-// Atomic claim — only one invocation wins
-const claimed = await ddb.send(new UpdateCommand({
-  TableName: TICKETS_TABLE,
-  Key: { ticketId },
-  UpdateExpression: "SET #s = :ip, #u = :now",
-  ConditionExpression: "#s IN (:todo, :ready)",
-  ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
-  ExpressionAttributeValues: { ":ip": "in_progress", ":todo": "todo", ":ready": "ready", ":now": new Date().toISOString() },
-})).catch(() => null);
-
-if (!claimed) {
-  console.log(`[orchestrator] ${ticketId} already claimed, skipping`);
-  return;
-}
-```
-
-**Priority**: MEDIUM — DL-019 eliminates the primary double-invocation source (dual event sources). Stream duplicates are rare but possible.
+**Fixed in DL-021**: Conditional write `ConditionExpression: "#s <> :inprog"` in both `handleTicketReady` and `handleTicketReadyUnified`. Only the first invocation wins.
 
 ---
 
@@ -1357,6 +1342,84 @@ If an agent creates a ticket without proper `blocked_by` references, it fires im
 **Proposed fix**: In `handleTicketReadyUnified`, validate that the agent's phase makes sense given the workflow state. E.g., don't invoke a dev agent if no design agents have completed for this workflow.
 
 **Priority**: LOW — primarily a prompt engineering problem. The requirements agent should always set `blocked_by`. With DL-019 fixing the double-invocation (which caused the confused agent output), this may self-resolve.
+
+---
+
+### DL-021: Remove Nudge Case 3 + Idempotency Guard (Anti-Duplicate Sessions)
+
+**Date**: 2026-05-21
+**Decision**: Remove the `in_progress → ready` nudge case and add atomic conditional writes to prevent duplicate agent invocations
+**Status**: ACTIVE (implemented, pending deploy)
+
+**Context**: Workflow `wf_1779389900490_mujlb7` spawned 3 parallel QA verifier sessions for the same ticket. OTEL traces confirmed 3 distinct `invoke_agent` spans with different session IDs, all running simultaneously. This wasted compute and produced conflicting outputs.
+
+**Root cause — Nudge Case 3 + phase transition race**:
+
+DL-014 added Case 3 (`in_progress → ready`) to handle crashed agents. DL-015 explicitly relied on it for crash recovery. But it had no staleness check — it reset tickets IMMEDIATELY, even if an agent session was actively running.
+
+The race condition:
+1. Dev agents complete → orchestrator creates QA ticket (status: `todo`, blockedBy: `[]`)
+2. DDB Stream fires → `handleTicketReady` → sets `in_progress` → invokes QA Session 1
+3. Phase transitions from `development` → `verification` → `nudgeKey` changes in WorkflowBoard
+4. Auto-nudge (15s interval) now eligible to fire again (new nudgeKey)
+5. Nudge Case 3 sees QA ticket `in_progress` → resets to `ready`
+6. DDB Stream fires on status change → `handleTicketReady` → invokes QA Session 2
+7. Repeat → Session 3
+
+Each reset-to-ready creates a new Stream event, which the orchestrator interprets as "new ticket ready, invoke agent." The orchestrator had no guard against invoking an already-running ticket.
+
+**Fix — Two layers**:
+
+**Layer 1: Remove the dangerous nudge case**
+
+Nudge endpoint now only handles two cases:
+- Case 1: `todo` with no blockers → `ready` (missed stream event recovery)
+- Case 2: `blocked` with all blockers done → `ready` (missed unblock recovery)
+
+`in_progress` tickets are **never touched**. An actively running agent is not "stuck" — it's working. If an agent truly crashes (never calls `report_completion`), that's a different problem with a different solution (agent-level timeout + alerting, not nudge-level reset).
+
+**Layer 2: Atomic conditional write (idempotency guard)**
+
+Both `handleTicketReady` (DDB stream path) and `handleTicketReadyUnified` (Jira webhook path) now use a DynamoDB conditional write to claim the ticket:
+
+```javascript
+await ddb.send(new UpdateCommand({
+  TableName: TICKETS_TABLE,
+  Key: { ticketId },
+  UpdateExpression: "SET #s = :s, #u = :u",
+  ConditionExpression: "#s <> :inprog",  // Only succeeds if NOT already in_progress
+  ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+  ExpressionAttributeValues: { ":s": "in_progress", ":inprog": "in_progress", ":u": now },
+}));
+```
+
+If the condition fails (`ConditionalCheckFailedException`), the invocation returns early. Only the first Lambda execution wins — all subsequent attempts (from stream re-delivery, nudges, or any other source) are rejected.
+
+**Why conditional write instead of just checking status?**:
+
+A simple `if (ticket.status === "in_progress") return` has a TOCTOU race: two Lambda invocations read `todo` simultaneously, both pass the check, both invoke. The conditional write is atomic at the DynamoDB level — exactly one succeeds.
+
+**Crash recovery without Case 3**:
+
+| Scenario | Recovery |
+|----------|----------|
+| Agent finishes normally | Calls `report_completion` → ticket → done → cascade |
+| Agent crashes mid-work | Runtime session timeout (540s) → session ends → ticket stays `in_progress` |
+| Ticket stuck `in_progress` forever | Manual nudge button (user action) + future: alert on tickets `in_progress` > 15min |
+
+The manual nudge button still exists for human-initiated recovery. The key difference: humans can judge "this has been stuck for 20 minutes" — the auto-nudge (15s interval) cannot.
+
+**Future enhancement (not implemented)**: Add a timestamp-guarded auto-recovery for truly crashed agents (e.g., `in_progress` for > 10 minutes with no events in agentis-events table for that ticket). This is a better signal than "15 seconds with no UI activity."
+
+**Relationship to other DLs**:
+- DL-014 added Case 3 — **superseded by this DL**
+- DL-015 relied on Case 3 for crash recovery — **partially invalidated** (crash recovery is now manual or needs future enhancement)
+- DL-020 proposed the conditional write — **implemented here**
+- DL-019 fixed the dual-event-source double-invocation — this DL fixes the nudge-induced double-invocation (different root cause, same symptom)
+
+**Files modified**:
+- `src/app/api/workflow/[id]/nudge/route.ts` — Removed Case 3, added explanatory comment
+- `lambda/orchestrator/index.mjs` — Added conditional write in both `handleTicketReady` and `handleTicketReadyUnified`
 
 ---
 

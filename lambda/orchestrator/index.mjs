@@ -260,6 +260,31 @@ async function handleTicketReadyUnified(ticketId, ticket) {
     return;
   }
 
+  // Idempotency guard: atomic claim via conditional write (DynamoDB path).
+  // For Jira path, Jira's own transition logic prevents double-transitions.
+  if (TICKET_PROVIDER === "jira") {
+    // Jira transitions are inherently idempotent — if already In Progress,
+    // the transition won't be available and jiraTransition logs a warning.
+    await jiraTransition(ticketId, "In Progress");
+  } else {
+    try {
+      await ddb.send(new UpdateCommand({
+        TableName: TICKETS_TABLE,
+        Key: { ticketId },
+        UpdateExpression: "SET #s = :s, #u = :u",
+        ConditionExpression: "#s <> :inprog",
+        ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+        ExpressionAttributeValues: { ":s": "in_progress", ":inprog": "in_progress", ":u": new Date().toISOString() },
+      }));
+    } catch (err) {
+      if (err.name === "ConditionalCheckFailedException") {
+        console.log(`[orchestrator] ${ticketId} already in_progress — skipping duplicate invocation`);
+        return;
+      }
+      throw err;
+    }
+  }
+
   // Initialize manifest if needed
   try { await initManifestIfNeeded(workflow); } catch (err) {
     console.warn(`[orchestrator] Manifest init failed (non-fatal): ${err.message}`);
@@ -289,19 +314,6 @@ async function handleTicketReadyUnified(ticketId, ticket) {
     }
   }
 
-  // Mark in-progress (Jira: transition; DynamoDB: update)
-  if (TICKET_PROVIDER === "jira") {
-    await jiraTransition(ticketId, "In Progress");
-  } else {
-    await ddb.send(new UpdateCommand({
-      TableName: TICKETS_TABLE,
-      Key: { ticketId },
-      UpdateExpression: "SET #s = :s, #u = :u",
-      ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
-      ExpressionAttributeValues: { ":s": "in_progress", ":u": new Date().toISOString() },
-    }));
-  }
-
   // Record agent task in workflow
   const task = {
     id: `task_${Date.now()}_${assignee}`,
@@ -315,9 +327,21 @@ async function handleTicketReadyUnified(ticketId, ticket) {
   await saveWorkflow(workflow);
 
   // Build context and invoke — SAME buildAgentContext for both paths
-  const context = await buildAgentContext(ticket, workflow);
+  let context = await buildAgentContext(ticket, workflow);
 
-  console.log(`[orchestrator] Invoking agent ${assignee} for ticket ${ticketId}`);
+  // If ticket has resumeContext (from retry endpoint), prepend it so the agent knows it's resuming
+  if (ticket.resumeContext) {
+    context = `${ticket.resumeContext}\n\n---\n\n${context}`;
+    // Clear resumeContext after consuming it (one-time use)
+    await ddb.send(new UpdateCommand({
+      TableName: TICKETS_TABLE,
+      Key: { ticketId },
+      UpdateExpression: "REMOVE #rc",
+      ExpressionAttributeNames: { "#rc": "resumeContext" },
+    }));
+  }
+
+  console.log(`[orchestrator] Invoking agent ${assignee} for ticket ${ticketId}${ticket.resumeContext ? " (SESSION RESUME)" : ""}`);
   await publishEvent(ticketId, "agent.invoked", { ticketId, assignee, agentId: assignee, phase: agentDef.phase, workflowId: workflow.id });
 
   await invokeAgent(agentDef, context, workflow);
@@ -473,12 +497,6 @@ async function handleTicketDone(ticketId, image) {
     }
   }
 
-  // Special case: fix ticket completed → re-run QA
-  const title = unwrapDdbValue(image.title) || "";
-  if (title.startsWith("Fix: QA findings")) {
-    console.log(`[orchestrator] Fix ticket done. Re-triggering QA verification.`);
-    await createQaVerificationTicket(workflow);
-  }
 }
 
 /**
@@ -505,8 +523,25 @@ async function handleTicketReady(ticketId, image) {
     return;
   }
 
-  // No concurrency guard — same agent can run multiple tickets in parallel.
-  // Each ticket gets its own AgentCore Runtime session.
+  // Idempotency guard: atomic claim via conditional write.
+  // If another invocation already set this ticket to in_progress, bail out.
+  // This prevents duplicate agent sessions from nudges or stream re-deliveries.
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: TICKETS_TABLE,
+      Key: { ticketId },
+      UpdateExpression: "SET #s = :s, #u = :u",
+      ConditionExpression: "#s <> :inprog",
+      ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+      ExpressionAttributeValues: { ":s": "in_progress", ":inprog": "in_progress", ":u": new Date().toISOString() },
+    }));
+  } catch (err) {
+    if (err.name === "ConditionalCheckFailedException") {
+      console.log(`[orchestrator] ${ticketId} already in_progress — skipping duplicate invocation`);
+      return;
+    }
+    throw err; // unexpected error — re-throw
+  }
 
   // Ensure manifest exists (initializes on first agent invocation)
   try { await initManifestIfNeeded(workflow); } catch (err) {
@@ -536,15 +571,6 @@ async function handleTicketReady(ticketId, image) {
       }
     }
   }
-
-  // Mark ticket in_progress (triggers stream event for UI)
-  await ddb.send(new UpdateCommand({
-    TableName: TICKETS_TABLE,
-    Key: { ticketId },
-    UpdateExpression: "SET #s = :s, #u = :u",
-    ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
-    ExpressionAttributeValues: { ":s": "in_progress", ":u": new Date().toISOString() },
-  }));
 
   // Record agent task in workflow (keyed by ticketId to support multiple tickets per agent)
   const task = {
@@ -778,6 +804,18 @@ async function invokeAgent(agentDef, context, workflow) {
     }));
 
     console.log(`[orchestrator] Async invoke sent for ${agentDef.id} (session: ${sessionId})`);
+
+    // Persist session info to the workflow manifest (S3) for health probes and traceability
+    try {
+      await updateManifestSession(workflow.id, agentDef.id, {
+        sessionId,
+        runtimeArn: harnessArn,
+        invokedAt: new Date().toISOString(),
+        ticketId: Object.values(workflow.agentTasks || {}).find(t => t.agentId === agentDef.id && t.status === "running")?.ticketId,
+      });
+    } catch (err) {
+      console.warn(`[orchestrator] Manifest session write failed (non-fatal): ${err.message}`);
+    }
   } catch (err) {
     console.error(`[orchestrator] Failed to invoke ${agentDef.id}:`, err);
     // Mark ticket as blocked
@@ -1100,6 +1138,29 @@ async function initManifestIfNeeded(workflow) {
     ContentType: "application/json",
   }));
   console.log(`[orchestrator] Initialized manifest for ${workflow.id}`);
+}
+
+async function updateManifestSession(workflowId, agentId, sessionInfo) {
+  if (!ARTIFACT_BUCKET) return;
+  const manifestKey = `workflows/${workflowId}/shared/manifest.json`;
+  let manifest;
+  try {
+    const result = await s3.send(new GetObjectCommand({ Bucket: ARTIFACT_BUCKET, Key: manifestKey }));
+    manifest = JSON.parse(await result.Body.transformToString());
+  } catch {
+    // Manifest doesn't exist yet — create minimal one
+    manifest = { workflowId, createdAt: new Date().toISOString(), sessions: {} };
+  }
+  if (!manifest.sessions) manifest.sessions = {};
+  manifest.sessions[agentId] = sessionInfo;
+  manifest.updatedAt = new Date().toISOString();
+  await s3.send(new PutObjectCommand({
+    Bucket: ARTIFACT_BUCKET,
+    Key: manifestKey,
+    Body: JSON.stringify(manifest, null, 2),
+    ContentType: "application/json",
+  }));
+  console.log(`[orchestrator] Recorded session for ${agentId} in manifest`);
 }
 
 function buildManifestContext(manifest, agentPhase, workflow, ticket) {

@@ -12,3 +12,12 @@ test-results/
 idea.md
 .claude/
 scripts/tool-test-results.json
+
+# Deploy artifacts with account IDs / ARNs
+deploy/runtime-agent/fleet-runtime-ids.json
+deploy/runtime-agent/fleet-health-results.json
+.aws-sam/
+
+# Recordings (large binaries)
+demo/recordings/*.webm
+demo/recordings/*.png

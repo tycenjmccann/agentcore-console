@@ -201,6 +201,7 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       "Full-Stack Integration",
     ],
     outputs: [
+      { icon: "s3", label: "Implementation artifacts to S3" },
       { dot: "ext", label: "Git commits to feature branch" },
       { icon: "agentcore", label: "Gateway: report_completion (PR)" },
     ],
@@ -230,6 +231,7 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       "Retry Loop (A2A fix request, 3x)",
     ],
     outputs: [
+      { icon: "s3", label: "QA reports to S3" },
       { dot: "ext", label: "Pull Request (auto-merge ready)" },
       { icon: "agentcore", label: "Workflow Complete" },
     ],

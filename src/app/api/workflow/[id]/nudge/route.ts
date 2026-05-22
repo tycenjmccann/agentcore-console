@@ -7,6 +7,11 @@
  *
  * Fixes them by re-writing status to trigger a fresh DynamoDB Stream event,
  * which the orchestrator will pick up and invoke the agent.
+ *
+ * NOTE: We intentionally do NOT reset "in_progress" tickets. An in_progress
+ * ticket means an agent Runtime session is actively running. Resetting it
+ * causes duplicate invocations. If an agent truly crashes, the Runtime session
+ * timeout (540s) will handle it, and the agent should report_completion/failure.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -85,17 +90,8 @@ export async function POST(
       }
     }
 
-    // Case 3: "in_progress" but nothing is happening — reset it.
-    if (status === "in_progress") {
-      await ddb.send(new UpdateCommand({
-        TableName: TICKETS_TABLE,
-        Key: { ticketId },
-        UpdateExpression: "SET #s = :s, #u = :u",
-        ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
-        ExpressionAttributeValues: { ":s": "ready", ":u": new Date().toISOString() },
-      }));
-      nudged.push(`${ticketId} (in_progress→ready)`);
-    }
+    // in_progress tickets are left alone — an agent session is actively running.
+    // Resetting them causes duplicate invocations (the bug that created 3 parallel QA sessions).
   }
 
   // Write nudge event to events table (for replay history)

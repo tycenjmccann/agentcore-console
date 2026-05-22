@@ -11,6 +11,9 @@ interface AgentOutputPanelProps {
   task: AgentTask | null;
   isOpen: boolean;
   onClose: () => void;
+  isLoading?: boolean;
+  isStale?: boolean;
+  workflowId?: string;
   triggerRef?: React.RefObject<HTMLElement | null>;
 }
 
@@ -31,15 +34,34 @@ export default function AgentOutputPanel({
   task,
   isOpen,
   onClose,
+  isLoading,
+  isStale,
+  workflowId,
   triggerRef,
 }: AgentOutputPanelProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const summaryRef = useRef<HTMLDivElement>(null);
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
   const [isAutoScrollEnabled, setIsAutoScrollEnabled] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  // Clear restarting state when agent comes back to life (isStale clears)
+  // or after 30s timeout (so button isn't stuck disabled forever if agent never starts)
+  useEffect(() => {
+    if (!isStale && isRestarting) {
+      setIsRestarting(false);
+    }
+  }, [isStale, isRestarting]);
+
+  useEffect(() => {
+    if (!isRestarting) return;
+    const timeout = setTimeout(() => setIsRestarting(false), 30_000);
+    return () => clearTimeout(timeout);
+  }, [isRestarting]);
 
   // Portal mount (client-only)
   useEffect(() => {
@@ -52,6 +74,27 @@ export default function AgentOutputPanel({
       contentRef.current.scrollTop = contentRef.current.scrollHeight;
     }
   }, [task?.output, isAutoScrollEnabled]);
+
+  // Scroll to summary section when panel opens OR when output loads (async fetch)
+  const hasScrolledRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) {
+      hasScrolledRef.current = false;
+      return;
+    }
+    if (hasScrolledRef.current || !contentRef.current || !task?.output) return;
+    // Wait a frame for the DOM to render the summary ref
+    requestAnimationFrame(() => {
+      if (summaryRef.current && contentRef.current) {
+        hasScrolledRef.current = true;
+        contentRef.current.scrollTop = summaryRef.current.offsetTop - contentRef.current.offsetTop;
+      } else if (contentRef.current && task?.status !== "running") {
+        // No summary section and not streaming — scroll to bottom
+        hasScrolledRef.current = true;
+        contentRef.current.scrollTop = contentRef.current.scrollHeight;
+      }
+    });
+  }, [isOpen, task?.output, task?.status]);
 
   // Focus management: trap focus, return on close
   useEffect(() => {
@@ -223,9 +266,51 @@ export default function AgentOutputPanel({
           ref={contentRef}
           onScroll={handleScroll}
         >
+          {isLoading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center" style={{ background: "rgba(15, 15, 20, 0.85)", backdropFilter: "blur(2px)" }}>
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-6 h-6 border-2 border-zinc-600 border-t-zinc-200 rounded-full animate-spin" />
+                <span className="text-xs text-zinc-400">Loading output...</span>
+              </div>
+            </div>
+          )}
           {task?.output ? (
             <>
-              <MarkdownRenderer content={task.output} />
+              {(() => {
+                // Try our explicit divider first (new format)
+                const SUMMARY_DIVIDER = "\n\n---\n\n## Summary\n\n";
+                let dividerIdx = task.output.indexOf(SUMMARY_DIVIDER);
+                let dividerLen = SUMMARY_DIVIDER.length;
+
+                // Fallback: detect "## Summary" in raw concatenated text (old format)
+                if (dividerIdx === -1) {
+                  const fallbackMatch = task.output.match(/(:|\.)?\s*#{1,3}\s*Summary\s*\n?/);
+                  if (fallbackMatch && fallbackMatch.index !== undefined) {
+                    dividerIdx = fallbackMatch.index;
+                    dividerLen = fallbackMatch[0].length;
+                  }
+                }
+
+                if (dividerIdx === -1) {
+                  // Insert paragraph breaks between jammed statements (e.g. "...implementation:Let me")
+                  const cleaned = task.output.replace(/(:)([A-Z])/g, "$1\n\n$2");
+                  return <MarkdownRenderer content={cleaned} />;
+                }
+
+                // Insert paragraph breaks in the stream portion only
+                const rawStream = task.output.slice(0, dividerIdx);
+                const streamPart = rawStream.replace(/(:)([A-Z])/g, "$1\n\n$2");
+                const summaryPart = task.output.slice(dividerIdx + dividerLen);
+                return (
+                  <>
+                    {streamPart && <MarkdownRenderer content={streamPart} />}
+                    <div ref={summaryRef} className="mt-4 pt-4 border-t border-zinc-700/50">
+                      <h3 className="text-lg font-semibold text-zinc-200 mb-2">Summary</h3>
+                      <MarkdownRenderer content={summaryPart} />
+                    </div>
+                  </>
+                );
+              })()}
               {isRunning && (
                 <div className="streaming-indicator" aria-hidden="true">
                   <span className="streaming-cursor" />
@@ -270,17 +355,39 @@ export default function AgentOutputPanel({
         {task && (
           <div className="modal-footer">
             <div className="flex items-center gap-3">
-              <span>Status: {task.status}</span>
+              <span>Status: {isStale ? "Stale (no activity for 6 min)" : task.status}</span>
               {task.branch && <span>Branch: {task.branch}</span>}
             </div>
-            {task.error && (
-              <div className="flex items-center gap-1.5">
-                <AlertCircle size={14} style={{ color: "var(--pipeline-error)" }} aria-hidden="true" />
-                <span className="modal-footer-error truncate max-w-[400px]">
-                  {task.error}
-                </span>
-              </div>
-            )}
+            <div className="flex items-center gap-3">
+              {task.error && (
+                <div className="flex items-center gap-1.5">
+                  <AlertCircle size={14} style={{ color: "var(--pipeline-error)" }} aria-hidden="true" />
+                  <span className="modal-footer-error truncate max-w-[400px]">
+                    {task.error}
+                  </span>
+                </div>
+              )}
+              {(isStale || task.status === "error") && workflowId && (
+                <button
+                  onClick={async () => {
+                    if (isRestarting) return;
+                    setIsRestarting(true);
+                    try {
+                      await fetch(`/api/workflow/${workflowId}/retry`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ agentId: task.agentId }),
+                      });
+                      // Don't reset isRestarting — keep showing "Starting..." until isStale clears
+                    } catch { setIsRestarting(false); }
+                  }}
+                  disabled={isRestarting}
+                  className="px-3 py-1.5 text-xs font-medium rounded bg-amber-600/80 text-white hover:bg-amber-500 disabled:opacity-50 transition-colors"
+                >
+                  {isRestarting ? "Starting session..." : "Restart Agent"}
+                </button>
+              )}
+            </div>
           </div>
         )}
 

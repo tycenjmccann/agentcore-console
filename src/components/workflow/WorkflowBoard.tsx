@@ -724,40 +724,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       )}
 
       <div className="pipeline-viz">
-        <div className="pipeline-title">Agentis Hub</div>
-        <div className="pipeline-subtitle">Autonomous Multi-Agent Development Pipeline</div>
-
-        {/* Legend */}
-        <div className="pipeline-legend">
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.bedrock} alt="Bedrock" />
-            Amazon Bedrock
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.agentcore} alt="AgentCore" />
-            Bedrock AgentCore
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.s3} alt="S3" />
-            Amazon S3
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.eventbridge} alt="EventBridge" />
-            Amazon EventBridge
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.codebuild} alt="Code Interpreter" />
-            Code Interpreter
-          </div>
-          <div className="legend-item">
-            <span className="dot skill" />
-            Loaded Skill
-          </div>
-          <div className="legend-item">
-            <span className="dot ext" />
-            External
-          </div>
-        </div>
+        <div className="pipeline-title">{state.input?.title || "Workflow Pipeline"}</div>
 
         {/* Canvas */}
         <div className="pipeline-canvas" ref={pipelineRef}>
@@ -972,6 +939,38 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           </div>
         </div>
 
+        {/* Legend — bottom-left */}
+        <div className="pipeline-legend">
+          <div className="legend-item">
+            <img className="aws-ico" src={awsIcons.bedrock} alt="Bedrock" />
+            Amazon Bedrock
+          </div>
+          <div className="legend-item">
+            <img className="aws-ico" src={awsIcons.agentcore} alt="AgentCore" />
+            Bedrock AgentCore
+          </div>
+          <div className="legend-item">
+            <img className="aws-ico" src={awsIcons.s3} alt="S3" />
+            Amazon S3
+          </div>
+          <div className="legend-item">
+            <img className="aws-ico" src={awsIcons.eventbridge} alt="EventBridge" />
+            Amazon EventBridge
+          </div>
+          <div className="legend-item">
+            <img className="aws-ico" src={awsIcons.codebuild} alt="Code Interpreter" />
+            Code Interpreter
+          </div>
+          <div className="legend-item">
+            <span className="dot skill" />
+            Loaded Skill
+          </div>
+          <div className="legend-item">
+            <span className="dot ext" />
+            External
+          </div>
+        </div>
+
         {/* Status bar */}
         <div className={`pipeline-status ${isSettled && !replayMode ? "settled" : ""}`}>
           <div className="status-phase" style={isSettled && !replayMode ? { color: "#f97316" } : undefined}>
@@ -1069,7 +1068,7 @@ const PIPELINE_STYLES = `
 .pipeline-subtitle{font-size:12px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px}
 @keyframes shimmer{to{background-position:200% center}}
 
-.pipeline-legend{display:flex;gap:18px;margin-bottom:14px;font-size:10px;color:#64748b;flex-wrap:wrap;justify-content:center}
+.pipeline-legend{position:fixed;bottom:60px;left:470px;display:flex;flex-direction:column;gap:6px;font-size:10px;color:#64748b;z-index:10;background:#0f1419e0;padding:10px 14px;border-radius:8px;border:1px solid #1e293b}
 .legend-item{display:flex;align-items:center;gap:4px}
 .legend-item .aws-ico{width:18px;height:18px;border-radius:3px;object-fit:contain}
 .legend-item .dot{width:7px;height:7px;border-radius:50%}

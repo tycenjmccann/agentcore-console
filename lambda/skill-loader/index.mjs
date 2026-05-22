@@ -228,6 +228,25 @@ Remember: Claude is capable of extraordinary creative work. Don't hold back, sho
 
 If a branding kit exists in S3 (bucket: agentis-branding, key: branding-kit/brand-system.md), read it FIRST and design within that system. The branding system takes precedence over the "bold new direction" guidance above — existing projects need consistency, not reinvention. Greenfield projects without a branding kit get full creative freedom.
 
+## Brownfield Feature Design (CRITICAL — read before designing)
+
+When the feature MODIFIES or ENHANCES existing functionality:
+
+1. **Read the existing implementation FIRST** — understand its component structure, state management, CSS approach, and data flow BEFORE designing anything new.
+2. **Design as a DELTA, not a replacement.** Your spec should say "add X to existing component Y" not "create new component Z."
+3. **NEVER design a parallel state machine.** If the existing code manages state for the same domain (e.g., replay state, modal state, form state), your design MUST extend that state — not create a competing one.
+4. **NEVER spec a new CSS file** if the existing component's styles are in an existing file. Add new rules to the existing stylesheet.
+5. **Integration is not an afterthought.** The design must show HOW new code plugs into existing state/props/callbacks — not just provide an \`onSomething\` callback and hope the dev figures it out.
+
+**Example of WRONG approach:**
+- Existing: WorkflowBoard has \`isPlaying\`, \`replayIndex\`, \`seekTo()\`
+- Wrong design: "Create \`useReplayState.ts\` with its own RAF loop, own play/pause, own progress tracking, and call parent's \`onSeek\` when position changes"
+- This creates TWO replay engines running simultaneously.
+
+**Example of CORRECT approach:**
+- Existing: WorkflowBoard has \`isPlaying\`, \`replayIndex\`, \`seekTo()\`
+- Correct design: "Replace the \`<input type='range'>\` in WorkflowBoard's replay bar with a styled scrubber component. The component receives \`isPlaying\`, \`progress\`, \`onTogglePlay\`, \`onSeek\` as props from WorkflowBoard's existing state. No internal playback state — it's a controlled component driven by the parent."
+
 ## Accessibility (WCAG 2.1 AA — always required)
 
 Regardless of aesthetic direction, every design MUST specify:
@@ -327,10 +346,38 @@ Why: New APIs, PCI compliance, legal requirements, full-stack implementation.
 2. If presigned image URLs are provided, navigate to each with the browser tool
 3. Write detailed visual analysis of images (this is the sole reference for downstream agents)
 
-### Phase 2: Requirements Extraction
+### Phase 2: Feature Scope Classification (MANDATORY — do not skip)
+
+Before defining requirements, you MUST classify the feature scope:
+
+**MODIFY EXISTING** (default — assume this unless proven otherwise):
+- Does the codebase already have similar/related functionality? (grep for it)
+- Is there an existing component, hook, or module that does 50%+ of what's requested?
+- Is there existing state management, data flow, or UI that this feature extends?
+
+**NET NEW** (requires explicit justification):
+- You MUST prove no overlapping functionality exists (include grep results)
+- The feature introduces a genuinely new concern with no existing code to build on
+
+**CLASSIFICATION RULES:**
+- If existing code handles the same domain (e.g., "replay" and there's already a replay system), the scope is ALWAYS "MODIFY EXISTING"
+- NEVER specify creating a new state management system if one already exists for that domain
+- NEVER specify new files for functionality that can be added to existing files
+- When in doubt, default to MODIFY EXISTING
+
+**Output:** Include in your requirements doc:
+\`\`\`
+## Feature Scope: [MODIFY EXISTING | NET NEW]
+Existing code: [file paths of related existing code]
+Approach: [Enhance X / Replace X with justification / Build new Y because Z doesn't exist]
+\`\`\`
+
+### Phase 3: Requirements Extraction
 1. Extract functional requirements with testable acceptance criteria
 2. Identify WHICH SPECIFIC FILES need to change (read repo structure if needed)
-3. Write requirements to S3: workflows/{workflow_id}/shared/requirements.md
+3. For MODIFY EXISTING: requirements MUST reference existing functions/state to enhance (not replace)
+4. For NET NEW: requirements MUST confirm integration points with existing code
+5. Write requirements to S3: workflows/{workflow_id}/shared/requirements.md
 
 ### Phase 3: Agent Selection (THINK HARD HERE)
 1. For each agent in your roster, ask: "Is this agent's domain CONCRETELY needed?"
@@ -1020,45 +1067,64 @@ Focus on tests that prevent real bugs, not academic completeness. Good tests fai
 
 Systematic approach to implementing features: understand deeply, identify ambiguities, design elegantly, then implement.
 
+## CRITICAL PRINCIPLE: Surgical Edits Over Rewrites
+
+**DEFAULT BEHAVIOR: Modify existing code.** Creating new files is the EXCEPTION, not the rule.
+
+Before creating ANY new file, you MUST answer:
+1. Is there an existing file that handles this domain? → Modify it.
+2. Is there existing state management for this concern? → Extend it, don't build a parallel one.
+3. Is there an existing component that does something similar? → Enhance it.
+
+**NEVER build a parallel system.** If the codebase has a replay system, you enhance THAT system. If it has a modal, you enhance THAT modal. If it has state management for X, you add to THAT state — you don't create useXState.ts alongside the existing one.
+
+**When to create a new file:** ONLY when the feature introduces a genuinely new concern with NO existing code in that domain. Example: the codebase has no charting — creating Chart.tsx is fine. The codebase already has a replay bar — creating ReplayScrubber.tsx alongside it is NOT fine.
+
 ## Phase 1: Discovery
 - Understand what needs to be built
 - Identify the problem being solved
 - Note constraints and requirements
 
-## Phase 2: Codebase Exploration
-- Find similar features and trace their implementation
-- Map architecture and abstractions for the relevant area
-- Identify UI patterns, testing approaches, extension points
+## Phase 2: Codebase Exploration (Brownfield-First)
+- **FIRST**: Find ALL existing code in the same domain (grep for related keywords)
+- **SECOND**: Read the existing implementation FULLY — understand its state, data flow, rendering
+- **THIRD**: Identify what the existing code already does vs what's missing
+- **FOURTH**: Map the delta — what needs to be ADDED to existing code, not what to build from scratch
 - List 5-10 key files that inform the implementation
+- Explicitly note: "Existing system does X. I need to add Y to it."
 
 ## Phase 3: Clarifying Questions (CRITICAL — do not skip)
 - Identify ALL underspecified aspects: edge cases, error handling, integration points, scope boundaries, backward compatibility, performance needs
 - Resolve ambiguities BEFORE designing
+- If the design doc specifies creating a new state machine but existing state management already covers the domain, RAISE THIS as a clarifying question
 
 ## Phase 4: Architecture Design
-- Consider multiple approaches with different trade-offs:
-  - Minimal changes (smallest change, maximum reuse)
-  - Clean architecture (maintainability, elegant abstractions)
-  - Pragmatic balance (speed + quality)
-- Choose the best fit for this specific task
-- Provide rationale for the decision
+- **DEFAULT: Minimal changes** — smallest modification to existing code that delivers the feature
+- Only escalate to larger refactors if minimal changes create tech debt or bugs
+- Consider:
+  - Surgical edit (add to existing files/functions — PREFERRED)
+  - Extracted component (new file, but wired into existing state — acceptable)
+  - New system (new state management — ONLY if nothing similar exists)
+- **REJECT designs that create parallel/competing systems.** If the design doc tells you to build a new state machine but one already exists, modify the existing one instead.
 
 ## Phase 5: Implementation
 - Follow chosen architecture
 - Follow codebase conventions strictly
-- Write clean, well-documented code
+- Modify existing files FIRST, create new files LAST
+- Every new component must integrate with existing state (no orphaned state machines)
 - Track progress as you go
 
 ## Phase 6: Quality Review
+- Check: did I create any parallel systems? (If yes, refactor to use existing)
+- Check: could this have been done with fewer new files? (If yes, consolidate)
 - Check for simplicity/DRY/elegance
 - Check for bugs/functional correctness
 - Verify project conventions/abstractions are followed
-- Address issues found
 
 ## Phase 7: Summary
 - What was built
 - Key decisions made
-- Files modified
+- Files modified vs files created (justify each new file)
 - Suggested next steps`,
 };
 
