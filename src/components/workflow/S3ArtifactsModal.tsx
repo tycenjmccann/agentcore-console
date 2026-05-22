@@ -91,9 +91,10 @@ export default function S3ArtifactsModal({
   // Fetch artifacts on open
   useEffect(() => {
     if (!isOpen) return;
+    const controller = new AbortController();
     setIsLoading(true);
     setError(null);
-    fetch(`/api/workflow/artifacts?workflowId=${encodeURIComponent(workflowId)}&agentId=${encodeURIComponent(agentId)}`)
+    fetch(`/api/workflow/artifacts?workflowId=${encodeURIComponent(workflowId)}&agentId=${encodeURIComponent(agentId)}`, { signal: controller.signal })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -103,9 +104,11 @@ export default function S3ArtifactsModal({
         setIsLoading(false);
       })
       .catch((err) => {
+        if (err.name === "AbortError") return;
         setError(err.message || "Failed to load artifacts");
         setIsLoading(false);
       });
+    return () => controller.abort();
   }, [isOpen, workflowId, agentId]);
 
   // Focus close button on open

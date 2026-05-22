@@ -8,6 +8,7 @@ import type {
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
 import AgentOutputPanel from "./AgentOutputPanel";
+import S3ArtifactsModal from "./S3ArtifactsModal";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -103,6 +104,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   // Preserve original DDB agent outputs (replay reconstructs state from events which lack full output)
   const originalOutputsRef = useRef<Record<string, string>>({});
+
+  // S3 Artifacts Modal state
+  const [artifactsModal, setArtifactsModal] = useState<{ phaseId: string; phaseName: string } | null>(null);
 
   // Fetch initial state (once for replay, poll for live)
   useEffect(() => {
@@ -941,8 +945,15 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                         const outIconKey = out.icon || out.dot || "ext";
                         const isOutFlashing = toolFlashes[`${phase.id}:${outIconKey}`];
                         const itemClass = isOutFlashing ? "trigger" : getItemClass(idx);
+                        const isS3Output = out.icon === "s3";
                         return (
-                          <div key={i} className={`item ${itemClass}`}>
+                          <div
+                            key={i}
+                            className={`item ${itemClass}${isS3Output ? " clickable" : ""}`}
+                            onClick={isS3Output ? () => setArtifactsModal({ phaseId: phase.id, phaseName: phase.name }) : undefined}
+                            style={isS3Output ? { cursor: "pointer" } : undefined}
+                            title={isS3Output ? "View S3 artifacts" : undefined}
+                          >
                             {out.icon ? (
                               <img className="svc-icon" src={(awsIcons as Record<string, string>)[out.icon]} alt={out.icon} />
                             ) : (
@@ -1036,6 +1047,15 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             branch: Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.branch,
           } : null}
         />
+
+        {/* S3 Artifacts Modal — phase click shows all workflow artifacts */}
+        <S3ArtifactsModal
+          isOpen={!!artifactsModal}
+          onClose={() => setArtifactsModal(null)}
+          agentId=""
+          agentName={artifactsModal?.phaseName ? `${artifactsModal.phaseName} Phase` : ""}
+          workflowId={workflowId}
+        />
       </div>
     </div>
   );
@@ -1095,6 +1115,7 @@ const PIPELINE_STYLES = `
 .sec-label{font-size:7px;color:#475569;letter-spacing:1.5px;text-transform:uppercase;margin-top:6px;margin-bottom:2px;padding-left:3px}
 
 .item{display:flex;align-items:center;gap:5px;padding:5px 7px;border-radius:6px;border:1px solid transparent;background:#1a233260;transition:all .3s;position:relative}
+.item.clickable:hover{border-color:#0ea5e960;background:#0ea5e918;transform:translateY(-1px)}
 .item.active{border-color:#0ea5e940;background:#0ea5e910}
 .item.active .item-label{color:#e2e8f0}
 .item.done{border-color:#22c55e20;opacity:0.7}

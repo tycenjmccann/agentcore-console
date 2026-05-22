@@ -19,6 +19,10 @@ export async function GET(request: NextRequest) {
 
   // Single file download
   if (key && zip !== "true") {
+    // Security: only allow access to workflow artifacts
+    if (!key.startsWith("workflows/")) {
+      return NextResponse.json({ error: "Invalid key: must be within workflows/ prefix" }, { status: 403 });
+    }
     try {
       const response = await client.send(
         new GetObjectCommand({ Bucket: ARTIFACT_BUCKET, Key: key })
@@ -34,7 +38,7 @@ export async function GET(request: NextRequest) {
 
       const bytes = await body.transformToByteArray();
 
-      return new NextResponse(bytes, {
+      return new NextResponse(Buffer.from(bytes), {
         headers: {
           "Content-Type": contentType,
           "Content-Disposition": `attachment; filename="${filename}"`,
@@ -90,7 +94,7 @@ export async function GET(request: NextRequest) {
         ? `${agentId}-artifacts.zip`
         : `${workflowId}-artifacts.zip`;
 
-      return new NextResponse(zipBuffer, {
+      return new NextResponse(Buffer.from(zipBuffer), {
         headers: {
           "Content-Type": "application/zip",
           "Content-Disposition": `attachment; filename="${zipFilename}"`,
