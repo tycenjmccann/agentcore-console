@@ -145,7 +145,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                 originalOutputsRef.current = outputs;
               }
               if (data.phase === "complete") {
-                // Completed workflow → full replay mode
+                // Completed workflow → show final state, replay available on demand
                 setReplayMode(true);
                 if (interval) { clearInterval(interval); interval = null; }
                 fetch(`/api/workflow/${workflowId}/events`)
@@ -153,6 +153,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                   .then((evData) => {
                     if (evData.events?.length) {
                       setReplayEvents(evData.events);
+                      // Start at the END so user sees completed state immediately
+                      setReplayIndex(evData.events.length - 1);
                     }
                   })
                   .catch(() => {});
@@ -980,8 +982,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
               </>
             ) : (
               <>
-                <button className="replay-btn" onClick={togglePlay}>
-                  {isPlaying ? "⏸" : "▶"}
+                <button className="replay-btn" onClick={togglePlay} title={isPlaying ? "Pause" : "Replay"}>
+                  {isPlaying ? "⏸" : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/><polygon points="10 8 16 12 10 16" fill="currentColor" stroke="none"/></svg>}
                 </button>
                 <input
                   type="range"
@@ -1147,7 +1149,7 @@ const PIPELINE_STYLES = `
 .item.done.settled .item-label{color:#e2e8f0}
 .flow-path.settled{stroke:#f97316;opacity:.6;stroke-width:2.5}
 
-.replay-bar{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 16px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;width:100%;max-width:1720px}
+.replay-bar{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 16px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;width:60%;max-width:1000px;margin-left:auto;margin-right:auto}
 .replay-btn{background:none;border:1px solid #334155;color:#e2e8f0;font-size:14px;width:32px;height:32px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .replay-btn:hover{border-color:#0ea5e9;background:#0ea5e920}
 .replay-scrubber{flex:1;height:4px;-webkit-appearance:none;appearance:none;background:#334155;border-radius:2px;cursor:pointer;outline:none}
