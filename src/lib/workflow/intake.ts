@@ -15,6 +15,7 @@ import {
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { writeArtifact } from "./workspace";
+import { ARTIFACT_BUCKET } from "./agent-setup";
 import type { IntakeSource, WorkflowInput } from "./types";
 
 const DEFAULT_REGION = process.env.AWS_REGION || "us-east-1";
@@ -311,7 +312,7 @@ export async function processIntakeSources(
         // S3 source image — copy directly instead of re-encoding
         const { CopyObjectCommand } = await import("@aws-sdk/client-s3");
         const client = new S3Client({ region: DEFAULT_REGION });
-        const bucket = process.env.TEAM_WORKFLOW_S3_BUCKET || "";
+        const bucket = ARTIFACT_BUCKET;
         await client.send(new CopyObjectCommand({
           Bucket: bucket,
           Key: destKey,
@@ -397,7 +398,7 @@ export function buildRequirementsContext(
         context += `Use the browser tool to navigate to the presigned URL to view this mockup/screenshot.\n\n`;
       } else if (source.content.length > MAX_INLINE_SIZE && source.s3Key) {
         // Large content: provide first 8K chars + S3 reference for full access
-        const bucket = process.env.TEAM_WORKFLOW_S3_BUCKET || "";
+        const bucket = ARTIFACT_BUCKET;
         context += `**[Large file: ${(source.content.length / 1024).toFixed(0)}KB — showing first 8KB, full content at s3://${bucket}/${source.s3Key}]**\n\n`;
         context += `${source.content.slice(0, 8000)}\n\n`;
         context += `... [TRUNCATED — use s3_read tool to access full ${(source.content.length / 1024).toFixed(0)}KB content at s3://${bucket}/${source.s3Key}]\n\n`;

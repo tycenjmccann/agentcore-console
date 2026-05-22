@@ -57,6 +57,12 @@ Resources:
   # agentis-tickets: PK=ticketId (S), GSI: parentId-index, assignee-index, Streams=NEW_AND_OLD_IMAGES
   # agentis-workflows: PK=workflowId (S), GSI: epicId-index — MUST be "workflowId" not "id"
   # agentis-events: PK=workflowId (S), SK=eventId (S), TTL on "ttl"
+  #
+  # ─── CRITICAL: Dependencies ────────────────────────────────────────────────────
+  # agent-invoker.mjs requires @smithy/signature-v4 and @aws-crypto/sha256-js for
+  # Runtime agent invocation (SigV4 signing). These MUST be in node_modules when
+  # deploying. Run: npm install --omit=dev BEFORE creating the zip.
+  # Deploy script: ./deploy.sh (handles install + zip + upload)
 
   # ─── Orchestration Lambda ──────────────────────────────────────────────────────
   OrchestratorFunction:

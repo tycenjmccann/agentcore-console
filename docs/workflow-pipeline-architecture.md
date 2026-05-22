@@ -906,11 +906,23 @@ aws dynamodb update-table \
   --stream-specification StreamEnabled=true,StreamViewType=NEW_AND_OLD_IMAGES \
   --region us-east-1
 
-# 2. Deploy the SAM stack (orchestrator + agent-invoker + events-writer)
-cd lambda/orchestrator
-sam build
-sam deploy --guided  # First time
-sam deploy           # Subsequent
+# 2. Deploy the Lambda functions (orchestrator + agent-invoker + events-writer)
+#    CRITICAL: Must run npm install BEFORE zipping — @smithy/signature-v4 is required
+#    for Runtime agent invocation. Without it, agents fall back to Harness mode silently.
+./lambda/orchestrator/deploy.sh
+
+# Alternative: SAM deploy (creates functions + event source mapping from scratch)
+# cd lambda/orchestrator && sam build && sam deploy --guided
+
+# 3. Set env vars on BOTH Lambdas (agentis-orchestrator AND agentis-agent-invoker):
+#    TICKETS_TABLE=agentis-tickets    (NOT "UNUSED" or any placeholder!)
+#    WORKFLOWS_TABLE=agentis-workflows
+#    EVENTS_TABLE=agentis-events
+#    JIRA_API_TOKEN=<your-token>      (must match App Runner token)
+#    JIRA_SITE_URL=<your-site>.atlassian.net
+#    JIRA_EMAIL=<your-email>
+#    TICKET_PROVIDER=jira              (or "dynamodb")
+#    RUNTIME_ARN_AGENTIS_*=<arns>     (orchestrator only — one per agent)
 
 # 3. Set env vars on Next.js app:
 ORCHESTRATION_MODE=lambda

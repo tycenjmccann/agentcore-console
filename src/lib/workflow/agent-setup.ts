@@ -4,7 +4,7 @@
  * Provides shared configuration used by workspace.ts and engine.ts.
  */
 
-export const ARTIFACT_BUCKET = process.env.TEAM_WORKFLOW_S3_BUCKET || "";
+export const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || "";
 
 /**
  * Get the S3 prefix for a specific agent's workspace within a workflow.

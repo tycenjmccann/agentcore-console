@@ -16,8 +16,9 @@ import {
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { syncTicketCounter } from "./jira-mock";
+import { ARTIFACT_BUCKET } from "./agent-setup";
 
-const S3_BUCKET = process.env.TEAM_WORKFLOW_S3_BUCKET || "";
+const S3_BUCKET = ARTIFACT_BUCKET;
 const S3_STATE_PREFIX = "workflow-state/";
 const s3 = new S3Client({ region: process.env.AWS_REGION || "us-east-1" });
 
