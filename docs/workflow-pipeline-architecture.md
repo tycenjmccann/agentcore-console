@@ -1514,11 +1514,123 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 | `agentis-jira-real` | 2026-05-21T02:02:35Z | Dual-write: Jira-first → DDB with same key |
 | `agentis-orchestrator` | 2026-05-21T05:54:49Z | Webhook guard: reject when TICKET_PROVIDER≠jira |
 
-### Current State
+### Current State (as of 2026-05-22)
 
 | Setting | Value | Notes |
 |---------|-------|-------|
-| `TICKET_PROVIDER` on orchestrator | `dynamodb` | User's choice for local dev |
-| DDB Stream mapping | Enabled | UUID: 4275fd71-9d4b-4690-ae24-11ca1dd9b0d0 |
-| App Runner | Deployed with `TICKET_PROVIDER=jira` | Cloud path — not active for local testing |
-| `agentis-jira-real` | Dual-write (DL-018) | Always writes both, mode-agnostic |
+| `TICKET_PROVIDER` on App Runner | `jira` | Production path — Jira is ticket authority |
+| `ORCHESTRATION_MODE` on App Runner | `lambda` | Lambda orchestrator is sole driver |
+| `TICKET_PROVIDER` on orchestrator Lambda | `jira` | Reads/writes via Jira API |
+| DDB Stream mapping | Enabled | Fires orchestrator on ticket status changes |
+| App Runner image | `agentis-hub:v7` | Deployed 2026-05-22 |
+| `agentis-jira-real` | Dual-write (DL-018) | Always writes Jira + DDB |
+
+---
+
+### DL-019: Remove Legacy Ticket-from-Text Path (CRITICAL FIX)
+
+**Date**: 2026-05-22
+**Decision**: Remove the fallback code path that parsed agent text output to create tickets
+**Status**: ACTIVE
+
+**Context**: `handleRequirementsCompletion()` in `engine.ts` had two paths:
+1. `TICKET_PROVIDER === "dynamodb"` → trusted that agent already created tickets via tools
+2. `else` → parsed agent's text output, extracted a "ticket plan", created tickets with title-based blocker resolution
+
+**The Bug**: App Runner deployed with `TICKET_PROVIDER=jira`. The code checked `=== "dynamodb"` which didn't match `"jira"`, so it fell into the legacy `else` path. This caused:
+1. **Duplicate ticket creation** — agent created tickets via Jira tools (correct), then the engine ALSO created tickets from parsed text (broken)
+2. **Broken dependency chain** — text-parsed tickets used title strings for `blockedBy` references. If titles didn't match exactly, `titleToId.get(title)` returned undefined → tickets had no blockers → everything ran in parallel
+3. **Premature phase advancement** — with no blockers, QA/CI tickets were "ready" immediately → engine advanced phases without waiting for dev
+4. **Stuck workflows** — agents invoked before prerequisites completed, failed silently, never reported completion
+
+**Fix**:
+- Added `"jira"` to the condition: `if (providerType === "dynamodb" || providerType === "jira")`
+- Then removed the `else` path entirely — dead code that should never execute
+- Removed all supporting dead code: `parseRequirementsOutput()`, `createTicketsFromPlan()`, `readTicketPlanFromS3()`, `resolveAssignee()`, `buildKeywordMap()`, `TicketPlan` interface
+
+**Principle**: There is ONE path for ticket creation — the agent calls `JiraIntegration___create_ticket` sequentially, gets real IDs back, and passes them as `blocked_by` in subsequent calls. The engine never creates tickets.
+
+**Files modified**:
+- `src/lib/workflow/engine.ts` — removed ~250 lines of dead code
+
+---
+
+### DL-020: Model Override Support for Runtime Agents
+
+**Date**: 2026-05-22
+**Decision**: Runtime agents accept `model_override` in the invocation payload to switch models at runtime
+**Status**: ACTIVE
+
+**Context**: All agents deploy with `MODEL_ID=us.anthropic.claude-opus-4-6-v1` baked in. For testing/cost optimization, we need to run workflows with Sonnet without redeploying the fleet.
+
+**Implementation**:
+- `main.py` has a `MODEL_ALIASES` dict that resolves short names to full Bedrock model IDs:
+  ```python
+  MODEL_ALIASES = {
+      "opus": "us.anthropic.claude-opus-4-6-v1",
+      "sonnet": "us.anthropic.claude-sonnet-4-6",
+      "haiku": "us.anthropic.claude-haiku-4-5-20251001",
+  }
+  ```
+- If `model_override` in payload differs from the deployed `MODEL_ID`, a new `BedrockModel` instance is created with the resolved ID
+- Orchestrator (`index.mjs`) also has an alias map to resolve before passing to agents
+
+**Critical model IDs**:
+- Opus: `us.anthropic.claude-opus-4-6-v1` (has `-v1` suffix)
+- Sonnet: `us.anthropic.claude-sonnet-4-6` (NO `-v1` suffix)
+- Passing an invalid ID causes `ValidationException: The provided model identifier is invalid`
+
+**Usage**: Pass `"modelOverride": "sonnet"` in the workflow start payload.
+
+---
+
+### DL-021: Buffered Event Streaming (Token Loss Fix)
+
+**Date**: 2026-05-22
+**Decision**: Buffer text tokens before writing to DynamoDB to prevent event loop blocking
+**Status**: ACTIVE
+
+**Context**: The `ToolTrackingHandler` callback in `main.py` was doing a synchronous `put_item` to DynamoDB for every single text token. With rapid model output (~100+ tokens/sec), the blocking I/O caused 95%+ token loss — only ~18 fragments captured out of hundreds.
+
+**Fix**: Buffer text in the callback, flush when buffer exceeds 50 chars or on tool/completion boundaries. Reduces DDB writes from hundreds to ~20-30 chunked writes with coherent text.
+
+**Guard**: Event writes are gated on `workflow_id` presence — ad-hoc chat invocations (no workflow context) don't pollute the events table.
+
+---
+
+## Critical Setup Notes (for new deployments)
+
+### Environment Variables That MUST Match
+
+| Env Var | App Runner | Orchestrator Lambda | What breaks if wrong |
+|---------|-----------|-------------------|---------------------|
+| `TICKET_PROVIDER` | `jira` | `jira` | Engine falls into legacy text-parsing path, creates duplicate broken tickets |
+| `ORCHESTRATION_MODE` | `lambda` | N/A | If set to `in-process`, App Runner tries to orchestrate alongside Lambda → chaos |
+| `JIRA_TABLE_NAME` | `agentis-tickets-unused` | N/A | Legacy DDB table name — not actively used when provider=jira |
+| `MODEL_ID` (on agents) | N/A | N/A | Must be valid Bedrock model ID. Opus has `-v1`, Sonnet does NOT |
+
+### The Flow (authoritative)
+
+```
+1. User submits workflow via UI → POST /api/workflow/start
+2. App Runner creates epic in Jira (via agentis-jira-real Lambda)
+3. App Runner creates requirements ticket (status=todo, no blockers)
+4. Jira webhook fires → Orchestrator Lambda receives it
+5. Orchestrator invokes reqs agent (Runtime) with task context
+6. Reqs agent analyzes scope, calls JiraIntegration___create_ticket for each needed ticket
+   - Gets real TEAM-XXX IDs back from each call
+   - Passes those IDs in blocked_by for downstream tickets
+7. Reqs agent marks its own ticket "done"
+8. Jira webhook fires for each new ticket + done transition
+9. Orchestrator processes webhooks:
+   - "done" → removes from siblings' blockedBy
+   - ticket with empty blockedBy → invokes assigned agent
+10. Dev agents run → mark done → QA unblocked → QA runs → CI unblocked → CI runs → complete
+```
+
+### What the App Runner does NOT do
+
+- Does NOT orchestrate (Lambda does that)
+- Does NOT create tickets (agents do that)
+- Does NOT parse agent output for ticket plans (removed in DL-019)
+- ONLY serves the UI + syncs workflow state for display
