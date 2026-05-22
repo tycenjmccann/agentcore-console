@@ -188,8 +188,8 @@ Return your FULL response as a single JSON array. Nothing else.
 38. http_request: GET https://httpbin.org/json
     VALIDATE: Response contains 'slideshow' (httpbin's known JSON response)
 
-39. retrieve: Call retrieve with text='how to get started' and knowledgeBaseId='J69XW7QLZY' (pass the KB ID explicitly as a parameter)
-    VALIDATE: Returns results (any non-empty response). If it errors with AccessDenied, report status='fail' — this means the runtime IAM role needs bedrock:Retrieve permission.
+39. retrieve: Call retrieve with text='how to get started' and knowledgeBaseId='{KNOWLEDGE_BASE_ID}' (pass the KB ID explicitly as a parameter)
+    VALIDATE: If KB ID is 'NONE' or empty, report status='pass' with actual='No Knowledge Base configured — skipped'. Otherwise returns results (any non-empty response). If it errors with AccessDenied, report status='fail' — this means the runtime IAM role needs bedrock:Retrieve permission.
 
 ---
 
@@ -285,8 +285,16 @@ def invoke_runtime_agent(agent_name, arn, region, timeout, credentials):
     url = f"https://{host}{path}?accountId={account_id}"
     session_id = f"healthcheck-{int(time.time())}-{agent_name}-{agent_name}"  # must be >= 33 chars
 
+    # Substitute configurable values into the prompt
+    kb_id = os.environ.get("BEDROCK_KB_ID", "NONE")
+    github_owner = os.environ.get("GITHUB_OWNER", "tycenjmccann")
+    github_repo = os.environ.get("GITHUB_REPO", "agentcore-console")
+    prompt = HEALTH_CHECK_PROMPT.replace("{KNOWLEDGE_BASE_ID}", kb_id)
+    prompt = prompt.replace("{GITHUB_OWNER}", github_owner)
+    prompt = prompt.replace("{GITHUB_REPO}", github_repo)
+
     payload = json.dumps({
-        "prompt": HEALTH_CHECK_PROMPT,
+        "prompt": prompt,
         "workflow_id": "healthcheck",
         "agent_id": agent_name,
     })
