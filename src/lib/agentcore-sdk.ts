@@ -659,6 +659,9 @@ export async function invokeAgentRuntime(params: {
                 text = parsed.result.content.map((b: { text?: string }) => b.text || "").join("");
                 const meta = parsed.result.metadata?.usage;
                 if (meta) tokenInfo = { input: meta.inputTokens, output: meta.outputTokens };
+              } else if (parsed.event?.contentBlockDelta?.delta?.text) {
+                // AgentCore Runtime async generator yield: { event: { contentBlockDelta: { delta: { text: "..." } } } }
+                text = parsed.event.contentBlockDelta.delta.text;
               } else if (parsed.result && typeof parsed.result === "string") {
                 text = parsed.result;
               } else if (parsed.output?.text) {
@@ -679,7 +682,26 @@ export async function invokeAgentRuntime(params: {
               } else if (typeof parsed === "string") {
                 text = parsed;
               }
-            } catch { /* use raw body */ }
+            } catch {
+              // Body might be newline-delimited JSON (multiple yields from async generator)
+              // Try to extract text from contentBlockDelta events
+              const lines = body.split("\n").filter((l: string) => l.trim());
+              if (lines.length > 1) {
+                const texts: string[] = [];
+                for (const line of lines) {
+                  try {
+                    const obj = JSON.parse(line);
+                    if (obj.event?.contentBlockDelta?.delta?.text) {
+                      texts.push(obj.event.contentBlockDelta.delta.text);
+                    }
+                  } catch { /* skip unparseable lines */ }
+                }
+                if (texts.length > 0) {
+                  text = texts.join("");
+                }
+              }
+              // else use raw body as-is
+            }
 
             const data = JSON.stringify({ type: "text", content: text });
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));

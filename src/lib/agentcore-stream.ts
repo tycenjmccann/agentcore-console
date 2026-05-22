@@ -116,9 +116,28 @@ export async function streamAgentInvocation(request: StreamRequest): Promise<str
           } else if (parsed.type === "done") {
             request.onDone?.(fullResponse);
             return fullResponse;
+          } else if (parsed.event?.contentBlockDelta?.delta?.text) {
+            // AgentCore Runtime async generator yield format
+            const text = parsed.event.contentBlockDelta.delta.text;
+            fullResponse += text;
+            request.onChunk(text);
+          } else if (parsed.event?.contentBlockStart?.start?.toolUse) {
+            // Tool use event from async generator yield
+            const toolName = parsed.event.contentBlockStart.start.toolUse.name;
+            request.onTrace?.({
+              type: "trace",
+              event: "tool_start",
+              name: toolName,
+              timestamp: new Date().toISOString(),
+            });
           } else if (typeof parsed === "string") {
             fullResponse += parsed;
             request.onChunk(parsed);
+          } else {
+            // Unknown JSON structure — show raw so it's never silently lost
+            const raw = typeof parsed === "object" ? JSON.stringify(parsed, null, 2) : String(parsed);
+            fullResponse += raw;
+            request.onChunk(raw);
           }
         } catch {
           // Not JSON - treat as plain text chunk
@@ -138,6 +157,10 @@ export async function streamAgentInvocation(request: StreamRequest): Promise<str
         if (parsed.type === "text" && parsed.content) {
           fullResponse += parsed.content;
           request.onChunk(parsed.content);
+        } else if (parsed.event?.contentBlockDelta?.delta?.text) {
+          const text = parsed.event.contentBlockDelta.delta.text;
+          fullResponse += text;
+          request.onChunk(text);
         }
       } catch {
         fullResponse += data;
