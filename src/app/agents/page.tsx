@@ -23,18 +23,20 @@ interface AgentDetail {
   tools?: Array<{ type: string; name?: string }>;
 }
 
-// Mock per-agent metrics — will wire to real APIs
-function getMockMetrics(agentId: string) {
-  // Use agent ID hash for deterministic mock data
-  const hash = agentId.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  return {
-    sessions: (hash % 180) + 20,
-    tokensIn: ((hash * 7) % 500000) + 50000,
-    tokensOut: ((hash * 5) % 400000) + 40000,
-    ticketsResolved: (hash % 55) + 5,
-    avgDuration: (hash % 110) + 30,
-    totalDuration: ((hash * 13) % 18000) + 2000,
-  };
+interface AgentMetrics {
+  id: string;
+  name: string;
+  sessions: number;
+  tokensIn: number;
+  tokensOut: number;
+  avgDuration: number;
+  totalDuration: number;
+  invocations: number;
+}
+
+interface MetricsResponse {
+  usage: Record<string, unknown>;
+  agentMetrics: AgentMetrics[];
 }
 
 function formatNumber(n: number): string {
@@ -54,16 +56,33 @@ function formatDuration(seconds: number): string {
 
 export default function AgentsPage() {
   const cacheKey = "/api/agentcore/agents";
+  const metricsCacheKey = "/api/agentcore/metrics";
   const [agents, setAgents] = useState<AgentDetail[]>(() => getCached<AgentDetail[]>(cacheKey) || []);
+  const [metricsMap, setMetricsMap] = useState<Record<string, AgentMetrics>>(() => {
+    const cached = getCached<MetricsResponse>(metricsCacheKey);
+    if (cached?.agentMetrics) {
+      return Object.fromEntries(cached.agentMetrics.map((m) => [m.id, m]));
+    }
+    return {};
+  });
   const [loading, setLoading] = useState(!getCached(cacheKey));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Fetch all agents, then enrich each with detail
-    cachedFetch<AgentDetail[] | { error: string }>(cacheKey)
-      .then(async (data) => {
+    // Fetch agents and metrics in parallel
+    Promise.all([
+      cachedFetch<AgentDetail[] | { error: string }>(cacheKey),
+      cachedFetch<MetricsResponse>(metricsCacheKey),
+    ])
+      .then(async ([data, metricsData]) => {
+        // Process metrics
+        if (metricsData?.agentMetrics) {
+          setMetricsMap(Object.fromEntries(metricsData.agentMetrics.map((m) => [m.id, m])));
+        }
+
+        // Process agents
         if (data && typeof data === "object" && "error" in data) {
-          setError(data.error);
+          setError((data as { error: string }).error);
           setAgents([]);
           return;
         }
@@ -135,7 +154,7 @@ export default function AgentsPage() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {agents.map((agent) => {
-            const m = getMockMetrics(agent.id);
+            const m = metricsMap[agent.id] || { sessions: 0, tokensIn: 0, tokensOut: 0, avgDuration: 0, totalDuration: 0, invocations: 0 };
             return (
               <Link
                 key={agent.id}
@@ -232,9 +251,9 @@ export default function AgentsPage() {
                   <div className="text-center">
                     <div className="flex items-center justify-center gap-1 mb-0.5">
                       <CheckCircle2 className="w-3 h-3 text-green-400" />
-                      <span className="text-[10px] text-gray-500">Tickets</span>
+                      <span className="text-[10px] text-gray-500">Invocations</span>
                     </div>
-                    <p className="text-lg font-bold text-green-400">{m.ticketsResolved}</p>
+                    <p className="text-lg font-bold text-green-400">{m.invocations}</p>
                   </div>
                   <div className="text-center">
                     <div className="flex items-center justify-center gap-1 mb-0.5">
