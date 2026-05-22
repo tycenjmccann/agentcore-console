@@ -1,0 +1,166 @@
+/* ============================================================
+   DARK THEME (DEFAULT)
+   Applied via: <html data-theme="dark"> or no attribute
+   ============================================================ */
+:root,
+[data-theme="dark"] {
+  /* --- Surfaces (layered depth system) --- */
+  --color-surface-0: #0a0a0f;
+  --color-surface-1: #12121a;
+  --color-surface-2: #1a1a25;
+  --color-surface-3: #222230;
+  --color-surface-4: #2a2a3a;
+
+  /* --- Text --- */
+  --color-text-primary: #f8f9fa;
+  --color-text-secondary: #d1d5db;
+  --color-text-muted: #9ca3af;
+  --color-text-inverse: #0a0a0f;
+
+  /* --- Brand / Interactive --- */
+  --color-brand-50: #f0f9ff;
+  --color-brand-100: #e0f2fe;
+  --color-brand-200: #bae6fd;
+  --color-brand-300: #7dd3fc;
+  --color-brand-400: #38bdf8;
+  --color-brand-500: #0ea5e9;
+  --color-brand-600: #0284c7;
+  --color-brand-700: #0369a1;
+  --color-brand-800: #075985;
+  --color-brand-900: #0c4a6e;
+
+  /* --- Semantic link/action color --- */
+  --color-link: #38bdf8;
+  --color-link-hover: #7dd3fc;
+  --color-button-primary-bg: #0284c7;
+  --color-button-primary-bg-hover: #0ea5e9;
+  --color-button-primary-text: #ffffff;
+  --color-button-secondary-bg: #222230;
+  --color-button-secondary-border: #2a2a3a;
+  --color-button-secondary-text: #d1d5db;
+
+  /* --- Borders --- */
+  --color-border: #2a2a3a;
+  --color-border-hover: rgba(14, 165, 233, 0.4);
+  --color-border-focus: rgba(14, 165, 233, 0.6);
+
+  /* --- Status --- */
+  --color-status-success: #22c55e;
+  --color-status-error: #ef4444;
+  --color-status-warning: #fbbf24;
+  --color-status-info: #0ea5e9;
+  --color-status-neutral: #9ca3af;
+
+  /* --- Focus ring --- */
+  --color-focus-ring: rgba(14, 165, 233, 0.5);
+  --shadow-focus-ring: 0 0 0 2px var(--color-surface-2), 0 0 0 4px var(--color-focus-ring);
+
+  /* --- Toggle-specific --- */
+  --color-toggle-track-off: #222230;
+  --color-toggle-track-off-border: #6e6e82;
+  --color-toggle-track-on: #0ea5e9;
+  --color-toggle-thumb: #f8f9fa;
+  --color-toggle-thumb-shadow: rgba(0, 0, 0, 0.3);
+
+  /* --- Input fields --- */
+  --color-input-bg: #12121a;
+  --color-input-border: #2a2a3a;
+  --color-input-border-focus: #0ea5e9;
+  --color-input-text: #f8f9fa;
+  --color-input-placeholder: #9ca3af;
+
+  /* --- Transitions --- */
+  --transition-colors: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
+  --transition-fast: 150ms ease;
+  --transition-standard: 200ms ease;
+}
+
+/* ============================================================
+   LIGHT THEME
+   Applied via: <html data-theme="light">
+   ============================================================ */
+[data-theme="light"] {
+  /* --- Surfaces --- */
+  --color-surface-0: #f8f9fa;
+  --color-surface-1: #f1f3f5;
+  --color-surface-2: #ffffff;
+  --color-surface-3: #e9ecef;
+  --color-surface-4: #dee2e6;
+
+  /* --- Text --- */
+  --color-text-primary: #212529;
+  --color-text-secondary: #495057;
+  --color-text-muted: #52585e;
+  --color-text-inverse: #f8f9fa;
+
+  /* --- Brand / Interactive --- */
+  --color-brand-50: #f0f9ff;
+  --color-brand-100: #e0f2fe;
+  --color-brand-200: #bae6fd;
+  --color-brand-300: #7dd3fc;
+  --color-brand-400: #38bdf8;
+  --color-brand-500: #0ea5e9;
+  --color-brand-600: #0284c7;
+  --color-brand-700: #0369a1;
+  --color-brand-800: #075985;
+  --color-brand-900: #0c4a6e;
+
+  /* --- Semantic link/action --- */
+  --color-link: #0369a1;
+  --color-link-hover: #075985;
+  --color-button-primary-bg: #0284c7;
+  --color-button-primary-bg-hover: #0369a1;
+  --color-button-primary-text: #ffffff;
+  --color-button-secondary-bg: #ffffff;
+  --color-button-secondary-border: #dee2e6;
+  --color-button-secondary-text: #495057;
+
+  /* --- Borders --- */
+  --color-border: #dee2e6;
+  --color-border-hover: rgba(2, 132, 199, 0.4);
+  --color-border-focus: rgba(2, 132, 199, 0.6);
+
+  /* --- Status --- */
+  --color-status-success: #16a34a;
+  --color-status-error: #dc2626;
+  --color-status-warning: #d97706;
+  --color-status-info: #0369a1;
+  --color-status-neutral: #6c757d;
+
+  /* --- Focus ring --- */
+  --color-focus-ring: rgba(2, 132, 199, 0.4);
+  --shadow-focus-ring: 0 0 0 2px var(--color-surface-2), 0 0 0 4px var(--color-focus-ring);
+
+  /* --- Toggle-specific --- */
+  --color-toggle-track-off: #6c757d;
+  --color-toggle-track-off-border: #6c757d;
+  --color-toggle-track-on: #0369a1;
+  --color-toggle-thumb: #ffffff;
+  --color-toggle-thumb-shadow: rgba(0, 0, 0, 0.1);
+
+  /* --- Input fields --- */
+  --color-input-bg: #ffffff;
+  --color-input-border: #dee2e6;
+  --color-input-border-focus: #0284c7;
+  --color-input-text: #212529;
+  --color-input-placeholder: #6c757d;
+}
+
+/* ============================================================
+   THEME TRANSITIONS
+   ============================================================ */
+html[data-theme] * {
+  transition: var(--transition-colors);
+}
+
+/* Disable transitions on page load to prevent flash animation */
+html.no-transitions * {
+  transition: none !important;
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme] * {
+    transition: none !important;
+  }
+}
