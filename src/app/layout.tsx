@@ -24,22 +24,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  var theme = localStorage.getItem('theme');
-                  if (!theme) {
-                    theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-                  }
-                  document.documentElement.setAttribute('data-theme', theme);
-                  if (localStorage.getItem('sidebar-collapsed') === 'true') {
-                    document.documentElement.setAttribute('data-sidebar-collapsed', 'true');
-                  }
-                } catch (e) {
-                  document.documentElement.setAttribute('data-theme', 'dark');
-                }
-              })();
-            `,
+            __html: `(function(){var stored=null;try{stored=localStorage.getItem('theme-preference')}catch(e){}var preference=stored||'system';var theme;if(preference==='system'){theme=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}else{theme=preference}document.documentElement.setAttribute('data-theme',theme);try{if(localStorage.getItem('sidebar-collapsed')==='true'){document.documentElement.setAttribute('data-sidebar-collapsed','true')}}catch(e){}})();`,
           }}
         />
       </head>
