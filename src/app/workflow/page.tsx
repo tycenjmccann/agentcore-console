@@ -35,6 +35,13 @@ export default function WorkflowPage() {
     localStorage.setItem('workflow-history-collapsed', String(next));
   };
 
+  // Update header with selected workflow title
+  useEffect(() => {
+    const selected = workflows.find((w) => w.id === selectedId);
+    const title = selected ? `Workflow: ${selected.input.title}` : null;
+    window.dispatchEvent(new CustomEvent("header-title", { detail: title }));
+  }, [selectedId, workflows]);
+
   // Load workflow list
   const fetchWorkflows = useCallback(async () => {
     try {

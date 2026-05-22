@@ -724,40 +724,6 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       )}
 
       <div className="pipeline-viz">
-        <div className="pipeline-title">{state.input?.title || "Workflow Pipeline"}</div>
-
-        {/* Legend — left-aligned with Intake column */}
-        <div className="pipeline-legend">
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.bedrock} alt="Bedrock" />
-            Amazon Bedrock
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.agentcore} alt="AgentCore" />
-            Bedrock AgentCore
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.s3} alt="S3" />
-            Amazon S3
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.eventbridge} alt="EventBridge" />
-            Amazon EventBridge
-          </div>
-          <div className="legend-item">
-            <img className="aws-ico" src={awsIcons.codebuild} alt="Code Interpreter" />
-            Code Interpreter
-          </div>
-          <div className="legend-item">
-            <span className="dot skill" />
-            Loaded Skill
-          </div>
-          <div className="legend-item">
-            <span className="dot ext" />
-            External
-          </div>
-        </div>
-
         {/* Canvas */}
         <div className="pipeline-canvas" ref={pipelineRef}>
           {/* SVG Connectors */}
@@ -971,6 +937,38 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           </div>
         </div>
 
+        {/* Legend — vertical, below Intake column */}
+        <div className="pipeline-legend">
+          <div className="legend-item">
+            <img className="aws-ico" src={awsIcons.bedrock} alt="Bedrock" />
+            Amazon Bedrock
+          </div>
+          <div className="legend-item">
+            <img className="aws-ico" src={awsIcons.agentcore} alt="AgentCore" />
+            Bedrock AgentCore
+          </div>
+          <div className="legend-item">
+            <img className="aws-ico" src={awsIcons.s3} alt="S3" />
+            Amazon S3
+          </div>
+          <div className="legend-item">
+            <img className="aws-ico" src={awsIcons.eventbridge} alt="EventBridge" />
+            Amazon EventBridge
+          </div>
+          <div className="legend-item">
+            <img className="aws-ico" src={awsIcons.codebuild} alt="Code Interpreter" />
+            Code Interpreter
+          </div>
+          <div className="legend-item">
+            <span className="dot skill" />
+            Loaded Skill
+          </div>
+          <div className="legend-item">
+            <span className="dot ext" />
+            External
+          </div>
+        </div>
+
         {/* Status bar */}
         <div className={`pipeline-status ${isSettled && !replayMode ? "settled" : ""}`}>
           <div className="status-phase" style={isSettled && !replayMode ? { color: "#f97316" } : undefined}>
@@ -1064,11 +1062,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
 const PIPELINE_STYLES = `
 .pipeline-viz{display:flex;flex-direction:column;align-items:center;min-height:100vh;overflow-x:auto;padding:14px 20px;background:#0f1419;color:#e2e8f0;font-family:"Segoe UI",system-ui,sans-serif}
-.pipeline-title{font-size:28px;font-weight:700;background:linear-gradient(90deg,#0ea5e9,#38bdf8,#0ea5e9);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 3s linear infinite;margin-bottom:3px}
-.pipeline-subtitle{font-size:12px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px}
+.pipeline-title{display:none}
+.pipeline-subtitle{display:none}
 @keyframes shimmer{to{background-position:200% center}}
 
-.pipeline-legend{align-self:flex-start;display:flex;flex-wrap:wrap;gap:14px;font-size:10px;color:#64748b;padding:6px 0;margin-bottom:10px}
+.pipeline-legend{align-self:flex-start;display:flex;flex-direction:column;gap:6px;font-size:10px;color:#64748b;padding:10px 14px;margin-top:12px;background:#0f141980;border:1px solid #1e293b;border-radius:8px}
 .legend-item{display:flex;align-items:center;gap:4px}
 .legend-item .aws-ico{width:18px;height:18px;border-radius:3px;object-fit:contain}
 .legend-item .dot{width:7px;height:7px;border-radius:50%}

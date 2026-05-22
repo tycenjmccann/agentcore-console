@@ -18,11 +18,29 @@ const pageTitles: Record<string, string> = {
 
 export default function Header() {
   const pathname = usePathname();
-  const title = pathname.startsWith("/agents/") && pathname !== "/agents"
+  const [dynamicTitle, setDynamicTitle] = useState<string | null>(null);
+
+  const baseTitle = pathname.startsWith("/agents/") && pathname !== "/agents"
     ? "Agent Detail"
     : pathname.startsWith("/workflow/") && pathname !== "/workflow"
     ? "Workflow Detail"
     : pageTitles[pathname] || "AgentCore Console";
+
+  // Listen for dynamic title updates (e.g. selected workflow name)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setDynamicTitle((e as CustomEvent).detail || null);
+    };
+    window.addEventListener("header-title", handler);
+    return () => window.removeEventListener("header-title", handler);
+  }, []);
+
+  // Reset dynamic title on route change
+  useEffect(() => {
+    setDynamicTitle(null);
+  }, [pathname]);
+
+  const title = dynamicTitle || baseTitle;
 
   const [region, setRegion] = useState("us-east-1");
 
