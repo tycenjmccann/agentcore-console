@@ -359,24 +359,89 @@ DEV_AGENT_ID=routing_developer_v2-xxxxxxxxxx
 
 This app is designed to be deployed into a customer's AWS environment. The AWS SDK credential chain means **zero code changes** are needed — just deploy where an IAM role is available.
 
+### Infrastructure Prerequisites
+
+Create the required DynamoDB tables before deploying (run once per account):
+
+```bash
+./scripts/create-dynamodb-tables.sh
+```
+
+This creates three tables:
+- `agentis-workflows` — PK: `workflowId` (S), GSI: `epicId-index`
+- `agentis-tickets` — PK: `ticketId` (S), GSIs: `parentId-index`, `assignee-index`, Stream enabled
+- `agentis-events` — PK: `workflowId` (S), SK: `eventId` (S), TTL on `ttl`
+
 ### Deployment Options
 
-#### Option A: AWS Amplify Hosting (Easiest)
+#### Option A: AWS App Runner + ECR (Recommended)
+
+This is the default deployment method — no load balancer config, auto-scaling built-in.
+
+```bash
+# 1. Create ECR repository (once)
+aws ecr create-repository --repository-name agentis-hub --region us-east-1
+
+# 2. Authenticate Docker to ECR
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
+
+# 3. Build and push
+docker build --platform linux/amd64 -t agentis-hub:latest .
+docker tag agentis-hub:latest <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/agentis-hub:latest
+docker push <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/agentis-hub:latest
+
+# 4. Create App Runner service (first time — or use AWS Console)
+aws apprunner create-service \
+  --service-name agentis-hub \
+  --source-configuration '{
+    "ImageRepository": {
+      "ImageIdentifier": "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/agentis-hub:latest",
+      "ImageConfiguration": {"Port": "8080"},
+      "ImageRepositoryType": "ECR"
+    },
+    "AutoDeploymentsEnabled": false,
+    "AuthenticationConfiguration": {
+      "AccessRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/AgentisAppRunnerECRAccess"
+    }
+  }' \
+  --instance-configuration '{"InstanceRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/AgentisAppRunnerInstanceRole"}' \
+  --region us-east-1
+
+# 5. Subsequent deploys — build, push, then:
+aws apprunner start-deployment \
+  --service-arn <SERVICE_ARN> \
+  --region us-east-1
+```
+
+**Required IAM roles:**
+- `AgentisAppRunnerECRAccess` — allows App Runner to pull from ECR (trust: `build.apprunner.amazonaws.com`)
+- `AgentisAppRunnerInstanceRole` — runtime permissions (DynamoDB, Bedrock, Lambda invoke, S3)
+
+Set environment variables on the App Runner service (via Console or `update-service`):
+- `ORCHESTRATION_MODE=lambda`
+- `TICKET_PROVIDER=jira` (or `dynamodb`)
+- `WORKFLOWS_TABLE=agentis-workflows`
+- `JIRA_TABLE_NAME=agentis-tickets`
+- `EVENTS_TABLE=agentis-events`
+- Plus Jira credentials if using `TICKET_PROVIDER=jira`
+
+#### Option B: AWS Amplify Hosting
 
 1. Connect your repo to Amplify Hosting
 2. Amplify provides an IAM service role — attach the required policy (below)
 3. Add Cognito for user authentication
 4. Done — Amplify handles build, deploy, CDN, and custom domains
 
-#### Option B: ECS/Fargate or Lambda Web Adapter
+#### Option C: ECS/Fargate or Lambda Web Adapter
 
-1. Containerize the Next.js app (`Dockerfile` with `npm run build && npm start`)
+1. Use the included `Dockerfile` (`npm run build` + standalone output)
 2. Deploy to ECS Fargate or Lambda via Lambda Web Adapter
 3. Attach an **IAM Task Role** (ECS) or **Lambda Execution Role** with the required policy
 4. Front with ALB or CloudFront + API Gateway
 5. Add auth via Cognito, IAM Identity Center, or existing IdP
 
-#### Option C: Integrate Into Existing Site
+#### Option D: Integrate Into Existing Site
 
 If you already have a hosted Next.js or React app:
 

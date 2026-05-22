@@ -53,8 +53,9 @@ Parameters:
 
 Resources:
   # ─── Tables are pre-existing (not managed by this stack) ───────────────────────
+  # Create with: scripts/create-dynamodb-tables.sh
   # agentis-tickets: PK=ticketId (S), GSI: parentId-index, assignee-index, Streams=NEW_AND_OLD_IMAGES
-  # agentis-workflows: PK=workflowId (S)
+  # agentis-workflows: PK=workflowId (S), GSI: epicId-index — MUST be "workflowId" not "id"
   # agentis-events: PK=workflowId (S), SK=eventId (S), TTL on "ttl"
 
   # ─── Orchestration Lambda ──────────────────────────────────────────────────────

@@ -895,6 +895,11 @@ cd deploy/runtime-agent && ./deploy-fleet.sh
 To enable Lambda orchestration mode:
 
 ```bash
+# 0. Create DynamoDB tables (run ONCE per account — skip if tables exist)
+#    CRITICAL: agentis-workflows PK MUST be "workflowId" (NOT "id")
+#    See scripts/create-dynamodb-tables.sh for full table definitions
+./scripts/create-dynamodb-tables.sh
+
 # 1. Enable DynamoDB Streams on agentis-tickets table (if not already)
 aws dynamodb update-table \
   --table-name agentis-tickets \

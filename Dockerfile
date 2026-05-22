@@ -1,5 +1,5 @@
 # Next.js App Runner Deployment
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 
 # Install dependencies only
 FROM base AS deps
@@ -29,7 +29,6 @@ RUN adduser --system --uid 1001 nextjs
 # Copy standalone output
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
 
 USER nextjs
 EXPOSE 8080
