@@ -82,9 +82,9 @@ import { initManifest, addManifestEntries, getManifest, buildManifestContext } f
 import { getCodeSearchProvider } from "./code-search-provider";
 import { saveWorkflowToDynamo } from "./dynamo-workflow-store";
 import { createTicketSkeletons } from "./ticket-skeletons";
+import { ARTIFACT_BUCKET } from "./agent-setup";
 
 const DEFAULT_REGION = process.env.AWS_REGION || "us-east-1";
-const ARTIFACT_BUCKET = process.env.TEAM_WORKFLOW_S3_BUCKET || "";
 
 /**
  * Orchestration mode:
@@ -1986,7 +1986,7 @@ async function getImageStagingInstructions(workflowId: string): Promise<string> 
     const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
     const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
     const s3 = new S3Client({ region: DEFAULT_REGION });
-    const bucket = process.env.TEAM_WORKFLOW_S3_BUCKET || "";
+    const bucket = ARTIFACT_BUCKET;
 
     const images: { filename: string; url: string }[] = [];
     for (const artifact of imageArtifacts) {
