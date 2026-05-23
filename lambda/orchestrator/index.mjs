@@ -846,9 +846,12 @@ async function buildAgentContext(ticket, workflow) {
   // Workflow context (epic ID, workflow ID, ticket ID)
   context += `## Workflow Context\nworkflow_id: ${workflow.id}\nepic_id: ${workflow.epicId}\nticket_id: ${ticket.ticketId}\n\n`;
 
-  // For requirements agent: inject ticket creation context with EXACT tool format
+  // For requirements agent: inject ticket creation context with EXACT tool format + valid roster
   if (ticket.assignee === "team-requirements-analyst") {
-    context += `## Ticket Creation Instructions\nYou are responsible for creating tickets for all agents that need to work on this feature.\n\n**EXACT tool call format (use these parameter names EXACTLY):**\n\`\`\`\nJiraIntegration___create_ticket(\n    title="Frontend: Implement [feature]",\n    description="## Summary\\n...",\n    parent_id="${workflow.epicId}",\n    assignee="team-frontend-dev",\n    ticket_type="task",\n    blocked_by="",\n    workflow_id="${workflow.id}"\n)\n\`\`\`\n\nParameter names: title, description, parent_id, assignee, ticket_type, blocked_by, workflow_id.\nDo NOT use "summary", "parent_key", or any other names.\n\nYour own ticket_id: "${ticket.ticketId}" — transition it to "done" when finished.\n\n`;
+    const validAgents = AGENT_ROSTER.filter(a => a.id !== "team-requirements-analyst")
+      .map(a => `  - "${a.id}" (${a.phase})`)
+      .join("\n");
+    context += `## Ticket Creation Instructions\nYou are responsible for creating tickets for all agents that need to work on this feature.\n\n**VALID AGENT ROSTER (you MUST only assign to these exact IDs):**\n${validAgents}\n\n⚠️ DO NOT invent agent IDs. If an agent is not in the list above, it does not exist. Ticket creation will FAIL if you use an invalid assignee.\n\n**EXACT tool call format (use these parameter names EXACTLY):**\n\`\`\`\nJiraIntegration___create_ticket(\n    title="Frontend: Implement [feature]",\n    description="## Summary\\n...",\n    parent_id="${workflow.epicId}",\n    assignee="team-frontend-dev",\n    ticket_type="task",\n    blocked_by="",\n    workflow_id="${workflow.id}"\n)\n\`\`\`\n\nParameter names: title, description, parent_id, assignee, ticket_type, blocked_by, workflow_id.\nDo NOT use "summary", "parent_key", or any other names.\n\nYour own ticket_id: "${ticket.ticketId}" — transition it to "done" when finished.\n\n`;
   }
 
   // For ALL agents: include canonical identifiers they need for tool calls

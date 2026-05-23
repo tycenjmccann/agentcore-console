@@ -32,6 +32,25 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
   marshallOptions: { removeUndefinedValues: true },
 });
 
+// ─── Valid Agent Roster (must match orchestrator's AGENT_ROSTER) ─────────────
+
+const VALID_ASSIGNEES = new Set([
+  "team-requirements-analyst",
+  "team-frontend-designer",
+  "team-ios-designer",
+  "team-backend-designer",
+  "team-android-designer",
+  "team-security-reviewer",
+  "team-legal-compliance",
+  "team-localization",
+  "team-analytics-designer",
+  "team-backend-dev",
+  "team-api-dev",
+  "team-frontend-dev",
+  "team-qa-verifier",
+  "team-ci-agent",
+]);
+
 // ─── Status Mapping ──────────────────────────────────────────────────────────
 
 const INTERNAL_TO_JIRA = {
@@ -90,6 +109,12 @@ async function jiraSearch(jql, fields = ["summary", "status", "labels", "assigne
 async function createTicket(params) {
   const { summary, description, parent_key, assignee, issue_type, blocked_by, workflow_id } = params;
 
+  // Validate assignee against known roster — reject hallucinated agent names
+  if (assignee && !VALID_ASSIGNEES.has(assignee)) {
+    const valid = [...VALID_ASSIGNEES].join(", ");
+    throw new Error(`Invalid assignee "${assignee}". Valid agents: ${valid}`);
+  }
+
   const labels = [];
   if (assignee) labels.push(`agent:${assignee}`);
   if (workflow_id) labels.push(`wf:${workflow_id}`);
@@ -129,8 +154,8 @@ async function createTicket(params) {
         method: "POST",
         body: JSON.stringify({
           type: { name: "Blocks" },
-          inwardIssue: { key: ticketId },
-          outwardIssue: { key: blockerKey },
+          inwardIssue: { key: blockerKey },
+          outwardIssue: { key: ticketId },
         }),
       });
     } catch (err) {

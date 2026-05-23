@@ -104,6 +104,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   // Preserve original DDB agent outputs (replay reconstructs state from events which lack full output)
   const originalOutputsRef = useRef<Record<string, string>>({});
+  // Track whether the workflow was loaded as complete (from API) — survives replay reconstruction
+  const wasLoadedCompleteRef = useRef(false);
 
   // S3 Artifacts Modal state
   const [artifactsModal, setArtifactsModal] = useState<{ phaseId: string; phaseName: string } | null>(null);
@@ -146,8 +148,18 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
               }
               if (data.phase === "complete") {
                 // Completed workflow → show final state, replay available on demand
+                wasLoadedCompleteRef.current = true;
                 setReplayMode(true);
                 if (interval) { clearInterval(interval); interval = null; }
+                // Pre-fetch full output for all completed agents so panel opens instantly
+                for (const task of Object.values(data.agentTasks) as Array<{ agentId?: string; status?: string }>) {
+                  if (task.agentId && task.status === "complete") {
+                    fetch(`/api/workflow/${workflowId}/agent-output?agentId=${task.agentId}`)
+                      .then((r) => r.json())
+                      .then((d) => { if (d.output) setAgentFullOutput((prev) => ({ ...prev, [task.agentId!]: d.output })); })
+                      .catch(() => {});
+                  }
+                }
                 fetch(`/api/workflow/${workflowId}/events`)
                   .then((r) => r.json())
                   .then((evData) => {
@@ -345,6 +357,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   // Apply events up to replayIndex when it changes
   useEffect(() => {
     if (!replayMode || replayEvents.length === 0) return;
+    // If scrubber is at the very end, just set phase to "complete" directly
+    // This avoids any reconstruction race that could flash a non-complete state
+    const atEnd = replayIndex >= replayEvents.length - 1;
     // Reconstruct state from scratch up to replayIndex
     setState((baseState) => {
       if (!baseState) return baseState;
@@ -353,6 +368,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       let s: WorkflowState = { ...baseState, phase: "requirements", agentTasks: {} };
       for (let i = 0; i <= replayIndex && i < replayEvents.length; i++) {
         s = applyEventToState(s, replayEvents[i]);
+      }
+      // If at end and workflow was loaded as complete, force phase to "complete"
+      // (handles race conditions and missing workflow_complete events)
+      if (atEnd && wasLoadedCompleteRef.current) {
+        s.phase = "complete";
       }
       // Merge DDB outputs into replay state (events don't carry output text)
       const savedOutputs = originalOutputsRef.current;
@@ -473,26 +493,24 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         setState((s) => {
           if (!s) return s;
           const tasks = { ...s.agentTasks };
-          // Find task by agentId (key might be agentId or ticketId)
           const key = tasks[event.agentId]
             ? event.agentId
             : Object.keys(tasks).find((k) => tasks[k].agentId === event.agentId);
           if (key) {
+            // Preserve accumulated streaming text — only use event.output if it's longer
+            const existingOutput = tasks[key].output || "";
+            const newOutput = event.output || "";
             tasks[key] = {
               ...tasks[key],
               status: "complete",
-              output: event.output,
+              output: newOutput.length > existingOutput.length ? newOutput : existingOutput,
               branch: event.branch,
               commitSha: event.commitSha,
             };
           }
           return { ...s, agentTasks: tasks };
         });
-        setStreamingText((prev) => {
-          const next = { ...prev };
-          delete next[event.agentId];
-          return next;
-        });
+        // Don't delete streamingText — it may be the best source until API fetch completes
         break;
       case "workflow_complete":
         setState((s) => s ? { ...s, phase: "complete" } : s);
@@ -1004,7 +1022,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             ticketId: Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.ticketId || "",
             status: Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.status || "running",
             input: "",
-            output: streamingText[expandedAgent] || agentFullOutput[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || originalOutputsRef.current[expandedAgent] || "",
+            output: agentFullOutput[expandedAgent] || streamingText[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || originalOutputsRef.current[expandedAgent] || "",
             branch: Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.branch,
           } : null}
         />

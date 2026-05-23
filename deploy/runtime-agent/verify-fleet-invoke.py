@@ -101,7 +101,7 @@ Return your FULL response as a single JSON array. Nothing else.
 ## TEST GROUP 5: S3 Round-Trip (simulates artifact storage)
 
 12. S3Storage___write_object: Write key='healthcheck/results/{TIMESTAMP}.json', content='{"test":"integration","status":"running","timestamp":{TIMESTAMP}}'
-    VALIDATE: Tool returns success
+    VALIDATE: Response must NOT contain 'Error' or 'AccessDenied'. Must confirm the write succeeded (e.g., returns the key or a success message).
 
 13. S3Storage___read_object: Read key='healthcheck/results/{TIMESTAMP}.json'
     VALIDATE: Content matches what you wrote (contains "integration" and the timestamp)
@@ -121,27 +121,27 @@ Return your FULL response as a single JSON array. Nothing else.
     VALIDATE: Returns a ticketId (save it for next steps)
 
 18. JiraIntegration___add_comment: Add comment to the ticket from step 17: '[HEALTHCHECK] Step 2: Adding comment to verify comment tool works'
-    VALIDATE: Tool executes without error
+    VALIDATE: Response must NOT contain 'Error' or 'error' or 'AccessDenied'. Must return a comment ID or success confirmation.
 
 19. JiraIntegration___transition_ticket: Transition ticket from step 17 to 'done'
-    VALIDATE: Tool executes without error
+    VALIDATE: Response must NOT contain 'Error' or 'error' or 'AccessDenied'. Must indicate transition succeeded.
 
 20. JiraIntegration___update_ticket: Update ticket from step 17 description to '[HEALTHCHECK] Integration test completed successfully at {TIMESTAMP}'
-    VALIDATE: Tool executes without error
+    VALIDATE: Response must NOT contain 'Error' or 'error' or 'AccessDenied'. Must indicate update succeeded.
 
 21. JiraIntegration___list_tickets: List tickets under parent 'TEAM-116'
-    VALIDATE: Returns a list (may be empty or contain results — tool must execute without "Unknown tool" error)
+    VALIDATE: Response must NOT contain 'Error' or 'AccessDenied'. Must return a JSON array or list (can be empty).
 
 ## TEST GROUP 7: Workflow Output Tools (simulates agent completion reporting)
 
 22. WorkflowOutput___save_design_doc: Save with workflow_id='healthcheck-{TIMESTAMP}', agent_id='integration-test', title='Health Check Design Doc', content='# Integration Test\\n\\nThis validates the save_design_doc tool writes to S3 correctly.\\n\\n## Result\\nPASS', format='markdown'
-    VALIDATE: Tool returns success
+    VALIDATE: Response MUST contain '"status": "saved"' (the success JSON). If it returns an error (AccessDenied, isError:true, or any Error string), report status='fail'.
 
 23. WorkflowOutput___report_completion: Report with ticket_id='HEALTHCHECK-{TIMESTAMP}', summary='Integration test completed. All tools validated.'
-    VALIDATE: Tool EXECUTES (not "Unknown tool" error). DDB update may no-op since ticket doesn't exist in DDB — that's fine.
+    VALIDATE: Response MUST contain '"status": "complete"' (the success JSON). If it returns an error (AccessDenied, isError:true, or any Error string), report status='fail' with the error message. This tool writes to S3 — if it can't write, that's a real failure.
 
 24. WorkflowOutput___submit_ticket_plan: Submit with workflow_id='healthcheck-{TIMESTAMP}', requirements='Verify ticket plan submission works', tickets=[{"title":"integration-test-subtask-1","assignee":"frontend_dev","description":"Test subtask"},{"title":"integration-test-subtask-2","assignee":"qa_verifier","description":"Test subtask 2"}]
-    VALIDATE: Tool EXECUTES without "Unknown tool" error
+    VALIDATE: Response MUST contain '"status": "saved"' (the success JSON). If it returns an error, report status='fail'.
 
 25. SkillLoader___load_skill: Load skill_name='full-stack'
     VALIDATE: Returns skill content (non-empty string containing instructions)
@@ -198,6 +198,7 @@ CRITICAL RULES:
 - {TIMESTAMP}: Replace with current unix timestamp (seconds since epoch)
 - SEQUENTIAL DEPENDENCIES: Steps within a group must execute in order (e.g., download before read, create before transition)
 - OUTPUT VALIDATION IS MANDATORY: 'pass' means the output MATCHED expectations. 'fail' means it didn't. Never report 'pass' without checking.
+- ERROR RESPONSES ARE FAILURES: If a tool returns a response containing 'Error:', 'AccessDenied', 'isError', or any error message — that is a FAIL, not a pass. A tool "executing" is NOT the same as succeeding. Check the actual response content.
 - NO SHORTCUTS: Every tool must be ACTUALLY INVOKED. Existence != working.
 - If a tool is NOT in your toolkit at all, report status='missing'
 - If a tool exists but produces wrong output, report status='fail' with what you expected vs got
