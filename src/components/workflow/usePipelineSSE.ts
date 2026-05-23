@@ -129,12 +129,13 @@ export function usePipelineSSE({
         case "agent_complete": {
           const key = findTaskKey(event.agentId);
           if (key) {
+            const existingOutput = next.agentTasks[key].output || "";
             next.agentTasks = {
               ...next.agentTasks,
               [key]: {
                 ...next.agentTasks[key],
                 status: "complete" as AgentTaskStatus,
-                output: event.output,
+                output: event.output || existingOutput,
                 branch: event.branch,
                 commitSha: event.commitSha,
                 completedAt: new Date().toISOString(),
