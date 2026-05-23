@@ -138,9 +138,45 @@ async function createTicket(params) {
     }
   }
 
-  // 3. Write to DynamoDB with the SAME key
-  const now = new Date().toISOString();
+  // 3. Transition in Jira to the correct initial status BEFORE the webhook can race.
+  //    - If blockers exist: transition to "Blocked" (prevents orchestrator from invoking)
+  //    - If no blockers + has assignee: transition to "Ready" (tells orchestrator to invoke)
+  //    This eliminates the race where the "To Do" webhook arrives before links are created.
   const ddbStatus = blockers.length > 0 ? "blocked" : "todo";
+  if (blockers.length > 0) {
+    try {
+      const transitions = await jiraFetch(`/rest/api/3/issue/${ticketId}/transitions`);
+      const blockedTransition = transitions.transitions.find(
+        (t) => t.name.toLowerCase() === "blocked" || t.to.name.toLowerCase() === "blocked"
+      );
+      if (blockedTransition) {
+        await jiraFetch(`/rest/api/3/issue/${ticketId}/transitions`, {
+          method: "POST",
+          body: JSON.stringify({ transition: { id: blockedTransition.id } }),
+        });
+      }
+    } catch (err) {
+      console.log(`[jira-tools] Could not transition ${ticketId} to Blocked: ${err.message}`);
+    }
+  } else if (assignee) {
+    try {
+      const transitions = await jiraFetch(`/rest/api/3/issue/${ticketId}/transitions`);
+      const readyTransition = transitions.transitions.find(
+        (t) => t.name.toLowerCase() === "ready" || t.to.name.toLowerCase() === "ready"
+      );
+      if (readyTransition) {
+        await jiraFetch(`/rest/api/3/issue/${ticketId}/transitions`, {
+          method: "POST",
+          body: JSON.stringify({ transition: { id: readyTransition.id } }),
+        });
+      }
+    } catch (err) {
+      console.log(`[jira-tools] Could not transition ${ticketId} to Ready: ${err.message}`);
+    }
+  }
+
+  // 4. Write to DynamoDB with the SAME key
+  const now = new Date().toISOString();
 
   await ddb.send(new PutCommand({
     TableName: TABLE_NAME,

@@ -538,11 +538,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   // Derive visual states from workflow state
   const currentPhaseIndex = state ? (PHASE_ORDER[state.phase] ?? -1) : -1;
   const isComplete = state?.phase === "complete";
-  // "settled" = completed workflow at final state (not mid-replay, not celebrating)
-  // replayMode is true for completed workflows, but we only show settled glow when
-  // the scrubber is at the end (user sees final state, not scrubbing through history)
-  const atReplayEnd = replayMode && replayEvents.length > 0 && replayIndex >= replayEvents.length - 1;
-  const isSettled = isComplete && !celebrating && (!replayMode || atReplayEnd);
+  const isSettled = isComplete && !celebrating;
 
   // Trigger connector animation when activeConnector changes
   useEffect(() => {
@@ -1134,7 +1130,7 @@ const PIPELINE_STYLES = `
 .item.done.settled .svc-icon{filter:drop-shadow(0 0 3px rgba(249,115,22,.3))}
 .flow-path.settled{stroke:#f97316;opacity:.7;stroke-width:2.5;animation:settledPathGlow 6s ease-in-out infinite}
 
-.replay-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:8px 16px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;width:50%;max-width:800px;margin-left:auto;margin-right:auto}
+.replay-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:6px 12px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;width:fit-content;max-width:400px}
 .replay-btn{background:none;border:1px solid #334155;color:#e2e8f0;font-size:14px;width:32px;height:32px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .replay-btn:hover{border-color:#0ea5e9;background:#0ea5e920}
 .replay-scrubber{flex:1;height:4px;-webkit-appearance:none;appearance:none;background:#334155;border-radius:2px;cursor:pointer;outline:none}

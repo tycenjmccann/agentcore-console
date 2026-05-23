@@ -403,7 +403,7 @@ def JiraIntegration___search_issues(query: str, max_results: int = 20) -> str:
 
 @tool
 def WorkflowOutput___report_completion(ticket_id: str, summary: str, artifacts: str = "", branch: str = "", commit_sha: str = "", pr_url: str = "") -> str:
-    """Report that your work is complete. This marks your ticket as done.
+    """Report that your work is complete. This saves your completion summary to S3.
 
     Args:
         ticket_id: Your assigned ticket ID
@@ -414,8 +414,8 @@ def WorkflowOutput___report_completion(ticket_id: str, summary: str, artifacts: 
         pr_url: Pull request URL (for dev agents)
     """
     return _invoke_lambda(WORKFLOW_OUTPUT_LAMBDA, "WorkflowOutput___report_completion", {
-        "ticket_id": ticket_id, "summary": summary, "artifacts": artifacts,
-        "branch": branch, "commit_sha": commit_sha, "pr_url": pr_url
+        "ticket_id": ticket_id, "summary": summary,
+        "artifacts": artifacts, "branch": branch, "commit_sha": commit_sha, "pr_url": pr_url
     })
 
 

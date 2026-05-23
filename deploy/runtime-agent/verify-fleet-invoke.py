@@ -17,6 +17,7 @@ Tests ALL tools in the agent toolkit:
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.request

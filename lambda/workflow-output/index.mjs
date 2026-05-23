@@ -6,18 +6,10 @@
  */
 
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const s3 = new S3Client({ region: REGION });
-const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
-  marshallOptions: { removeUndefinedValues: true },
-});
-
 const BUCKET = process.env.ARTIFACT_BUCKET || "";
-const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
-const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
 
 async function submitTicketPlan({ workflow_id, requirements, tickets }) {
   const key = `workflows/${workflow_id}/shared/ticket-plan.json`;
@@ -73,7 +65,6 @@ async function saveDesignDoc({ workflow_id, agent_id, title, content, format = "
 }
 
 async function reportCompletion({ ticket_id, summary, artifacts = "", branch, commit_sha, pr_url }) {
-  // 1. Save completion report to S3 (for audit trail)
   const key = `completions/${ticket_id}.json`;
   const report = {
     ticket_id,
@@ -90,107 +81,12 @@ async function reportCompletion({ ticket_id, summary, artifacts = "", branch, co
     Body: JSON.stringify(report, null, 2),
     ContentType: "application/json",
   }));
-
-  // 2. Mark ticket as DONE in DynamoDB — this triggers the orchestrator stream
-  if (ticket_id) {
-    await ddb.send(new UpdateCommand({
-      TableName: TICKETS_TABLE,
-      Key: { ticketId: ticket_id },
-      UpdateExpression: "SET #s = :s, #u = :u, #out = :out, #br = :br, #pr = :pr",
-      ExpressionAttributeNames: {
-        "#s": "status",
-        "#u": "updatedAt",
-        "#out": "output",
-        "#br": "branch",
-        "#pr": "prUrl",
-      },
-      ExpressionAttributeValues: {
-        ":s": "done",
-        ":u": new Date().toISOString(),
-        ":out": summary,
-        ":br": branch || null,
-        ":pr": pr_url || null,
-      },
-    }));
-    console.log(`[report_completion] Marked ${ticket_id} as done`);
-  }
-
-  // 3. Update workflow agentTasks map (powers the UI output panel)
-  const workflowId = ticket_id ? await findWorkflowForTicket(ticket_id) : null;
-  if (workflowId) {
-    try {
-      const wf = await ddb.send(new GetCommand({ TableName: WORKFLOWS_TABLE, Key: { workflowId } }));
-      if (wf.Item) {
-        const agentTasks = wf.Item.agentTasks || {};
-        // Find the task entry for this ticket
-        const taskKey = Object.keys(agentTasks).find(k => agentTasks[k]?.ticketId === ticket_id) || ticket_id;
-        agentTasks[taskKey] = {
-          ...agentTasks[taskKey],
-          status: "complete",
-          output: summary?.slice(0, 10000),
-          branch: branch || null,
-          commitSha: commit_sha || null,
-          prUrl: pr_url || null,
-          completedAt: new Date().toISOString(),
-        };
-        await ddb.send(new UpdateCommand({
-          TableName: WORKFLOWS_TABLE,
-          Key: { workflowId },
-          UpdateExpression: "SET #at = :at, #u = :u",
-          ExpressionAttributeNames: { "#at": "agentTasks", "#u": "updatedAt" },
-          ExpressionAttributeValues: { ":at": agentTasks, ":u": new Date().toISOString() },
-        }));
-        console.log(`[report_completion] Updated workflow ${workflowId} agentTasks for ${taskKey}`);
-      }
-    } catch (err) {
-      console.warn(`[report_completion] Failed to update workflow agentTasks: ${err.message}`);
-    }
-  }
-
-  // 4. Update manifest with agent outputs (PR, branch, artifacts)
-  if (workflowId) {
-    try {
-      const ticketResult = await ddb.send(new GetCommand({
-        TableName: TICKETS_TABLE,
-        Key: { ticketId: ticket_id },
-        ProjectionExpression: "assignee",
-      }));
-      const agentId = ticketResult.Item?.assignee || "unknown";
-      const manifestEntries = [];
-      if (pr_url) {
-        manifestEntries.push({ type: "code", format: "text", description: `Pull Request: ${pr_url}`, s3Key: `completions/${ticket_id}.json`, addedBy: agentId, critical: true });
-      }
-      if (branch) {
-        manifestEntries.push({ type: "code", format: "text", description: `Branch: ${branch}${commit_sha ? ` (commit: ${commit_sha})` : ""}`, s3Key: `completions/${ticket_id}.json`, addedBy: agentId });
-      }
-      if (summary) {
-        manifestEntries.push({ type: "report", format: "markdown", description: `${agentId} completion summary`, s3Key: `completions/${ticket_id}.json`, addedBy: agentId });
-      }
-      if (manifestEntries.length > 0) {
-        await updateManifest(workflowId, agentId, manifestEntries);
-      }
-    } catch (err) {
-      console.warn(`[report_completion] Manifest update failed (non-fatal): ${err.message}`);
-    }
-  }
+  console.log(`[report_completion] Saved s3://${BUCKET}/${key}`);
 
   return {
     status: "complete",
-    message: `Ticket ${ticket_id} marked done. Orchestrator will unblock dependents.`,
+    message: `Completion saved for ${ticket_id}.`,
   };
-}
-
-async function findWorkflowForTicket(ticketId) {
-  try {
-    const result = await ddb.send(new GetCommand({
-      TableName: TICKETS_TABLE,
-      Key: { ticketId },
-      ProjectionExpression: "workflowId",
-    }));
-    return result.Item?.workflowId || null;
-  } catch {
-    return null;
-  }
 }
 
 // ─── Manifest Updates ──────────────────────────────────────────────────────────

@@ -123,14 +123,13 @@ async function processStatusChange(ticketId, newStatus, oldStatus) {
       await handleTicketDoneUnified(ticketId);
       break;
     case "todo": {
-      // Ticket created — check blockers, transition to Ready if unblocked
+      // Ticket created — check blockers and route accordingly
       if (TICKET_PROVIDER === "jira") {
-        const ticket = await getTicket(ticketId);
-        if (!ticket || ticket.type === "epic") return;
-        const blockers = ticket.blockedBy || [];
-        if (blockers.length === 0 && ticket.assignee) {
-          await jiraTransition(ticketId, "Ready");
-        }
+        // Jira mode: the jira-real Lambda handles initial routing by transitioning
+        // to "Ready" (no blockers) or "Blocked" (has blockers) AFTER creating links.
+        // We do NOT auto-transition here — doing so races with the Lambda's link creation.
+        // The "ready" webhook will arrive when the Lambda transitions the ticket.
+        console.log(`[orchestrator] ${ticketId} → todo (Jira mode: waiting for Lambda to route)`);
       } else {
         // DynamoDB mode — todo with no blockers means ready to go
         const ticket = await getTicket(ticketId);

@@ -23,34 +23,39 @@ export const TOOL_ICON_MAP: Record<string, { icon: string; label: string }> = {
   "S3Storage___write_object": { icon: "s3", label: "S3 Write" },
   "S3Storage___list_objects": { icon: "s3", label: "S3 List" },
 
-  // Skill loader
+  // Skill loader (flashes the skill dot)
   "SkillLoader___load_skill": { icon: "skill", label: "Load Skill" },
 
-  // GitHub integration (via hosted MCP)
-  "get_file_contents": { icon: "ext", label: "GitHub Read" },
-  "create_or_update_file": { icon: "ext", label: "GitHub Commit" },
-  "create_branch": { icon: "ext", label: "GitHub Branch" },
-  "create_pull_request": { icon: "ext", label: "GitHub PR" },
-  "search_code": { icon: "ext", label: "GitHub Search" },
-  "push_files": { icon: "ext", label: "GitHub Push" },
-  "list_commits": { icon: "ext", label: "GitHub Commits" },
+  // GitHub integration (via MCP)
+  "get_file_contents": { icon: "github", label: "GitHub Read" },
+  "create_or_update_file": { icon: "github", label: "GitHub Commit" },
+  "create_branch": { icon: "github", label: "GitHub Branch" },
+  "create_pull_request": { icon: "github", label: "GitHub PR" },
+  "search_code": { icon: "github", label: "GitHub Search" },
+  "push_files": { icon: "github", label: "GitHub Push" },
+  "list_commits": { icon: "github", label: "GitHub Commits" },
 
   // Workflow output
   "WorkflowOutput___submit_ticket_plan": { icon: "agentcore", label: "Submit Plan" },
   "WorkflowOutput___report_completion": { icon: "agentcore", label: "Report Complete" },
   "WorkflowOutput___save_design_doc": { icon: "agentcore", label: "Save Design" },
 
-  // Jira
-  "JiraIntegration___add_comment": { icon: "ext", label: "Jira Comment" },
+  // Jira tools
+  "JiraIntegration___create_ticket": { icon: "jira", label: "Jira Create" },
+  "JiraIntegration___transition_ticket": { icon: "jira", label: "Jira Transition" },
+  "JiraIntegration___update_ticket": { icon: "jira", label: "Jira Update" },
+  "JiraIntegration___list_tickets": { icon: "jira", label: "Jira List" },
+  "JiraIntegration___add_comment": { icon: "jira", label: "Jira Comment" },
+  "JiraIntegration___search_issues": { icon: "jira", label: "Jira Search" },
 
-  // Code interpreter (built-in harness tool)
+  // Code interpreter (AgentCore sandbox)
   "code_interpreter": { icon: "codebuild", label: "Code Interpreter" },
 
-  // Browser (built-in harness tool)
-  "browser": { icon: "ext", label: "Browser" },
+  // Browser (AgentCore sandbox)
+  "browser": { icon: "agentcore", label: "Browser" },
 
-  // A2A invoke
-  "invoke_team_agent": { icon: "agentcore", label: "A2A Invoke" },
+  // Claude Code
+  "claude_code": { icon: "claude", label: "Claude Code" },
 };
 
 // ─── Phase Display Order ────────────────────────────────────────────────────
@@ -127,23 +132,23 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
     ],
     config: [
       { key: "Model", val: "us.anthropic.claude-opus-4-0-v1" },
-      { key: "Memory", val: "built-in (short-term context)" },
       { key: "Max turns", val: "50" },
       { key: "Timeout", val: "15 min" },
     ],
     tools: [
-      { icon: "s3", label: "S3 Read & Write" },
-      { icon: "agentcore", label: "Memory Read/Write" },
-      { dot: "ext", label: "Gateway (Figma, Browser)" },
+      { icon: "agentcore", label: "Built-in (Strands)" },
+      { icon: "s3", label: "S3 Storage" },
+      { icon: "jira", label: "Jira" },
+      { icon: "github", label: "GitHub (MCP)" },
+      { icon: "claude", label: "Claude Code" },
+      { icon: "agentcore", label: "Workflow Output" },
     ],
     skills: [
-      "PRD Parsing & Visual Analysis",
-      "Acceptance Criteria Generation",
-      "Vertical-Slice Ticket Decomposition",
+      "Requirements Analysis",
     ],
     outputs: [
-      { icon: "s3", label: "Write artifacts to S3" },
-      { icon: "agentcore", label: "Gateway: report_completion (tickets)" },
+      { icon: "s3", label: "S3 Artifacts" },
+      { icon: "agentcore", label: "report_completion" },
     ],
   },
   design: {
@@ -156,24 +161,27 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
     ],
     config: [
       { key: "Dispatch", val: "parallel fan-out, 8 runtimes" },
-      { key: "Memory", val: "built-in + shared namespace" },
-      { key: "A2A", val: "cross-agent query enabled" },
+      { key: "Branch", val: "feature/{ticket}-{role}" },
     ],
     tools: [
-      { icon: "s3", label: "S3 Read & Write" },
-      { icon: "agentcore", label: "Memory + A2A" },
-      { dot: "ext", label: "Gateway (Jira, GitHub)" },
+      { icon: "agentcore", label: "Built-in (Strands)" },
+      { icon: "s3", label: "S3 Storage" },
+      { icon: "github", label: "GitHub (MCP)" },
+      { icon: "claude", label: "Claude Code" },
+      { icon: "agentcore", label: "Workflow Output" },
     ],
     skills: [
-      "Frontend/Web UI Design",
-      "iOS Architecture Design",
-      "Backend Systems Design",
+      "iOS Architecture",
+      "Backend Systems",
+      "Frontend Design",
       "Privacy & Compliance",
-      "Security Review",
+      "Localization",
+      "General Design",
+      "Code Architect",
     ],
     outputs: [
-      { icon: "s3", label: "Design docs to S3" },
-      { icon: "agentcore", label: "Gateway: save_design_doc" },
+      { icon: "s3", label: "S3 Artifacts" },
+      { icon: "agentcore", label: "save_design_doc" },
     ],
   },
   development: {
@@ -186,24 +194,25 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
     ],
     config: [
       { key: "Dispatch", val: "parallel fan-out, 3 runtimes" },
-      { key: "Tools", val: "Git CLI + Code Interpreter" },
       { key: "Branch", val: "feature/{ticket}-{role}" },
     ],
     tools: [
-      { icon: "s3", label: "S3 Read & Write" },
-      { icon: "codebuild", label: "Code Interpreter" },
-      { dot: "ext", label: "Git CLI (clone, commit, push)" },
-      { icon: "agentcore", label: "Memory + A2A + Gateway" },
+      { icon: "agentcore", label: "Built-in (Strands)" },
+      { icon: "s3", label: "S3 Storage" },
+      { icon: "github", label: "GitHub (MCP)" },
+      { icon: "claude", label: "Claude Code" },
+      { icon: "agentcore", label: "Workflow Output" },
     ],
     skills: [
-      "Swift / iOS Development",
+      "Swift Development",
       "Node.js / TypeScript",
-      "Full-Stack Integration",
+      "Full-Stack",
+      "Feature Dev",
     ],
     outputs: [
-      { icon: "s3", label: "Implementation artifacts to S3" },
-      { dot: "ext", label: "Git commits to feature branch" },
-      { icon: "agentcore", label: "Gateway: report_completion (PR)" },
+      { icon: "s3", label: "S3 Artifacts" },
+      { icon: "github", label: "Git Commits / PRs" },
+      { icon: "agentcore", label: "report_completion" },
     ],
   },
   qa: {
@@ -217,23 +226,22 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
     config: [
       { key: "Dispatch", val: "sequential then parallel" },
       { key: "Retry", val: "3x fix cycles before escalation" },
-      { key: "Tools", val: "Git + Code Interpreter + A2A" },
     ],
     tools: [
-      { dot: "ext", label: "Git CLI (read feature branch)" },
-      { icon: "codebuild", label: "Code Interpreter (tests)" },
-      { icon: "agentcore", label: "Memory + A2A + Gateway" },
+      { icon: "agentcore", label: "Built-in (Strands)" },
+      { icon: "s3", label: "S3 Storage" },
+      { icon: "jira", label: "Jira" },
+      { icon: "github", label: "GitHub (MCP)" },
+      { icon: "claude", label: "Claude Code" },
+      { icon: "agentcore", label: "Workflow Output" },
     ],
     skills: [
-      "Visual Regression + Pixel Compare",
-      "E2E Tests (Playwright)",
-      "CI Failure Analysis + Auto-fix",
-      "Retry Loop (A2A fix request, 3x)",
+      "QA Verification",
+      "CI Verification",
     ],
     outputs: [
-      { icon: "s3", label: "QA reports to S3" },
-      { dot: "ext", label: "Pull Request (auto-merge ready)" },
-      { icon: "agentcore", label: "Workflow Complete" },
+      { icon: "s3", label: "S3 Artifacts" },
+      { icon: "agentcore", label: "report_completion" },
     ],
   },
 };
