@@ -538,8 +538,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   // Derive visual states from workflow state
   const currentPhaseIndex = state ? (PHASE_ORDER[state.phase] ?? -1) : -1;
   const isComplete = state?.phase === "complete";
-  // "settled" = loaded a completed workflow (not a live completion animation)
-  const isSettled = isComplete && !celebrating;
+  // "settled" = completed workflow at final state (not mid-replay, not celebrating)
+  // replayMode is true for completed workflows, but we only show settled glow when
+  // the scrubber is at the end (user sees final state, not scrubbing through history)
+  const atReplayEnd = replayMode && replayEvents.length > 0 && replayIndex >= replayEvents.length - 1;
+  const isSettled = isComplete && !celebrating && (!replayMode || atReplayEnd);
 
   // Trigger connector animation when activeConnector changes
   useEffect(() => {
@@ -677,7 +680,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   const getPhaseClass = (phaseIndex: number) => {
     if (currentPhaseIndex === -1) return "";
-    if (isSettled && !replayMode) return "active done settled";
+    if (isSettled) return "active done settled";
     if (isComplete) return "active done";
     if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "active";
     if (phaseIndex < currentPhaseIndex) return "active done";
@@ -687,7 +690,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   const getBoxClass = (phaseIndex: number) => {
     if (currentPhaseIndex === -1) return "";
-    if (isSettled && !replayMode) return "done settled";
+    if (isSettled) return "done settled";
     if (isComplete) return "done";
     if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "awake";
     if (phaseIndex < currentPhaseIndex) return "done";
@@ -697,7 +700,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   const getItemClass = (phaseIndex: number): string => {
     if (!state) return "";
-    if (isSettled && !replayMode) return "done settled";
+    if (isSettled) return "done settled";
     if (isComplete) return "done";
     // Phase still has running agents — steady glow (not pulsating)
     if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "active-glow";
@@ -731,9 +734,56 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
       <div className="pipeline-viz">
         {/* Status header — shows current phase */}
-        <div className={`pipeline-status-header ${isSettled && !replayMode ? "settled" : ""}`}>
+        <div className={`pipeline-status-header ${isComplete ? "settled" : ""}`}>
           {isComplete ? "Complete" : state.phase === "error" ? "Error" : `In Progress: ${PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase}`}
         </div>
+
+        {/* Replay scrubber bar — positioned in top space */}
+        {replayMode && replayEvents.length > 0 && (
+          <div className="replay-bar">
+            {catchingUp ? (
+              <>
+                <span className="catching-up-indicator">Catching up...</span>
+                <input
+                  type="range"
+                  className="replay-scrubber"
+                  min={0}
+                  max={replayEvents.length - 1}
+                  value={replayIndex}
+                  readOnly
+                />
+                <span className="replay-counter">{replayIndex + 1} / {replayEvents.length}</span>
+              </>
+            ) : (
+              <>
+                <button className="replay-btn" onClick={togglePlay} title={isPlaying ? "Pause" : "Replay"}>
+                  {isPlaying ? "⏸" : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/><polygon points="10 8 16 12 10 16" fill="currentColor" stroke="none"/></svg>}
+                </button>
+                <input
+                  type="range"
+                  className="replay-scrubber"
+                  min={0}
+                  max={replayEvents.length - 1}
+                  value={replayIndex}
+                  onChange={(e) => seekTo(Number(e.target.value))}
+                />
+                <span className="replay-counter">{replayIndex + 1} / {replayEvents.length}</span>
+                <select
+                  className="replay-speed"
+                  value={playbackSpeed}
+                  onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
+                >
+                  <option value={1}>1x (real-time)</option>
+                  <option value={3}>3x</option>
+                  <option value={5}>5x</option>
+                  <option value={10}>10x</option>
+                  <option value={20}>20x</option>
+                  <option value={50}>50x</option>
+                </select>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Canvas */}
         <div className="pipeline-canvas" ref={pipelineRef}>
@@ -948,53 +998,6 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         </div>
 
 
-        {/* Replay scrubber bar */}
-        {replayMode && replayEvents.length > 0 && (
-          <div className="replay-bar">
-            {catchingUp ? (
-              <>
-                <span className="catching-up-indicator">Catching up...</span>
-                <input
-                  type="range"
-                  className="replay-scrubber"
-                  min={0}
-                  max={replayEvents.length - 1}
-                  value={replayIndex}
-                  readOnly
-                />
-                <span className="replay-counter">{replayIndex + 1} / {replayEvents.length}</span>
-              </>
-            ) : (
-              <>
-                <button className="replay-btn" onClick={togglePlay} title={isPlaying ? "Pause" : "Replay"}>
-                  {isPlaying ? "⏸" : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/><polygon points="10 8 16 12 10 16" fill="currentColor" stroke="none"/></svg>}
-                </button>
-                <input
-                  type="range"
-                  className="replay-scrubber"
-                  min={0}
-                  max={replayEvents.length - 1}
-                  value={replayIndex}
-                  onChange={(e) => seekTo(Number(e.target.value))}
-                />
-                <span className="replay-counter">{replayIndex + 1} / {replayEvents.length}</span>
-                <select
-                  className="replay-speed"
-                  value={playbackSpeed}
-                  onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
-                >
-                  <option value={1}>1x (real-time)</option>
-                  <option value={3}>3x</option>
-                  <option value={5}>5x</option>
-                  <option value={10}>10x</option>
-                  <option value={20}>20x</option>
-                  <option value={50}>50x</option>
-                </select>
-              </>
-            )}
-          </div>
-        )}
-
         {/* Agent Output Pop-Out Card */}
         <AgentOutputPanel
           isOpen={!!expandedAgent}
@@ -1131,7 +1134,7 @@ const PIPELINE_STYLES = `
 .item.done.settled .svc-icon{filter:drop-shadow(0 0 3px rgba(249,115,22,.3))}
 .flow-path.settled{stroke:#f97316;opacity:.7;stroke-width:2.5;animation:settledPathGlow 6s ease-in-out infinite}
 
-.replay-bar{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 16px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;width:60%;max-width:1000px;margin-left:auto;margin-right:auto}
+.replay-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:8px 16px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;width:50%;max-width:800px;margin-left:auto;margin-right:auto}
 .replay-btn{background:none;border:1px solid #334155;color:#e2e8f0;font-size:14px;width:32px;height:32px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .replay-btn:hover{border-color:#0ea5e9;background:#0ea5e920}
 .replay-scrubber{flex:1;height:4px;-webkit-appearance:none;appearance:none;background:#334155;border-radius:2px;cursor:pointer;outline:none}
