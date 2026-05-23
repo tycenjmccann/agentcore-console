@@ -41,11 +41,21 @@ export async function GET(
 
   // Token-level chunks join directly — text already contains its own formatting
   const streamedOutput = textChunks.join("");
-  // Only append summary if the stream doesn't already contain one (some agents write ## Summary inline)
-  const streamHasSummary = /#{1,3}\s*Summary/i.test(streamedOutput);
-  const fullOutput = streamedOutput && summaryText && !streamHasSummary
-    ? streamedOutput + "\n\n---\n\n## Summary\n\n" + summaryText
-    : streamedOutput || summaryText;
+
+  // Always prefer S3 summary (clean markdown) over inline stream summary (garbled from buffering).
+  // If stream contains a "## Summary" section, strip it and use S3 version instead.
+  let cleanStream = streamedOutput;
+  if (summaryText) {
+    // Remove any inline summary the agent wrote (it's garbled from buffer concatenation)
+    const summaryMatch = cleanStream.match(/\n*#{1,3}\s*Summary[\s\S]*$/);
+    if (summaryMatch && summaryMatch.index !== undefined) {
+      cleanStream = cleanStream.slice(0, summaryMatch.index).trimEnd();
+    }
+  }
+
+  const fullOutput = cleanStream && summaryText
+    ? cleanStream + "\n\n---\n\n## Summary\n\n" + summaryText
+    : cleanStream || summaryText;
 
   return NextResponse.json({
     agentId,
