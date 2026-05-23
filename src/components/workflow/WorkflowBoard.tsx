@@ -473,9 +473,13 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         setState((s) => {
           if (!s) return s;
           const tasks = { ...s.agentTasks };
-          if (tasks[event.agentId]) {
-            tasks[event.agentId] = {
-              ...tasks[event.agentId],
+          // Find task by agentId (key might be agentId or ticketId)
+          const key = tasks[event.agentId]
+            ? event.agentId
+            : Object.keys(tasks).find((k) => tasks[k].agentId === event.agentId);
+          if (key) {
+            tasks[key] = {
+              ...tasks[key],
               status: "complete",
               output: event.output,
               branch: event.branch,
@@ -726,15 +730,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       )}
 
       <div className="pipeline-viz">
-        {/* Legend */}
-        <div className="pipeline-legend">
-          <div className="legend-item"><img className="aws-ico" src={awsIcons.bedrock} alt="Bedrock" /> Amazon Bedrock</div>
-          <div className="legend-item"><img className="aws-ico" src={awsIcons.agentcore} alt="AgentCore" /> Bedrock AgentCore</div>
-          <div className="legend-item"><img className="aws-ico" src={awsIcons.s3} alt="S3" /> Amazon S3</div>
-          <div className="legend-item"><img className="aws-ico" src={awsIcons.eventbridge} alt="EventBridge" /> Amazon EventBridge</div>
-          <div className="legend-item"><img className="aws-ico" src={awsIcons.codebuild} alt="Code Interpreter" /> Code Interpreter</div>
-          <div className="legend-item"><span className="dot skill" /> Loaded Skill</div>
-          <div className="legend-item"><span className="dot ext" /> External</div>
+        {/* Status header — shows current phase */}
+        <div className={`pipeline-status-header ${isSettled && !replayMode ? "settled" : ""}`}>
+          {isComplete ? "Complete" : state.phase === "error" ? "Error" : `In Progress: ${PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase}`}
         </div>
 
         {/* Canvas */}
@@ -828,37 +826,13 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
                 {/* Work area */}
                 <div className="work-area">
-                  {/* Tools */}
-                  {phase.tools.length > 0 && (
-                    <>
-                      <div className="sec-label">{phase.id === "intake" ? "User Actions" : "Tools"}</div>
-                      {phase.tools.map((tool, i) => {
-                        const iconKey = tool.icon || tool.dot || "ext";
-                        const isFlashing = toolFlashes[`${phase.id}:${iconKey}`];
-                        const itemClass = isFlashing ? "trigger" : getItemClass(idx);
-                        return (
-                          <div key={i} className={`item ${itemClass}`}>
-                            {tool.icon ? (
-                              <img className="svc-icon" src={(awsIcons as Record<string, string>)[tool.icon]} alt={tool.icon} />
-                            ) : (
-                              <span className={`item-dot ${tool.dot || "ext"}`} />
-                            )}
-                            <span className="item-label">{tool.label}</span>
-                            <span className="item-status" />
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
-
-                  {/* Individual Agents */}
+                  {/* Agents */}
                   {phase.type === "agent" && phase.agents.length > 0 && (() => {
                     return (
                       <>
                         <div className="sec-label">Agents ({phase.agents.length})</div>
                         {phase.agents.map((agent) => {
                           const agentTask = state?.agentTasks[agent.id];
-                          // Agent pulses ("working") whenever it's running — streaming text is optional
                           const agentItemClass = agentTask
                             ? agentTask.status === "running" || agentTask.status === "waiting_response"
                               ? "working"
@@ -896,6 +870,29 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                       </>
                     );
                   })()}
+
+                  {/* Tools */}
+                  {phase.tools.length > 0 && (
+                    <>
+                      <div className="sec-label">{phase.id === "intake" ? "User Actions" : "Tools"}</div>
+                      {phase.tools.map((tool, i) => {
+                        const iconKey = tool.icon || tool.dot || "ext";
+                        const isFlashing = toolFlashes[`${phase.id}:${iconKey}`];
+                        const itemClass = isFlashing ? "trigger" : getItemClass(idx);
+                        return (
+                          <div key={i} className={`item ${itemClass}`}>
+                            {tool.icon ? (
+                              <img className="svc-icon" src={(awsIcons as Record<string, string>)[tool.icon]} alt={tool.icon} />
+                            ) : (
+                              <span className={`item-dot ${tool.dot || "ext"}`} />
+                            )}
+                            <span className="item-label">{tool.label}</span>
+                            <span className="item-status" />
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
 
                   {/* Skills */}
                   {phase.skills.length > 0 && (
@@ -950,19 +947,6 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           </div>
         </div>
 
-        {/* Status bar */}
-        <div className={`pipeline-status ${isSettled && !replayMode ? "settled" : ""}`}>
-          <div className="status-phase" style={isSettled && !replayMode ? { color: "#f97316" } : undefined}>
-            {isComplete ? "Complete" : (state.phase === "error" ? "Error" : PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase)}
-          </div>
-          <div className="status-text">
-            {isComplete
-              ? "All agents have completed their work"
-              : state.phase === "error"
-              ? state.error || "An error occurred"
-              : `Processing phase ${currentPhaseIndex + 1} of ${PIPELINE_PHASES.length}`}
-          </div>
-        </div>
 
         {/* Replay scrubber bar */}
         {replayMode && replayEvents.length > 0 && (
@@ -1047,12 +1031,8 @@ const PIPELINE_STYLES = `
 .pipeline-subtitle{display:none}
 @keyframes shimmer{to{background-position:200% center}}
 
-.pipeline-legend{align-self:flex-start;display:flex;flex-wrap:wrap;gap:14px;font-size:10px;color:#64748b;padding:4px 0;margin-bottom:8px}
-.legend-item{display:flex;align-items:center;gap:4px}
-.legend-item .aws-ico{width:18px;height:18px;border-radius:3px;object-fit:contain}
-.legend-item .dot{width:7px;height:7px;border-radius:50%}
-.legend-item .dot.skill{background:#a855f7}
-.legend-item .dot.ext{background:#64748b}
+.pipeline-status-header{align-self:center;font-size:16px;font-weight:700;color:#e2e8f0;letter-spacing:0.5px;margin-bottom:10px;text-transform:capitalize;transition:color .4s}
+.pipeline-status-header.settled{color:#f97316;animation:settledHeaderGlow 6s ease-in-out infinite}
 
 .pipeline-canvas{position:relative;width:1720px;min-height:840px}
 .pipeline-connectors{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
@@ -1123,9 +1103,6 @@ const PIPELINE_STYLES = `
 .item-status{width:6px;height:6px;border-radius:50%;background:#1e293b;margin-left:auto;flex-shrink:0;transition:background .3s}
 .item.active .item-status{background:#0ea5e9;box-shadow:0 0 5px #0ea5e9}
 
-.pipeline-status{text-align:center;margin-top:16px;min-height:44px}
-.status-phase{font-size:11px;color:#0ea5e9;letter-spacing:2px;text-transform:uppercase;margin-bottom:2px}
-.status-text{font-size:15px;font-weight:500;color:#e2e8f0}
 
 @keyframes celebrateBurst{0%{border-color:#f97316;box-shadow:0 0 30px rgba(255,255,255,.6)}100%{border-color:#22c55e50;box-shadow:0 0 8px rgba(34,197,94,.1)}}
 @keyframes celebrateItemBurst{0%{border-color:#f97316;background:#f9731618}100%{border-color:#f9731640;background:#f9731608}}
@@ -1135,19 +1112,24 @@ const PIPELINE_STYLES = `
 .celebrate-wrapper .item.done{animation:celebrateItemBurst 1.2s ease-out forwards}
 .celebrate-wrapper .item.done .item-status{animation:celebrateStatusBurst 1.2s ease-out forwards}
 .celebrate-wrapper .flow-path.show{animation:celebrateConnector 1.2s ease-out forwards}
-.celebrate-wrapper .status-phase{color:#f97316}
+.celebrate-wrapper .pipeline-status-header{color:#f97316}
 .celebrate-wrapper .pipeline-title{background:linear-gradient(90deg,#f97316,#fbbf24,#f97316);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .celebrate-wrapper .phase.done{opacity:1}
 
 /* Settled state — completed workflow loaded from history */
-@keyframes settledGlow{0%,100%{border-color:#f9731640;box-shadow:0 0 12px rgba(249,115,22,.15)}50%{border-color:#f9731660;box-shadow:0 0 20px rgba(249,115,22,.25)}}
-@keyframes settledItemGlow{0%,100%{border-color:#f9731625;background:#f9731608}50%{border-color:#f9731640;background:#f9731610}}
-.phase.settled{opacity:0.9}
-.agent-box.done.settled{animation:settledGlow 4s ease-in-out infinite;border-color:#f9731640}
-.item.done.settled{animation:settledItemGlow 4s ease-in-out infinite;opacity:0.85}
-.item.done.settled .item-status{background:#f97316;box-shadow:0 0 4px rgba(249,115,22,.4)}
+@keyframes settledGlow{0%,100%{border-color:#f97316;box-shadow:0 0 14px rgba(249,115,22,.25)}50%{border-color:#fb923c;box-shadow:0 0 24px rgba(249,115,22,.45)}}
+@keyframes settledItemGlow{0%,100%{border-color:#f9731640;background:#f9731610;box-shadow:0 0 4px rgba(249,115,22,.1)}50%{border-color:#f9731670;background:#f9731618;box-shadow:0 0 8px rgba(249,115,22,.2)}}
+@keyframes settledDotGlow{0%,100%{box-shadow:0 0 4px #f97316}50%{box-shadow:0 0 8px #f97316,0 0 12px rgba(249,115,22,.4)}}
+@keyframes settledPathGlow{0%,100%{opacity:.6;filter:url(#pathGlow)}50%{opacity:.9;filter:url(#pathGlow) brightness(1.2)}}
+@keyframes settledHeaderGlow{0%,100%{text-shadow:0 0 8px rgba(249,115,22,.2)}50%{text-shadow:0 0 16px rgba(249,115,22,.4)}}
+.phase.settled{opacity:1}
+.agent-box.done.settled{animation:settledGlow 6s ease-in-out infinite;border-color:#f97316}
+.item.done.settled{animation:settledItemGlow 6s ease-in-out infinite;opacity:1;border-color:#f9731650}
+.item.done.settled .item-status{background:#f97316;animation:settledDotGlow 6s ease-in-out infinite}
 .item.done.settled .item-label{color:#e2e8f0}
-.flow-path.settled{stroke:#f97316;opacity:.6;stroke-width:2.5}
+.item.done.settled .item-dot{background:#f97316;animation:settledDotGlow 6s ease-in-out infinite}
+.item.done.settled .svc-icon{filter:drop-shadow(0 0 3px rgba(249,115,22,.3))}
+.flow-path.settled{stroke:#f97316;opacity:.7;stroke-width:2.5;animation:settledPathGlow 6s ease-in-out infinite}
 
 .replay-bar{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 16px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;width:60%;max-width:1000px;margin-left:auto;margin-right:auto}
 .replay-btn{background:none;border:1px solid #334155;color:#e2e8f0;font-size:14px;width:32px;height:32px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}

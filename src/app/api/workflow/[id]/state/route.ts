@@ -3,6 +3,23 @@ import { getWorkflowFromDynamo } from "@/lib/workflow/dynamo-read";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Re-key agentTasks from ticketId-keyed (DDB storage) to agentId-keyed (UI expected).
+ * The orchestrator stores tasks keyed by ticketId (e.g. "TEAM-462") but the UI
+ * pipeline visualization expects them keyed by agentId (e.g. "team-requirements-analyst").
+ */
+function normalizeAgentTasks(
+  agentTasks: Record<string, Record<string, unknown>> | undefined
+): Record<string, Record<string, unknown>> {
+  if (!agentTasks) return {};
+  const normalized: Record<string, Record<string, unknown>> = {};
+  for (const [key, task] of Object.entries(agentTasks)) {
+    const agentId = (task.agentId as string) || key;
+    normalized[agentId] = { ...task, agentId };
+  }
+  return normalized;
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
@@ -11,6 +28,12 @@ export async function GET(
     const state = await getWorkflowFromDynamo(params.id);
     if (!state) {
       return NextResponse.json({ error: "Workflow not found" }, { status: 404 });
+    }
+    // Normalize agentTasks keys from ticketId → agentId for UI consumption
+    if (state.agentTasks) {
+      state.agentTasks = normalizeAgentTasks(
+        state.agentTasks as Record<string, Record<string, unknown>>
+      );
     }
     return NextResponse.json(state, {
       headers: { "Cache-Control": "no-store" },

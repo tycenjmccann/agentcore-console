@@ -80,42 +80,59 @@ export function usePipelineSSE({
       if (!prev) return prev;
       const next = { ...prev };
 
+      // agentTasks may be keyed by ticketId (TEAM-xxx) rather than agentId.
+      // Resolve the actual map key for a given agentId.
+      const findTaskKey = (agentId: string): string | null => {
+        // Direct match first (key IS the agentId)
+        if (next.agentTasks[agentId]) return agentId;
+        // Search by agentId field inside task values (keyed by ticketId)
+        for (const [key, task] of Object.entries(next.agentTasks)) {
+          if (task.agentId === agentId) return key;
+        }
+        return null;
+      };
+
       switch (event.type) {
         case "phase_change":
           next.phase = event.phase;
           break;
 
-        case "agent_status":
-          if (next.agentTasks[event.agentId]) {
+        case "agent_status": {
+          const key = findTaskKey(event.agentId);
+          if (key) {
             next.agentTasks = {
               ...next.agentTasks,
-              [event.agentId]: {
-                ...next.agentTasks[event.agentId],
+              [key]: {
+                ...next.agentTasks[key],
                 status: event.status,
               },
             };
           }
           break;
+        }
 
-        case "agent_output":
-          if (next.agentTasks[event.agentId]) {
-            const existing = next.agentTasks[event.agentId].output || "";
+        case "agent_output": {
+          const key = findTaskKey(event.agentId);
+          if (key) {
+            const existing = next.agentTasks[key].output || "";
             next.agentTasks = {
               ...next.agentTasks,
-              [event.agentId]: {
-                ...next.agentTasks[event.agentId],
+              [key]: {
+                ...next.agentTasks[key],
                 output: existing + event.chunk,
               },
             };
           }
           break;
+        }
 
-        case "agent_complete":
-          if (next.agentTasks[event.agentId]) {
+        case "agent_complete": {
+          const key = findTaskKey(event.agentId);
+          if (key) {
             next.agentTasks = {
               ...next.agentTasks,
-              [event.agentId]: {
-                ...next.agentTasks[event.agentId],
+              [key]: {
+                ...next.agentTasks[key],
                 status: "complete" as AgentTaskStatus,
                 output: event.output,
                 branch: event.branch,
@@ -125,18 +142,20 @@ export function usePipelineSSE({
             };
           }
           break;
+        }
 
         case "workflow_complete":
           next.phase = "complete" as WorkflowPhase;
           next.completedAt = new Date().toISOString();
           break;
 
-        case "error":
-          if (event.agentId && next.agentTasks[event.agentId]) {
+        case "error": {
+          const key = event.agentId ? findTaskKey(event.agentId) : null;
+          if (key) {
             next.agentTasks = {
               ...next.agentTasks,
-              [event.agentId]: {
-                ...next.agentTasks[event.agentId],
+              [key]: {
+                ...next.agentTasks[key],
                 status: "error" as AgentTaskStatus,
                 error: event.error,
               },
@@ -146,6 +165,7 @@ export function usePipelineSSE({
             next.error = event.error;
           }
           break;
+        }
 
         default:
           break;
