@@ -105,12 +105,14 @@ export class JiraCloudProvider implements TicketProvider {
     const issueKey = data.key as string;
 
     // Create "Blocks" issue links for dependencies
+    // Jira "Blocks" link: inwardIssue "blocks" outwardIssue
+    // So blockerId blocks issueKey → inward=blocker, outward=new ticket
     if (input.blockedBy && input.blockedBy.length > 0) {
       for (const blockerId of input.blockedBy) {
         await this.request("POST", "/rest/api/3/issueLink", {
           type: { name: "Blocks" },
-          inwardIssue: { key: issueKey },
-          outwardIssue: { key: blockerId },
+          inwardIssue: { key: blockerId },
+          outwardIssue: { key: issueKey },
         });
       }
     }
