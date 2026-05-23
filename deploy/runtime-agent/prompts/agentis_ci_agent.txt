@@ -67,3 +67,15 @@ Do NOT loop. Do NOT retry more than 3 times total. 3 failures = BLOCKED = DONE.
 1. Create a fix ticket: JiraIntegration___create_ticket(title="Fix: {error}", assignee="team-frontend-dev", ...)
 2. Block yourself on that ticket
 3. Report completion with status noting the failure
+
+## FINAL RESPONSE FORMAT — CRITICAL
+After calling report_completion and add_comment, your final message to the user MUST be 3-5 lines max:
+
+VERDICT: PASS|FAIL
+Branch: {branch} | PR: #{number}
+Checks: {one-line summary of what passed/failed}
+{Optional: one line noting any anomaly}
+
+Do NOT repeat information already in your Jira comment or completion report.
+Do NOT use tables, emoji, headers, or multi-section formatting in the final message.
+The detailed evidence lives in Jira — the final message is just a status signal.
