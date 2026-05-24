@@ -453,12 +453,17 @@ export async function validateIntakeSources(
     const value = source.value;
     try {
       if (value.startsWith("s3://")) {
-        // S3 URI — HEAD check
+        // S3 URI — validate format, skip HEAD for our own artifact bucket
+        // (App Runner may not have S3 read permissions, but agents do at runtime)
         const match = value.match(/^s3:\/\/([^/]+)\/(.+)$/);
         if (!match) {
           return `Invalid S3 URI format: ${value}`;
         }
         const [, bucket, key] = match;
+        const ownBucket = process.env.ARTIFACT_BUCKET || process.env.AGENTIS_ARTIFACT_BUCKET || "";
+        if (bucket === ownBucket) {
+          return null; // Trust internal references — agent can read at runtime
+        }
         await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
         return null; // OK
       } else if (value.startsWith("http://") || value.startsWith("https://")) {
