@@ -1522,7 +1522,7 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 | `ORCHESTRATION_MODE` on App Runner | `lambda` | Lambda orchestrator is sole driver (only supported mode for production) |
 | `TICKET_PROVIDER` on orchestrator Lambda | `jira` | Reads/writes via Jira API |
 | DDB Stream mapping | Enabled | Fires orchestrator on ticket status changes |
-| App Runner URL | `k2krtgqjiu.us-east-1.awsapprunner.com` | Deployed 2026-05-23 |
+| App Runner URL | *(set DEPLOYMENT_URL in deploy/config.sh)* | Your deployed instance |
 | `agentis-jira-real` | Writes to Jira (primary). DDB writes are best-effort — no tickets table is provisioned, so they silently fail. This is expected. |
 
 **DynamoDB tables required:** `agentis-workflows`, `agentis-events` only. No tickets table needed — Jira is the sole ticket store.

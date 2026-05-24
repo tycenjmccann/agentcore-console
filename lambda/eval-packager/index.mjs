@@ -89,6 +89,9 @@ export async function handler(event) {
   let sessionId = "";
   const rawEvents = [];
 
+  let parseFailures = 0;
+  let noEvaluatorCount = 0;
+
   for (const logEvent of logEvents) {
     try {
       const parsed = JSON.parse(logEvent.message);
@@ -102,14 +105,23 @@ export async function handler(event) {
 
       if (evaluator && score !== undefined && score !== null) {
         scores[evaluator] = { score: Number(score), reason: String(reason).slice(0, 500) };
+      } else {
+        noEvaluatorCount++;
+        if (noEvaluatorCount <= 2) {
+          console.log(`[eval-packager] Event missing evaluator/score. Keys: ${Object.keys(parsed).join(",")}, attrs keys: ${Object.keys(attrs).join(",")}, name field: ${parsed.name || "none"}`);
+        }
       }
-    } catch {
+    } catch (err) {
+      parseFailures++;
+      if (parseFailures <= 2) {
+        console.log(`[eval-packager] JSON parse error: ${err.message}. First 200 chars: ${String(logEvent.message).slice(0, 200)}`);
+      }
       rawEvents.push({ raw: logEvent.message });
     }
   }
 
   if (Object.keys(scores).length === 0) {
-    console.log(`[eval-packager] No parseable scores for ${agentName}`);
+    console.log(`[eval-packager] No parseable scores for ${agentName}. Events: ${logEvents.length}, parseFailures: ${parseFailures}, noEvaluator: ${noEvaluatorCount}`);
     return { statusCode: 200, body: "No scores" };
   }
 

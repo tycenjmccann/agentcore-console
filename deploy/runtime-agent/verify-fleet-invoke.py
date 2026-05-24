@@ -289,7 +289,7 @@ def invoke_runtime_agent(agent_name, arn, region, timeout, credentials, model_ov
 
     # Substitute configurable values into the prompt
     kb_id = os.environ.get("BEDROCK_KB_ID", "NONE")
-    github_owner = os.environ.get("GITHUB_OWNER", "tycenjmccann")
+    github_owner = os.environ.get("GITHUB_OWNER", "")
     github_repo = os.environ.get("GITHUB_REPO", "agentcore-console")
     prompt = HEALTH_CHECK_PROMPT.replace("{KNOWLEDGE_BASE_ID}", kb_id)
     prompt = prompt.replace("{GITHUB_OWNER}", github_owner)

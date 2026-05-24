@@ -2,7 +2,7 @@
 # Creates the DynamoDB tables required by Agentis Hub.
 # Run once per account/region. Safe to re-run (will skip existing tables).
 #
-# Usage: AWS_PROFILE=tycenj-prod ./scripts/create-dynamodb-tables.sh
+# Usage: AWS_PROFILE=your-profile ./scripts/create-dynamodb-tables.sh
 #
 # Tables:
 #   agentis-workflows  — PK: workflowId (S), GSI: epicId-index

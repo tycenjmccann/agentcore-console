@@ -3,8 +3,8 @@
 # Uses Opus 4.7 as judge model, 100% sampling, 10 evaluators per config
 
 set -e
-export AWS_PROFILE=tycenj-prod
-export AWS_REGION=us-east-1
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+source "${REPO_ROOT}/deploy/config.sh"
 
 # 9 built-in + 1 custom = 10 (the max)
 EVALUATORS=(

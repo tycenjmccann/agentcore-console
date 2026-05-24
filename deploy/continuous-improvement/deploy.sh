@@ -2,16 +2,14 @@
 # Deploy the Continuous Improvement Loop
 set -e
 
-export AWS_PROFILE=tycenj-prod
-export AWS_REGION=us-east-1
-
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-BUCKET="agentis-artifacts-${ACCOUNT_ID}"
-ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/agentis-lambda-role"
-AGENT_ID="agentis_fleet_improver-k5W5Vb9GhE"
-WORKFLOW_API="https://k2krtgqjiu.us-east-1.awsapprunner.com"
-FLEET_REPO="https://github.com/tycenjmccann/agentis-fleet.git"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+source "${REPO_ROOT}/deploy/config.sh"
+
+BUCKET="$ARTIFACT_BUCKET"
+ROLE_ARN="$LAMBDA_ROLE_ARN"
+AGENT_ID="${IMPROVEMENT_AGENT_ID:-agentis_fleet_improver-k5W5Vb9GhE}"
+WORKFLOW_API="${DEPLOYMENT_URL:?ERROR: DEPLOYMENT_URL must be set}"
+FLEET_REPO="$FLEET_REPO_URL"
 
 echo "═══════════════════════════════════════════════════════════"
 echo "  Continuous Improvement Loop"

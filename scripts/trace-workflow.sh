@@ -19,7 +19,7 @@
 #   6. Full unified timeline (all sources merged by timestamp)
 #
 # Requirements:
-#   - AWS CLI v2 configured (uses AWS_PROFILE=tycenj-prod)
+#   - AWS CLI v2 configured with appropriate profile
 #   - jq installed
 #
 # ─────────────────────────────────────────────────────────────────────────────
@@ -28,7 +28,7 @@ set -euo pipefail
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
-export AWS_PROFILE="${AWS_PROFILE:-tycenj-prod}"
+export AWS_PROFILE="${AWS_PROFILE:?ERROR: Set AWS_PROFILE}"
 REGION="${AWS_REGION:-us-east-1}"
 
 # Log groups

@@ -5,11 +5,11 @@
  * that the output panel shows coherent, complete text (not fragments).
  *
  * Run against App Runner:
- *   DEMO_BASE_URL=https://k2krtgqjiu.us-east-1.awsapprunner.com npx playwright test demo/playwright/v4/test-agent-streaming.spec.ts --config demo/playwright/v4/playwright-v4.config.ts
+ *   DEMO_BASE_URL=https://YOUR-APP-RUNNER-ID.us-east-1.awsapprunner.com npx playwright test demo/playwright/v4/test-agent-streaming.spec.ts --config demo/playwright/v4/playwright-v4.config.ts
  */
 import { test, expect } from "@playwright/test";
 
-const BASE_URL = process.env.DEMO_BASE_URL || "https://k2krtgqjiu.us-east-1.awsapprunner.com";
+const BASE_URL = process.env.DEMO_BASE_URL || "https://YOUR-APP-RUNNER-ID.us-east-1.awsapprunner.com";
 // Use the most recent completed workflow
 const WORKFLOW_ID = process.env.TEST_WORKFLOW_ID || "wf_1779502527116_xs7k4v";
 

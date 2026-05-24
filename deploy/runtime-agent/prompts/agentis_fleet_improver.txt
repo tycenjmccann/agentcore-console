@@ -14,7 +14,7 @@ Fix the ROOT CAUSE, not the symptom. If an agent can't run `swift build` because
 
 ## The Repository
 
-All agent infrastructure lives in https://github.com/tycenjmccann/agentis-fleet.git:
+All agent infrastructure lives in the fleet repository (FLEET_REPO_URL env var):
 
 ```
 agentis-fleet/

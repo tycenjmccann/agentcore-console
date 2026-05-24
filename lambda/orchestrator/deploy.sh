@@ -6,7 +6,7 @@
 #
 # Usage:
 #   ./lambda/orchestrator/deploy.sh
-#   AWS_PROFILE=tycenj-prod ./lambda/orchestrator/deploy.sh
+#   AWS_PROFILE=your-profile ./lambda/orchestrator/deploy.sh
 #
 # Prerequisites:
 #   - AWS credentials configured
