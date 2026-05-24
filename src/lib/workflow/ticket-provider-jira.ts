@@ -259,7 +259,7 @@ export class JiraCloudProvider implements TicketProvider {
     );
   }
 
-  private async transitionTo(issueKey: string, targetStatusName: string): Promise<void> {
+  async transitionTo(issueKey: string, targetStatusName: string): Promise<void> {
     // Get available transitions
     const data = await this.request("GET", `/rest/api/3/issue/${issueKey}/transitions`);
     const transitions = (data.transitions || []) as Array<{ id: string; name: string; to?: { name?: string } }>;

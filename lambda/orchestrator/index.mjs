@@ -180,6 +180,13 @@ async function handleTicketDoneUnified(ticketId) {
     return;
   }
 
+  // Dedup guard: if we already processed this ticket's completion, skip cascade.
+  // Protects against double-transition (agent calls transition_ticket AND report_completion).
+  if (workflow.agentTasks?.[ticketId]?.status === "complete") {
+    console.log(`[orchestrator] ${ticketId} already marked complete — skipping duplicate cascade.`);
+    return;
+  }
+
   // Update agent task status
   if (ticketId && workflow.agentTasks?.[ticketId]) {
     workflow.agentTasks[ticketId].status = "complete";
@@ -226,11 +233,16 @@ async function handleTicketDoneUnified(ticketId) {
   console.log(`[orchestrator] ${ticketId} done. Unblocked: [${unblocked.join(", ")}]`);
   await publishEvent(ticketId, "agent.complete", { ticketId, assignee, agentId: assignee, unblocked, workflowId: workflow?.id });
 
-  // Check workflow completion
-  if (unblocked.length === 0) {
-    if (await isWorkflowComplete(parentId)) {
-      await completeWorkflow(workflow);
-    }
+  // Journey log: record each unblock for at-a-glance traceability
+  for (const unblockedId of unblocked) {
+    await publishEvent(unblockedId, "orchestrator.unblocked", {
+      ticketId: unblockedId, unblockedBy: ticketId, workflowId: workflow?.id,
+    });
+  }
+
+  // Always check workflow completion — the last ticket to close triggers this
+  if (await isWorkflowComplete(parentId)) {
+    await completeWorkflow(workflow);
   }
 }
 
@@ -804,11 +816,18 @@ async function invokeAgent(agentDef, context, workflow) {
         prompt: context,
         workflowId: workflow.id,
         agentId: agentDef.id,
+        ticketId: task?.ticketId || "",
         modelOverride: modelConfig,
       }),
     }));
 
     console.log(`[orchestrator] Async invoke sent for ${agentDef.id} (session: ${sessionId})`);
+
+    // Journey log: agent invocation dispatched
+    await publishEvent(task?.ticketId || agentDef.id, "orchestrator.agent_invoked", {
+      ticketId: task?.ticketId || "", agentId: agentDef.id, sessionId,
+      workflowId: workflow.id, runtimeArn: harnessArn,
+    });
 
     // Persist session info to the workflow manifest (S3) for health probes and traceability
     try {
@@ -1031,11 +1050,12 @@ function mapJiraIssueToTicket(issue) {
   const wfLabel = labels.find(l => l.startsWith("wf:"));
 
   // Extract blockedBy from issue links
+  // From this ticket's perspective: if it has an inwardIssue with type "is blocked by",
+  // that inwardIssue is what blocks this ticket.
   const blockedBy = [];
   for (const link of (f.issuelinks || [])) {
-    // outwardIssue with type "Blocks" = the outward issue blocks this one
-    if (link.type?.inward === "is blocked by" && link.outwardIssue) {
-      blockedBy.push(link.outwardIssue.key);
+    if (link.type?.inward === "is blocked by" && link.inwardIssue) {
+      blockedBy.push(link.inwardIssue.key);
     }
   }
 

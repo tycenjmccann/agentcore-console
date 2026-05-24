@@ -1,8 +1,19 @@
+import { execSync } from "child_process";
+
 /** @type {import("next").NextConfig} */
+
+const gitSha = (() => {
+  try { return execSync("git rev-parse --short HEAD").toString().trim(); }
+  catch { return "unknown"; }
+})();
 
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  env: {
+    NEXT_PUBLIC_BUILD_SHA: gitSha,
+    NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),
+  },
   outputFileTracingIncludes: {
     "/api/**": ["./node_modules/@aws-sdk/**"],
   },
@@ -15,6 +26,7 @@ const nextConfig = {
     "@aws-sdk/client-bedrock-runtime",
     "@aws-sdk/client-bedrock-agentcore",
     "@aws-sdk/client-bedrock-agentcore-control",
+    "@smithy/node-http-handler",
   ],
 };
 

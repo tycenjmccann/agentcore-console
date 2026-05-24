@@ -23,6 +23,7 @@ deploy/runtime-agent/fleet-health-results.json
 deploy/runtime-agent/repl_state
 deploy/runtime-agent/.bedrock_agentcore/
 deploy/runtime-agent/.bedrock_agentcore.yaml
+deploy/runtime-agent/test-streaming/.bedrock_agentcore.yaml
 repl_state
 
 # Agent state

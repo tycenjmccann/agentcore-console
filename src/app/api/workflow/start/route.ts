@@ -98,8 +98,10 @@ async function startWithJira(body: WorkflowInput) {
     blockedBy: [],
   }, workflowId);
 
-  // Webhook fires on issue_created → orchestrator checks blockers → transitions to Ready → invokes agent
-  console.log(`[start/jira] Workflow ${workflowId} created. Epic: ${epicId}. Req ticket: ${reqTicket.id}. Webhook will handle the rest.`);
+  // Requirements ticket has no blockers — transition to "Ready" so the webhook fires
+  // and the orchestrator invokes the agent (same flow as all other tickets in the pipeline)
+  await jira.transitionTo(reqTicket.id, "Ready");
+  console.log(`[start/jira] Workflow ${workflowId} created. Epic: ${epicId}. Req ticket: ${reqTicket.id} → Ready.`);
 
   return NextResponse.json({ workflowId, epicId });
 }

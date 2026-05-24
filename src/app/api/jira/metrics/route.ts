@@ -128,8 +128,8 @@ async function getMetricsFromJira(timeframe: Timeframe): Promise<MetricsResult> 
     jiraCount(`project = ${project} AND status = Done AND resolved >= ${resolvedSince}`),
     jiraCount(`project = ${project} AND status = "In Progress"`),
     jiraCount(`project = ${project} AND issuetype = Epic AND status != Done`),
-    jiraCount(`project = ${project} AND status = Done AND labels = "agentis-workflow" AND resolved >= ${resolvedSince}`),
-    jiraCount(`project = ${project} AND status in ("In Progress", "Ready", "In Review") AND labels = "agentis-workflow"`),
+    jiraCount(`project = ${project} AND status = Done AND labels is not EMPTY AND resolved >= ${resolvedSince}`),
+    jiraCount(`project = ${project} AND status in ("In Progress", "Ready", "In Review") AND labels is not EMPTY`),
     jiraFetch(`project = ${project} AND status = Done AND resolved >= ${resolvedSince}`, "resolutiondate,created", 50),
     jiraEpicProgress(project),
   ]);

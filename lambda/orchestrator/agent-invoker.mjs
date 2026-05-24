@@ -32,15 +32,15 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
 const events = new EventBridgeClient({ region: REGION });
 
 export const handler = async (event) => {
-  const { harnessArn, sessionId, prompt, workflowId, agentId, modelOverride } = event;
-  console.log(`[agent-invoker] Fire-and-forget: ${agentId} for workflow ${workflowId}`);
+  const { harnessArn, sessionId, prompt, workflowId, agentId, ticketId, modelOverride } = event;
+  console.log(`[agent-invoker] Fire-and-forget: ${agentId} for workflow ${workflowId} (ticket: ${ticketId || "unknown"})`);
 
   try {
     // Determine invocation mode: Runtime (preferred) or Harness (legacy)
     const useRuntime = harnessArn.includes(":runtime/") || harnessArn.includes("/runtime/") || process.env.USE_RUNTIME === "true";
 
     if (useRuntime) {
-      await fireAndForgetRuntime(harnessArn, sessionId, prompt, workflowId, agentId, modelOverride);
+      await fireAndForgetRuntime(harnessArn, sessionId, prompt, workflowId, agentId, modelOverride, ticketId);
     } else {
       // Legacy harness agents still use synchronous invocation (to be migrated)
       const output = await invokeHarnessAgent(harnessArn, sessionId, prompt, workflowId, agentId, modelOverride);
@@ -160,7 +160,7 @@ async function invokeHarnessAgent(harnessArn, sessionId, prompt, workflowId, age
  * - Calls report_completion when done (triggers orchestrator cascade)
  * - Nudge system handles crash/hang scenarios
  */
-async function fireAndForgetRuntime(runtimeArn, sessionId, prompt, workflowId, agentId, modelOverride) {
+async function fireAndForgetRuntime(runtimeArn, sessionId, prompt, workflowId, agentId, modelOverride, invokerTicketId) {
   const https = await import("https");
   const { SignatureV4 } = await import("@smithy/signature-v4");
   const { Sha256 } = await import("@aws-crypto/sha256-js");
@@ -170,6 +170,7 @@ async function fireAndForgetRuntime(runtimeArn, sessionId, prompt, workflowId, a
     prompt,
     workflow_id: workflowId,
     agent_id: agentId,
+    ticket_id: invokerTicketId || "",
     model_override: modelOverride?.bedrockModelConfig?.modelId || modelOverride || undefined,
   });
 

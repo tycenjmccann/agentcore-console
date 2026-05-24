@@ -132,7 +132,9 @@ REGION = os.getenv("AWS_REGION", "us-east-1")
 MODEL_ID = os.getenv("MODEL_ID", "us.anthropic.claude-opus-4-6-v1")
 READ_TIMEOUT = int(os.getenv("READ_TIMEOUT", "600"))  # 10 minutes — no more urllib3 kills
 GATEWAY_ARN = os.getenv("GATEWAY_ARN", "")
-ARTIFACT_BUCKET = os.getenv("ARTIFACT_BUCKET", "")
+# NOTE: AgentCore reserves "ARTIFACT_BUCKET" as a system env var (points to CodeBuild source bucket).
+# We use AGENTIS_ARTIFACT_BUCKET to avoid the collision.
+ARTIFACT_BUCKET = os.getenv("AGENTIS_ARTIFACT_BUCKET", os.getenv("ARTIFACT_BUCKET", ""))
 
 # System prompt: prefer S3 (for large prompts), fall back to env var
 _prompt_s3_key = os.getenv("SYSTEM_PROMPT_S3_KEY", "")
@@ -175,8 +177,10 @@ BUILDER_TOOLS_LAMBDA = os.getenv("BUILDER_TOOLS_LAMBDA", "agentis-builder-tools"
 WORKFLOW_OUTPUT_LAMBDA = os.getenv("WORKFLOW_OUTPUT_LAMBDA", "agentis-workflow-output")
 SKILL_LOADER_LAMBDA = os.getenv("SKILL_LOADER_LAMBDA", "agentis-skill-loader")
 
-# Default artifact bucket — agents should use this for all workflow artifacts
-ARTIFACT_BUCKET = os.getenv("ARTIFACT_BUCKET", "")
+# Set per-invocation by agent_invocation() — used by tools to pass context to Lambdas
+_CURRENT_WORKFLOW_ID = "unknown"
+
+# ARTIFACT_BUCKET is set near the top of this file (line ~135) via AGENTIS_ARTIFACT_BUCKET env var.
 
 # MCP Servers — connect agents to external tools (GitHub, GitLab, Jira, Asana, etc.)
 # Configured via MCP_SERVERS env var (JSON array) or legacy GITHUB_PAT shorthand.
@@ -403,19 +407,21 @@ def JiraIntegration___search_issues(query: str, max_results: int = 20) -> str:
 
 @tool
 def WorkflowOutput___report_completion(ticket_id: str, summary: str, artifacts: str = "", branch: str = "", commit_sha: str = "", pr_url: str = "") -> str:
-    """Report that your work is complete. This saves your completion summary to S3.
+    """Report that your work is complete. This saves your completion summary to S3 AND automatically transitions your Jira ticket to Done. Do NOT call JiraIntegration___transition_ticket to mark your own ticket done — this tool handles that for you.
 
     Args:
         ticket_id: Your assigned ticket ID
-        summary: Summary of work completed
+        summary: A concise summary of what you accomplished and the outcome. Use whatever format best communicates the results — prose, bullets, or a short list. Keep it brief and scannable.
         artifacts: Comma-separated list of artifact paths in S3
         branch: Git branch name (for dev agents)
         commit_sha: Git commit SHA (for dev agents)
         pr_url: Pull request URL (for dev agents)
     """
+    # Include workflow_id from invocation context for journey logging (not exposed to agent)
     return _invoke_lambda(WORKFLOW_OUTPUT_LAMBDA, "WorkflowOutput___report_completion", {
         "ticket_id": ticket_id, "summary": summary,
-        "artifacts": artifacts, "branch": branch, "commit_sha": commit_sha, "pr_url": pr_url
+        "artifacts": artifacts, "branch": branch, "commit_sha": commit_sha, "pr_url": pr_url,
+        "workflow_id": _CURRENT_WORKFLOW_ID,
     })
 
 
@@ -652,10 +658,12 @@ async def agent_invocation(payload, context):
     The system prompt is NOT in the payload — it's baked into the agent at deploy time
     via the SYSTEM_PROMPT env var. The orchestrator is dumb and only passes task context.
     """
+    global _CURRENT_WORKFLOW_ID
     prompt = payload.get("prompt", "")
     workflow_id = payload.get("workflow_id", "unknown")
     agent_id = payload.get("agent_id", "unknown")
     model_override = payload.get("model_override")
+    _CURRENT_WORKFLOW_ID = workflow_id
 
     logger.info(f"[{agent_id}] Starting invocation for workflow {workflow_id}")
     logger.info(f"[{agent_id}] Model: {model_override or MODEL_ID}, read_timeout: {READ_TIMEOUT}s")
@@ -712,15 +720,16 @@ async def agent_invocation(payload, context):
 
         def _publish_event(self, event_type: str, detail: dict):
             """Publish an event to the DynamoDB events table (fire-and-forget).
-            Skips writing if no workflow context (chat/ad-hoc invocations)."""
+            Skips writing if no workflow context (chat/ad-hoc invocations).
+            IMPORTANT: Table sort key is `timestamp` — must be unique per item."""
             if not workflow_id or workflow_id == "unknown":
                 return
             try:
                 import time
                 self._seq += 1
-                # Zero-padded sequence ensures correct sort order within same millisecond
                 event_id = f"{int(time.time() * 1000)}-{self._seq:06d}"
-                # Build detail map for DynamoDB
+                # Unique timestamp with sequence suffix (sort key must never collide)
+                unique_ts = f"{time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime())}.{self._seq:04d}Z"
                 detail_map = {}
                 for k, v in detail.items():
                     if v is not None:
@@ -732,7 +741,7 @@ async def agent_invocation(payload, context):
                         "eventId": {"S": event_id},
                         "type": {"S": event_type},
                         "detail": {"M": detail_map},
-                        "timestamp": {"S": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
+                        "timestamp": {"S": unique_ts},
                     },
                 )
             except Exception as e:
@@ -775,7 +784,8 @@ async def agent_invocation(payload, context):
                     "workflowId": workflow_id,
                 })
 
-    # Create agent — callback_handler=None because we publish events inline from stream_async
+    # Create agent — we publish events from stream_async loop directly
+    tracker = ToolTrackingHandler()
     agent = Agent(
         model=active_model,
         system_prompt=SYSTEM_PROMPT,
@@ -783,14 +793,13 @@ async def agent_invocation(payload, context):
         callback_handler=None,
     )
 
-    # Iterate stream_async directly to capture every event in order and publish to DDB.
-    # Text is BUFFERED and flushed every ~200 chars (or on non-text event boundaries)
-    # to prevent synchronous DDB put_item from blocking the event loop and dropping tokens.
-    tracker = ToolTrackingHandler()
+    # Iterate stream_async — write events to DDB in real-time as they arrive.
+    # Each event gets a unique timestamp (ISO second + sequence suffix) to avoid
+    # sort key collisions. Text is buffered briefly to reduce DDB writes.
     final_text = ""
     result = None
     _text_buffer = ""
-    _FLUSH_THRESHOLD = 50  # chars before forcing a DDB write
+    _FLUSH_THRESHOLD = 200  # chars before flushing text to DDB
 
     def _flush_text_buffer():
         nonlocal _text_buffer
@@ -807,12 +816,10 @@ async def agent_invocation(payload, context):
         if "data" in event and event["data"]:
             final_text += event["data"]
             _text_buffer += event["data"]
-            # Only flush when buffer exceeds threshold — reduces DDB writes from ~500 to ~3-5
             if len(_text_buffer) >= _FLUSH_THRESHOLD:
                 _flush_text_buffer()
         elif "current_tool_use" in event:
-            # Flush any pending text before tool event (maintains ordering)
-            _flush_text_buffer()
+            _flush_text_buffer()  # flush pending text before tool event
             current_tool_use = event["current_tool_use"]
             if current_tool_use and current_tool_use.get("name"):
                 if tracker.previous_tool_use != current_tool_use:
@@ -827,8 +834,7 @@ async def agent_invocation(payload, context):
                         "workflowId": workflow_id,
                     })
         elif "reasoningText" in event and event["reasoningText"]:
-            # Flush any pending text before reasoning event (maintains ordering)
-            _flush_text_buffer()
+            _flush_text_buffer()  # flush pending text before reasoning event
             tracker._publish_event("agent.streaming", {
                 "agentId": agent_id,
                 "type": "reasoning",

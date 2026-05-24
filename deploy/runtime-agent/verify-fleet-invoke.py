@@ -278,7 +278,7 @@ def get_credentials():
     return credentials.get_frozen_credentials()
 
 
-def invoke_runtime_agent(agent_name, arn, region, timeout, credentials):
+def invoke_runtime_agent(agent_name, arn, region, timeout, credentials, model_override=None):
     """Invoke a single Runtime agent via SigV4-signed HTTPS POST."""
     runtime_id = arn.split("/")[-1]
     account_id = arn.split(":")[4]
@@ -295,11 +295,14 @@ def invoke_runtime_agent(agent_name, arn, region, timeout, credentials):
     prompt = prompt.replace("{GITHUB_OWNER}", github_owner)
     prompt = prompt.replace("{GITHUB_REPO}", github_repo)
 
-    payload = json.dumps({
+    payload_dict = {
         "prompt": prompt,
         "workflow_id": "healthcheck",
         "agent_id": agent_name,
-    })
+    }
+    if model_override:
+        payload_dict["model_override"] = model_override
+    payload = json.dumps(payload_dict)
 
     # Create and sign the request
     request = AWSRequest(
@@ -645,6 +648,7 @@ def main():
     parser.add_argument("--parallel", type=int, default=3, help="Max parallel invocations")
     parser.add_argument("--agent", type=str, default=None, help="Test single agent (name from fleet file)")
     parser.add_argument("--verbose", action="store_true", help="Print raw agent responses")
+    parser.add_argument("--model", type=str, default=None, help="Model override (e.g., us.anthropic.claude-sonnet-4-6, sonnet, haiku)")
     args = parser.parse_args()
 
     with open(args.fleet_file, "r") as f:
@@ -673,7 +677,7 @@ def main():
         futures = {}
         for agent_name, arn in fleet.items():
             future = executor.submit(
-                invoke_runtime_agent, agent_name, arn, args.region, args.timeout, credentials
+                invoke_runtime_agent, agent_name, arn, args.region, args.timeout, credentials, args.model
             )
             futures[future] = agent_name
 

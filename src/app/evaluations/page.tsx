@@ -9,12 +9,20 @@ interface ScorecardEntry {
   passing: number;
 }
 
+interface ModelCost {
+  model: string;
+  input: number;
+  output: number;
+  cost: number;
+}
+
 interface AgentMetrics {
-  latency?: number;
-  tokensIn?: number;
-  tokensOut?: number;
-  invocations?: number;
-  cost?: number;
+  sessions: number;
+  tokensIn: number;
+  tokensOut: number;
+  cost: number;
+  costPerSession: number;
+  models?: ModelCost[];
 }
 
 interface EvalData {
@@ -57,8 +65,21 @@ function scoreBg(score: number): string {
 function formatTokens(n?: number): string {
   if (!n) return "—";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
   return String(n);
+}
+
+function formatCost(v?: number): string {
+  if (!v) return "—";
+  if (v < 1) return `$${v.toFixed(2)}`;
+  return `$${Math.round(v).toLocaleString()}`;
+}
+
+function shortModelName(modelId: string): string {
+  if (modelId.includes("opus-4-6") || modelId.includes("opus-4-7")) return "Opus";
+  if (modelId.includes("sonnet-4-6") || modelId.includes("sonnet-4-5")) return "Sonnet";
+  if (modelId.includes("haiku")) return "Haiku";
+  return modelId.split(".").pop()?.split("-")[0] || modelId;
 }
 
 export default function EvaluationsPage() {
@@ -115,6 +136,78 @@ export default function EvaluationsPage() {
   const agents = data?.agents || [];
   const hasScores = !!(data?.scorecard && Object.keys(data.scorecard).length > 0);
 
+  // Compute totals for operational metrics
+  const totals = {
+    sessions: agents.reduce((s, a) => s + (data?.metrics[a]?.sessions || 0), 0),
+    tokensIn: agents.reduce((s, a) => s + (data?.metrics[a]?.tokensIn || 0), 0),
+    tokensOut: agents.reduce((s, a) => s + (data?.metrics[a]?.tokensOut || 0), 0),
+    cost: agents.reduce((s, a) => s + (data?.metrics[a]?.cost || 0), 0),
+    costPerSession: 0,
+  };
+  const totalSessions = totals.sessions || 1;
+  totals.costPerSession = totals.cost / totalSessions;
+
+  // Compute per-model totals across all agents
+  const modelTotals: Record<string, number> = {};
+  if (data) {
+    for (const agent of agents) {
+      for (const m of data.metrics[agent]?.models || []) {
+        modelTotals[m.model] = (modelTotals[m.model] || 0) + m.cost;
+      }
+    }
+  }
+  const usedModels = Object.keys(modelTotals).sort();
+
+  // Compute overall average per evaluator (across all agents that have scores)
+  function evalTotal(ev: string): number | null {
+    if (!data) return null;
+    let sum = 0;
+    let count = 0;
+    for (const agent of agents) {
+      const entry = data.scorecard[agent]?.[`Builtin.${ev}`] || data.scorecard[agent]?.[ev];
+      if (entry) { sum += entry.avg; count++; }
+    }
+    return count > 0 ? sum / count : null;
+  }
+
+  function overallTotal(): number | null {
+    if (!data) return null;
+    let sum = 0;
+    let count = 0;
+    for (const agent of agents) {
+      const agentScores = data.scorecard[agent];
+      if (!agentScores || Object.keys(agentScores).length === 0) continue;
+      const entries = Object.values(agentScores);
+      const overall = entries.reduce((s, e) => s + e.avg, 0) / entries.length;
+      sum += overall;
+      count++;
+    }
+    return count > 0 ? sum / count : null;
+  }
+
+  // Shared column header for both tables
+  const columnHeaders = (
+    <tr className="border-b border-white/[0.06]">
+      <th className="text-left px-3 py-3 text-xs text-[var(--color-text-muted)] font-medium sticky left-0 bg-surface-2 z-10 w-[160px] min-w-[160px]">
+        Metric
+      </th>
+      <th className="text-center px-2 py-3 text-xs font-bold text-[var(--color-text-primary)] w-[65px] min-w-[65px]">
+        Total
+      </th>
+      {agents.map((agent) => (
+        <th
+          key={agent}
+          className="text-center px-2 py-3 font-bold"
+          style={{ color: AGENT_COLORS[agent] || "#94a3b8" }}
+        >
+          <span className="block text-[11px] leading-snug min-w-[70px]">
+            {agent}
+          </span>
+        </th>
+      ))}
+    </tr>
+  );
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -124,8 +217,8 @@ export default function EvaluationsPage() {
             <BarChart3 className="w-5 h-5 text-brand-400" />
             Evaluations
           </h1>
-          <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-            14 agents · 10 evaluators · Opus 4.7 judge · 100% sampling · last 24h
+          <p className="text-[11px] font-semibold text-blue-400 uppercase tracking-[0.15em] mt-1.5">
+            14 agents &nbsp;·&nbsp; 10 evaluators &nbsp;·&nbsp; Opus 4.7 judge &nbsp;·&nbsp; 100% sampling &nbsp;·&nbsp; last 7 days
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -176,153 +269,210 @@ export default function EvaluationsPage() {
         </div>
       )}
 
-      {/* Single compact spreadsheet */}
       {data && (
         <div className="bg-surface-2 border border-surface-4 rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full" style={{ tableLayout: "auto" }}>
+              <colgroup>
+                <col style={{ width: "160px", minWidth: "160px" }} />
+                <col style={{ width: "65px", minWidth: "65px" }} />
+              </colgroup>
+
+              {/* ─── Operational Metrics ─── */}
               <thead>
-                <tr className="border-b border-surface-4 bg-surface-1">
-                  <th className="text-left px-3 py-2 text-[var(--color-text-muted)] font-medium sticky left-0 bg-surface-1 z-10 min-w-[140px]">
-                    Metric
-                  </th>
-                  {agents.map((agent) => (
-                    <th
-                      key={agent}
-                      className="text-center px-2 py-2 font-medium whitespace-nowrap min-w-[72px]"
-                      style={{ color: AGENT_COLORS[agent] || "#94a3b8" }}
-                    >
-                      <span className="block text-[10px] leading-tight">
-                        {agent.replace(" Designer", "").replace(" Developer", "").replace(" & Compliance", "")}
-                      </span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {/* ─── Operational Metrics Section ─── */}
-                <tr className="border-b border-surface-4/50 bg-surface-3/20">
-                  <td colSpan={agents.length + 1} className="px-3 py-1.5 text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">
-                    Operational Metrics
+                <tr>
+                  <td colSpan={agents.length + 2} className="px-3 pt-4 pb-2">
+                    <span className="text-sm font-bold text-blue-400 uppercase tracking-wider">Operational Metrics</span>
                   </td>
                 </tr>
-                {/* Sessions (invocations) */}
-                <MetricRow
+                {columnHeaders}
+              </thead>
+              <tbody className="text-sm">
+                <OpsRow
                   label="Sessions"
+                  total={String(totals.sessions || "—")}
                   agents={agents}
                   renderCell={(agent) => {
-                    const v = data.metrics[agent]?.invocations;
+                    const v = data.metrics[agent]?.sessions;
                     return v ? String(v) : "—";
                   }}
                 />
-                {/* Cost per session */}
-                <MetricRow
+                <OpsRow
                   label="Cost / Session"
+                  total={formatCost(totals.costPerSession)}
+                  totalColor="#3b82f6"
                   agents={agents}
-                  renderCell={(agent) => {
-                    const m = data.metrics[agent];
-                    if (!m?.cost || !m?.invocations) return "—";
-                    const perSession = m.cost / m.invocations;
-                    return `$${perSession < 1 ? perSession.toFixed(2) : perSession.toFixed(1)}`;
-                  }}
+                  renderCell={(agent) => formatCost(data.metrics[agent]?.costPerSession)}
                   cellColor={(agent) => {
-                    const m = data.metrics[agent];
-                    if (!m?.cost || !m?.invocations) return undefined;
-                    const perSession = m.cost / m.invocations;
-                    return perSession < 0.50 ? "#22c55e" : perSession < 2 ? "#f59e0b" : "#ef4444";
-                  }}
-                />
-                {/* Latency */}
-                <MetricRow
-                  label="Avg Latency"
-                  agents={agents}
-                  renderCell={(agent) => {
-                    const v = data.metrics[agent]?.latency;
-                    if (!v) return "—";
-                    return `${v}s`;
-                  }}
-                  cellColor={(agent) => {
-                    const v = data.metrics[agent]?.latency;
+                    const v = data.metrics[agent]?.costPerSession;
                     if (!v) return undefined;
-                    return v < 10 ? "#22c55e" : v < 30 ? "#f59e0b" : "#ef4444";
+                    return "#3b82f6";
                   }}
                 />
-                {/* Tokens In */}
-                <MetricRow
+                <OpsRow
                   label="Tokens In"
+                  total={formatTokens(totals.tokensIn)}
                   agents={agents}
                   renderCell={(agent) => formatTokens(data.metrics[agent]?.tokensIn)}
                 />
-                {/* Tokens Out */}
-                <MetricRow
+                <OpsRow
                   label="Tokens Out"
+                  total={formatTokens(totals.tokensOut)}
                   agents={agents}
                   renderCell={(agent) => formatTokens(data.metrics[agent]?.tokensOut)}
                 />
-
-                {/* ─── Evaluator Scores Section ─── */}
-                <tr className="border-b border-surface-4/50 bg-surface-3/20">
-                  <td colSpan={agents.length + 1} className="px-3 py-1.5 text-[10px] font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">
-                    Evaluator Scores
-                  </td>
-                </tr>
-                {/* Overall Average */}
-                {hasScores && (
-                  <tr className="border-b border-surface-4/50">
-                    <td className="px-3 py-1.5 font-semibold text-[var(--color-text-primary)] sticky left-0 bg-surface-2 z-10">
-                      Overall Avg
+                {/* Per-model cost sub-rows */}
+                {usedModels.map((model) => (
+                  <tr key={model} className="border-b border-white/[0.04]">
+                    <td className="px-3 py-2 text-[var(--color-text-secondary)] sticky left-0 bg-surface-2 z-10 pl-6">
+                      {shortModelName(model)}
+                    </td>
+                    <td className="text-center py-2 text-[var(--color-text-secondary)]">
+                      {formatCost(modelTotals[model])}
                     </td>
                     {agents.map((agent) => {
-                      const agentScores = data.scorecard[agent];
-                      if (!agentScores || Object.keys(agentScores).length === 0) {
-                        return <td key={agent} className="text-center text-[var(--color-text-muted)]">—</td>;
-                      }
-                      const entries = Object.values(agentScores);
-                      const overall = entries.reduce((s, e) => s + e.avg, 0) / entries.length;
-                      const pct = Math.round(overall * 100);
+                      const modelEntry = data.metrics[agent]?.models?.find((m) => m.model === model);
                       return (
-                        <td key={agent} className="text-center py-1.5">
-                          <span
-                            className="inline-block px-1.5 py-0.5 rounded text-[11px] font-bold"
-                            style={{ color: scoreColor(overall), backgroundColor: scoreBg(overall) }}
-                          >
-                            {pct}%
-                          </span>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                )}
-                {/* Individual evaluator rows */}
-                {data.evaluators.map((ev) => (
-                  <tr key={ev} className="border-b border-surface-4/30 hover:bg-surface-3/20">
-                    <td className="px-3 py-1.5 text-[var(--color-text-secondary)] sticky left-0 bg-surface-2 z-10">
-                      {ev}
-                    </td>
-                    {agents.map((agent) => {
-                      const entry = data.scorecard[agent]?.[`Builtin.${ev}`] || data.scorecard[agent]?.[ev];
-                      if (!entry) return <td key={agent} className="text-center text-[var(--color-text-muted)]">—</td>;
-                      const pct = Math.round(entry.avg * 100);
-                      return (
-                        <td key={agent} className="text-center py-1.5">
-                          <span
-                            className="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium"
-                            style={{ color: scoreColor(entry.avg), backgroundColor: scoreBg(entry.avg) }}
-                          >
-                            {pct}%
-                          </span>
+                        <td key={agent} className="text-center py-2 text-[var(--color-text-secondary)]">
+                          {formatCost(modelEntry?.cost)}
                         </td>
                       );
                     })}
                   </tr>
                 ))}
+                {/* Total Cost row — bold */}
+                <tr className="bg-white/[0.03]">
+                  <td className="px-3 py-2.5 font-bold text-[var(--color-text-primary)] sticky left-0 bg-white/[0.03] z-10">
+                    Total Cost
+                  </td>
+                  <td className="text-center py-2.5 font-bold text-lg text-[var(--color-text-primary)]">
+                    {formatCost(totals.cost)}
+                  </td>
+                  {agents.map((agent) => {
+                    const v = data.metrics[agent]?.cost;
+                    return (
+                      <td key={agent} className="text-center py-2.5 font-bold text-[var(--color-text-primary)]">
+                        {formatCost(v) || "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
               </tbody>
+
+              {/* ─── Evaluator Scores ─── */}
+              {hasScores && (
+                <>
+                  <thead>
+                    <tr>
+                      <td colSpan={agents.length + 2} className="px-3 pt-6 pb-2">
+                        <span className="text-sm font-bold text-emerald-400 uppercase tracking-wider">Evaluator Scores</span>
+                      </td>
+                    </tr>
+                    <tr className="border-b border-white/[0.06]">
+                      <th className="text-left px-3 py-3 text-xs text-[var(--color-text-muted)] font-medium sticky left-0 bg-surface-2 z-10 w-[160px] min-w-[160px]">
+                        Evaluator
+                      </th>
+                      <th className="text-center px-2 py-3 text-xs font-bold text-[var(--color-text-primary)] w-[65px] min-w-[65px]">
+                        Avg
+                      </th>
+                      {agents.map((agent) => (
+                        <th
+                          key={agent}
+                          className="text-center px-2 py-3 font-bold"
+                          style={{ color: AGENT_COLORS[agent] || "#94a3b8" }}
+                        >
+                          <span className="block text-[11px] leading-snug min-w-[70px]">
+                            {agent}
+                          </span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="text-sm">
+                    {/* Overall Average row */}
+                    <tr className="bg-white/[0.03]">
+                      <td className="px-3 py-2.5 font-bold text-[var(--color-text-primary)] sticky left-0 bg-white/[0.03] z-10">
+                        Overall Avg
+                      </td>
+                      <td className="text-center py-2.5">
+                        {(() => {
+                          const avg = overallTotal();
+                          if (avg === null) return <span className="text-[var(--color-text-muted)]">—</span>;
+                          const pct = Math.round(avg * 100);
+                          return (
+                            <span className="inline-block px-2 py-0.5 rounded font-bold" style={{ color: scoreColor(avg), backgroundColor: scoreBg(avg) }}>
+                              {pct}%
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      {agents.map((agent) => {
+                        const agentScores = data.scorecard[agent];
+                        if (!agentScores || Object.keys(agentScores).length === 0) {
+                          return <td key={agent} className="text-center text-[var(--color-text-muted)]">—</td>;
+                        }
+                        const entries = Object.values(agentScores);
+                        const overall = entries.reduce((s, e) => s + e.avg, 0) / entries.length;
+                        const pct = Math.round(overall * 100);
+                        return (
+                          <td key={agent} className="text-center py-2.5">
+                            <span
+                              className="inline-block px-2 py-0.5 rounded font-bold"
+                              style={{ color: scoreColor(overall), backgroundColor: scoreBg(overall) }}
+                            >
+                              {pct}%
+                            </span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                    {/* Individual evaluator rows */}
+                    {data.evaluators.map((ev) => {
+                      const avg = evalTotal(ev);
+                      return (
+                        <tr key={ev} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                          <td className="px-3 py-2 text-[var(--color-text-secondary)] sticky left-0 bg-surface-2 z-10">
+                            {ev}
+                          </td>
+                          <td className="text-center py-2">
+                            {avg !== null ? (
+                              <span
+                                className="inline-block px-2 py-0.5 rounded font-medium"
+                                style={{ color: scoreColor(avg), backgroundColor: scoreBg(avg) }}
+                              >
+                                {Math.round(avg * 100)}%
+                              </span>
+                            ) : (
+                              <span className="text-[var(--color-text-muted)]">—</span>
+                            )}
+                          </td>
+                          {agents.map((agent) => {
+                            const entry = data.scorecard[agent]?.[`Builtin.${ev}`] || data.scorecard[agent]?.[ev];
+                            if (!entry) return <td key={agent} className="text-center text-[var(--color-text-muted)]">—</td>;
+                            const pct = Math.round(entry.avg * 100);
+                            return (
+                              <td key={agent} className="text-center py-2">
+                                <span
+                                  className="inline-block px-2 py-0.5 rounded font-medium"
+                                  style={{ color: scoreColor(entry.avg), backgroundColor: scoreBg(entry.avg) }}
+                                >
+                                  {pct}%
+                                </span>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </>
+              )}
             </table>
           </div>
           {/* Footer */}
-          <div className="px-3 py-2 border-t border-surface-4 flex items-center justify-between text-[10px] text-[var(--color-text-muted)]">
+          <div className="px-3 py-2 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-[var(--color-text-muted)]">
             <span>Updated: {data.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString() : "—"}</span>
-            <span>Scores color: <span className="text-emerald-400">≥90%</span> · <span className="text-amber-400">≥75%</span> · <span className="text-red-400">&lt;75%</span></span>
+            <span>Scores: <span className="text-emerald-400">≥90%</span> · <span className="text-amber-400">≥75%</span> · <span className="text-red-400">&lt;75%</span></span>
           </div>
         </div>
       )}
@@ -330,31 +480,37 @@ export default function EvaluationsPage() {
   );
 }
 
-// ─── Metric Row Component ─────────────────────────────────────────────────────
+// ─── Ops Metric Row ──────────────────────────────────────────────────────────
 
-function MetricRow({
+function OpsRow({
   label,
+  total,
+  totalColor,
   agents,
   renderCell,
   cellColor,
 }: {
   label: string;
+  total: string;
+  totalColor?: string;
   agents: string[];
   renderCell: (agent: string) => string;
   cellColor?: (agent: string) => string | undefined;
 }) {
   return (
-    <tr className="border-b border-surface-4/30 hover:bg-surface-3/20">
-      <td className="px-3 py-1.5 text-[var(--color-text-secondary)] sticky left-0 bg-surface-2 z-10">
+    <tr className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+      <td className="px-3 py-2 text-[var(--color-text-secondary)] sticky left-0 bg-surface-2 z-10">
         {label}
+      </td>
+      <td className="text-center py-2 font-semibold" style={{ color: totalColor || "var(--color-text-primary)" }}>
+        {total}
       </td>
       {agents.map((agent) => {
         const value = renderCell(agent);
         const color = cellColor?.(agent);
         return (
-          <td key={agent} className="text-center py-1.5">
+          <td key={agent} className="text-center py-2">
             <span
-              className="text-[11px]"
               style={color ? { color } : { color: value === "—" ? "var(--color-text-muted)" : "var(--color-text-secondary)" }}
             >
               {value}

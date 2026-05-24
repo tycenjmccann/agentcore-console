@@ -12,13 +12,7 @@ import {
   ListMetricsCommand,
 } from "@aws-sdk/client-cloudwatch";
 import {
-  BedrockAgentCoreClient,
-  ListSessionsCommand,
-  ListActorsCommand,
-} from "@aws-sdk/client-bedrock-agentcore";
-import {
   discoverAgents,
-  findMemoryForAgent,
   DEFAULT_REGION,
 } from "@/lib/agentcore-sdk";
 
@@ -43,15 +37,6 @@ function getCWClient(region: string): CloudWatchClient {
   return client;
 }
 
-const memClients = new Map<string, BedrockAgentCoreClient>();
-function getMemClient(region: string): BedrockAgentCoreClient {
-  let client = memClients.get(region);
-  if (!client) {
-    client = new BedrockAgentCoreClient({ region });
-    memClients.set(region, client);
-  }
-  return client;
-}
 
 // Per-region metrics cache (2 minutes TTL)
 const metricsCaches = new Map<string, { data: unknown; ts: number }>();
@@ -312,40 +297,61 @@ async function getCWMetricsForAgents(
 }
 
 /**
- * Get session counts for all agents from AgentCore Memory.
+ * Get session counts for all agents from OTEL spans (aws/spans log group).
+ * Counts distinct session.id values per agent service name.
  */
 async function getSessionCounts(
-  agents: Array<{ id: string }>,
+  agents: Array<{ id: string; name: string; type: string }>,
   region: string
 ): Promise<Record<string, number>> {
   const result: Record<string, number> = {};
-  const client = getMemClient(region);
+  // Initialize all to 0
+  for (const agent of agents) result[agent.id] = 0;
 
-  const promises = agents.map(async (agent) => {
-    try {
-      const memoryId = await findMemoryForAgent(agent.id, region);
-      if (!memoryId) { result[agent.id] = 0; return; }
+  try {
+    const client = getLogsClient(region);
+    const endTime = Math.floor(Date.now() / 1000);
+    const startTime = endTime - 30 * 24 * 60 * 60; // Last 30 days
 
-      const actorsRes = await client.send(new ListActorsCommand({ memoryId }));
-      const actors = actorsRes.actorSummaries || [];
+    const query = `
+      fields resource.attributes.service.name as svc, attributes.session.id as sessionId
+      | filter ispresent(attributes.session.id)
+      | stats count_distinct(sessionId) as sessionCount by svc
+    `;
 
-      let total = 0;
-      for (const actor of actors) {
-        if (!actor.actorId) continue;
-        const sessionsRes = await client.send(
-          new ListSessionsCommand({ memoryId, actorId: actor.actorId, maxResults: 100 })
-        );
-        total += (sessionsRes.sessionSummaries || []).length;
-      }
+    const startRes = await client.send(
+      new StartQueryCommand({
+        logGroupName: "aws/spans",
+        startTime,
+        endTime,
+        queryString: query,
+      })
+    );
 
-      result[agent.id] = total;
-    } catch {
-      result[agent.id] = 0;
+    if (!startRes.queryId) return result;
+
+    const rows = await pollQuery(client, startRes.queryId, 15);
+    if (!rows || rows.length === 0) return result;
+
+    // Map service names back to agent IDs
+    const svcToAgent = new Map<string, string>();
+    for (const agent of agents) {
+      const prefix = agent.type === "harness" ? "harness_" : "";
+      svcToAgent.set(`${prefix}${agent.name}.DEFAULT`, agent.id);
     }
-  });
 
-  await Promise.all(promises);
-  return result;
+    for (const row of rows) {
+      const svc = row.svc || "";
+      const count = parseInt(row.sessionCount || "0", 10);
+      const agentId = svcToAgent.get(svc);
+      if (agentId) result[agentId] = count;
+    }
+
+    return result;
+  } catch (err) {
+    console.error("Session count from spans error:", err);
+    return result;
+  }
 }
 
 /**

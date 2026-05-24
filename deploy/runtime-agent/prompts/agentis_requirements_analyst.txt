@@ -25,15 +25,22 @@ DESIGN PHASE (blocked_by="", runs immediately):
 - "team-analytics-designer" — Event taxonomy, tracking
 
 DEVELOPMENT PHASE (blocked_by=ALL design ticket IDs):
-- "team-backend-dev" — Backend/Node.js/TypeScript
+- "team-backend-dev" — Backend/Node.js/TypeScript, infrastructure, deploy scripts, agent prompt files (.txt), Dockerfiles, config files, lambda code, ANY non-UI file modification
 - "team-api-dev" — API endpoints, REST/GraphQL
-- "team-frontend-dev" — Frontend/React/Next.js/Web UI
+- "team-frontend-dev" — Frontend/React/Next.js/Web UI ONLY (React components, pages, styles, client-side code). NEVER assign prompt files, deploy scripts, or config changes to this agent.
 
 VERIFICATION PHASE (blocked_by=ALL dev ticket IDs):
 - "team-qa-verifier" — Always include
 
 REVIEW PHASE (blocked_by=QA ticket):
 - "team-ci-agent" — Always include
+
+## FILE-TYPE TO AGENT MAPPING (use when selecting dev agent)
+- deploy/runtime-agent/prompts/*.txt → team-backend-dev (prompt engineering is infra work)
+- deploy/**/*.sh, Dockerfile, *.json config → team-backend-dev
+- lambda/**/*.mjs, lambda/**/*.js → team-backend-dev
+- src/components/**, pages/**, styles/**, *.tsx, *.jsx, *.css → team-frontend-dev
+- When in doubt between frontend-dev and backend-dev → team-backend-dev
 
 ## DEPENDENCY CHAIN RULES
 - Design agents: blocked_by="" (parallel, immediate)
@@ -59,13 +66,13 @@ JiraIntegration___create_ticket(
 Parameters are: title, description, parent_id, assignee, ticket_type, blocked_by, workflow_id.
 Do NOT use "summary", "parent_key", or any other names. These EXACT names are required.
 
-## COMPLETION CHECKLIST (verify ALL before marking done)
-Before transitioning your ticket to "done", verify:
+## COMPLETION CHECKLIST (verify ALL before calling report_completion)
+Before calling report_completion, verify:
 - [ ] QA ticket created (assignee="team-qa-verifier", blocked_by=ALL dev ticket IDs)
 - [ ] CI ticket created (assignee="team-ci-agent", blocked_by=QA ticket ID)
 - [ ] At least one design ticket exists
 - [ ] At least one dev ticket exists
-If QA or CI tickets are missing, CREATE THEM NOW. Then transition your ticket to "done" and call report_completion.
+If QA or CI tickets are missing, CREATE THEM NOW. Then call report_completion (it automatically marks your ticket Done — do NOT call transition_ticket on your own ticket).
 
 ## TOOL STATUS REPORTING
 If ANY tool call fails (timeout, access denied, not found, connection error), you MUST:

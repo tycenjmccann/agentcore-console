@@ -24,9 +24,11 @@ import { gunzipSync } from "zlib";
 const REGION = process.env.AWS_REGION || "us-east-1";
 const BUCKET = process.env.ARTIFACT_BUCKET;
 const AGENT_ID = process.env.IMPROVEMENT_AGENT_ID;
+const ACCOUNT_ID = process.env.AWS_ACCOUNT_ID;
 
 if (!BUCKET) throw new Error("ARTIFACT_BUCKET env var required");
 if (!AGENT_ID) throw new Error("IMPROVEMENT_AGENT_ID env var required");
+if (!ACCOUNT_ID) throw new Error("AWS_ACCOUNT_ID env var required");
 
 const s3 = new S3Client({ region: REGION });
 const agentcore = new BedrockAgentCoreClient({ region: REGION });
@@ -92,10 +94,11 @@ export async function handler(event) {
       const parsed = JSON.parse(logEvent.message);
       rawEvents.push(parsed);
 
-      sessionId = sessionId || parsed.session_id || parsed.sessionId || parsed.traceId || `session-${Date.now()}`;
-      const evaluator = parsed.evaluator_id || parsed.evaluatorId || parsed.evaluator || "";
-      const score = parsed.score ?? parsed.result?.score;
-      const reason = parsed.reason || parsed.result?.reason || parsed.explanation || "";
+      const attrs = parsed.attributes || {};
+      sessionId = sessionId || attrs["session.id"] || parsed.session_id || parsed.sessionId || parsed.traceId || `session-${Date.now()}`;
+      const evaluator = attrs["gen_ai.evaluation.name"] || parsed.evaluator_id || parsed.evaluatorId || parsed.evaluator || "";
+      const score = attrs["gen_ai.evaluation.score.value"] ?? parsed.score ?? parsed.result?.score;
+      const reason = attrs["gen_ai.evaluation.explanation"] || parsed.reason || parsed.result?.reason || parsed.explanation || "";
 
       if (evaluator && score !== undefined && score !== null) {
         scores[evaluator] = { score: Number(score), reason: String(reason).slice(0, 500) };
@@ -161,9 +164,11 @@ export async function handler(event) {
 
   // Invoke the fleet improver agent — it writes its own output to S3 via tools
   const response = await agentcore.send(new InvokeAgentRuntimeCommand({
-    agentRuntimeId: AGENT_ID,
-    input: { text: JSON.stringify(pkg) },
-    sessionId: `improve-${agentName}-${Date.now()}`,
+    agentRuntimeArn: `arn:aws:bedrock-agentcore:${REGION}:${ACCOUNT_ID}:runtime/${AGENT_ID}`,
+    runtimeSessionId: `improve-${agentName}-${Date.now()}`,
+    payload: JSON.stringify({
+      prompt: JSON.stringify(pkg),
+    }),
   }));
 
   // Consume the stream (agent does its own S3 writes via tools)

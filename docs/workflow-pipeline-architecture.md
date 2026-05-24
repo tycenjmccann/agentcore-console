@@ -1241,7 +1241,7 @@ Both systems have the ticket under the same ID
 - `search_issues` — reads from Jira only
 - `get_transitions` — reads from Jira only
 
-**DDB writes are best-effort**: If DDB write fails, the operation still succeeds (Jira is primary). Logged as warning. The orchestrator in Jira mode doesn't need DDB anyway. In DDB mode, a missing write means the nudge system will eventually detect the stall.
+**DDB writes are best-effort**: If DDB write fails, the operation still succeeds (Jira is primary). Logged as warning. In the production Jira setup, no DynamoDB tickets table is provisioned — DDB writes silently fail and that's expected. The orchestrator reads/writes tickets via Jira API only.
 
 **Orchestrator behavior by mode**:
 
@@ -1514,16 +1514,18 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 | `agentis-jira-real` | 2026-05-21T02:02:35Z | Dual-write: Jira-first → DDB with same key |
 | `agentis-orchestrator` | 2026-05-21T05:54:49Z | Webhook guard: reject when TICKET_PROVIDER≠jira |
 
-### Current State (as of 2026-05-22)
+### Current State (as of 2026-05-23)
 
 | Setting | Value | Notes |
 |---------|-------|-------|
 | `TICKET_PROVIDER` on App Runner | `jira` | Production path — Jira is ticket authority |
-| `ORCHESTRATION_MODE` on App Runner | `lambda` | Lambda orchestrator is sole driver |
+| `ORCHESTRATION_MODE` on App Runner | `lambda` | Lambda orchestrator is sole driver (only supported mode for production) |
 | `TICKET_PROVIDER` on orchestrator Lambda | `jira` | Reads/writes via Jira API |
 | DDB Stream mapping | Enabled | Fires orchestrator on ticket status changes |
-| App Runner image | `agentis-hub:v7` | Deployed 2026-05-22 |
-| `agentis-jira-real` | Dual-write (DL-018) | Always writes Jira + DDB |
+| App Runner URL | `k2krtgqjiu.us-east-1.awsapprunner.com` | Deployed 2026-05-23 |
+| `agentis-jira-real` | Writes to Jira (primary). DDB writes are best-effort — no tickets table is provisioned, so they silently fail. This is expected. |
+
+**DynamoDB tables required:** `agentis-workflows`, `agentis-events` only. No tickets table needed — Jira is the sole ticket store.
 
 ---
 
@@ -1606,7 +1608,7 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 |---------|-----------|-------------------|---------------------|
 | `TICKET_PROVIDER` | `jira` | `jira` | Engine falls into legacy text-parsing path, creates duplicate broken tickets |
 | `ORCHESTRATION_MODE` | `lambda` | N/A | If set to `in-process`, App Runner tries to orchestrate alongside Lambda → chaos |
-| `JIRA_TABLE_NAME` | `agentis-tickets-unused` | N/A | Legacy DDB table name — not actively used when provider=jira |
+| `JIRA_TABLE_NAME` | Not set (or any value) | N/A | Not needed in Jira mode. The `agentis-jira-real` Lambda may attempt DDB writes which silently fail — this is expected. |
 | `MODEL_ID` (on agents) | N/A | N/A | Must be valid Bedrock model ID. Opus has `-v1`, Sonnet does NOT |
 
 ### The Flow (authoritative)

@@ -1,17 +1,16 @@
 #!/bin/bash
 # Deploy the Continuous Improvement Loop
-# Account: 838829463875 (tycenj-prod)
 set -e
 
 export AWS_PROFILE=tycenj-prod
 export AWS_REGION=us-east-1
 
-ACCOUNT_ID="838829463875"
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 BUCKET="agentis-artifacts-${ACCOUNT_ID}"
 ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/agentis-lambda-role"
 AGENT_ID="agentis_fleet_improver-k5W5Vb9GhE"
-WORKFLOW_API="https://9gvtcatmua.us-east-1.awsapprunner.com"
-FLEET_REPO="https://github.com/tycenj/agentis-fleet.git"
+WORKFLOW_API="https://k2krtgqjiu.us-east-1.awsapprunner.com"
+FLEET_REPO="https://github.com/tycenjmccann/agentis-fleet.git"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 echo "═══════════════════════════════════════════════════════════"
@@ -45,7 +44,7 @@ deploy_lambda() {
 }
 
 deploy_lambda "eval-packager" "eval-packager" 300 512 \
-  "{ARTIFACT_BUCKET=${BUCKET},IMPROVEMENT_AGENT_ID=${AGENT_ID}}"
+  "{ARTIFACT_BUCKET=${BUCKET},IMPROVEMENT_AGENT_ID=${AGENT_ID},AWS_ACCOUNT_ID=${ACCOUNT_ID}}"
 
 deploy_lambda "prd-submitter" "prd-submitter" 30 256 \
   "{ARTIFACT_BUCKET=${BUCKET},WORKFLOW_API_URL=${WORKFLOW_API},FLEET_REPO_URL=${FLEET_REPO}}"
@@ -75,7 +74,7 @@ SUBMITTER_ARN="arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:agentis-prd-s
 
 aws events put-rule \
   --name "agentis-prd-submitter-trigger" \
-  --event-pattern "{\"source\":[\"aws.s3\"],\"detail-type\":[\"Object Created\"],\"detail\":{\"bucket\":{\"name\":[\"${BUCKET}\"]},\"object\":{\"key\":[{\"prefix\":\"improvement-prds/\"}]}}}" \
+  --event-pattern "{\"source\":[\"aws.s3\"],\"detail-type\":[\"Object Created\"],\"detail\":{\"bucket\":{\"name\":[\"${BUCKET}\"]},\"object\":{\"key\":[{\"prefix\":\"fleet-imp-agent/prd/\"}]}}}" \
   --state ENABLED --output text 2>/dev/null >/dev/null
 
 aws events put-targets --rule "agentis-prd-submitter-trigger" \

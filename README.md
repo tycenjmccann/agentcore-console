@@ -246,10 +246,30 @@ JIRA_PROJECT_KEY=TEAM
 ```
 
 **Jira project requirements:**
-- Workflow statuses configured: `To Do`, `Ready`, `In Progress`, `In Review`, `Blocked`, `Done`
+- Project type: **Team-managed** (next-gen) software project
 - Issue link type: `Blocks` (standard, exists by default)
 - Agent assignments stored as labels: `agent:team-frontend-dev`
 - Workflow IDs stored as labels: `wf:wf_123456`
+
+**Workflow setup (required):**
+
+The project workflow must have exactly these 6 statuses with transitions between all of them:
+
+| Status | Category | Purpose |
+|--------|----------|---------|
+| `To Do` | To Do | Initial state on ticket creation |
+| `Blocked` | In Progress | Ticket has unresolved dependencies |
+| `Ready` | In Progress | All blockers resolved, agent can start |
+| `In Progress` | In Progress | Agent is actively working |
+| `In Review` | In Progress | Agent output under review |
+| `Done` | Done | Agent completed successfully |
+
+To configure:
+1. Go to **Project Settings → Board → Workflow**
+2. Add all 6 statuses as columns
+3. Every status must be able to transition to every other status (all-to-all)
+
+> **Note:** This is the only supported workflow configuration. Other Jira workflow setups will not work.
 
 **Webhook setup** (required for cascade orchestration):
 1. In Jira → Settings → Webhooks → Create webhook
@@ -367,10 +387,11 @@ Create the required DynamoDB tables before deploying (run once per account):
 ./scripts/create-dynamodb-tables.sh
 ```
 
-This creates three tables:
+This creates two tables:
 - `agentis-workflows` — PK: `workflowId` (S), GSI: `epicId-index`
-- `agentis-tickets` — PK: `ticketId` (S), GSIs: `parentId-index`, `assignee-index`, Stream enabled
-- `agentis-events` — PK: `workflowId` (S), SK: `eventId` (S), TTL on `ttl`
+- `agentis-events` — PK: `workflowId` (S), SK: `eventId` (S)
+
+**No DynamoDB tickets table is needed.** Jira Cloud is the ticket store. The orchestrator Lambda reads/writes tickets via the Jira REST API.
 
 ### Deployment Options
 
@@ -414,17 +435,42 @@ aws apprunner start-deployment \
   --region us-east-1
 ```
 
+**Dockerfile requirements:**
+
+The `Dockerfile` uses a multi-stage build with a non-root `nextjs` user. The following line is **critical** and must appear before `USER nextjs`:
+
+```dockerfile
+RUN mkdir -p /app/.next/cache && chown -R nextjs:nodejs /app/.next/cache
+```
+
+Without this, Next.js cannot write its ISR/fetch cache at runtime, which causes EACCES errors that destabilize the process and make App Runner health checks fail (resulting in rollback after ~19 minutes).
+
+**Deployment troubleshooting:**
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Health check fails, app logs show `EACCES: permission denied, mkdir '/app/.next/cache'` | Cache dir not writable by nextjs user | Add the `mkdir`/`chown` line above |
+| Health check fails, app logs show repeating error loops (e.g. DDB query errors) | A background process (SSE stream, polling) crashes the Node.js process | Fix the error in the offending route — error loops destabilize the container |
+| Deployment takes >10 min then rolls back | Health check is failing repeatedly (5 consecutive failures × 10s interval, retried across instances) | Check `/aws/apprunner/.../application` logs — look for repeating errors, not just the service-level "Health check failed" message |
+| Deployment succeeds in ~4 min | Normal | — |
+
 **Required IAM roles:**
 - `AgentisAppRunnerECRAccess` — allows App Runner to pull from ECR (trust: `build.apprunner.amazonaws.com`)
-- `AgentisAppRunnerInstanceRole` — runtime permissions (DynamoDB, Bedrock, Lambda invoke, S3)
+- `AgentisAppRunnerInstanceRole` — runtime permissions (DynamoDB, Bedrock, Lambda invoke, S3, CloudWatch Logs, BedrockAgentCore)
 
 Set environment variables on the App Runner service (via Console or `update-service`):
 - `ORCHESTRATION_MODE=lambda`
-- `TICKET_PROVIDER=jira` (or `dynamodb`)
+- `TICKET_PROVIDER=jira`
 - `WORKFLOWS_TABLE=agentis-workflows`
-- `JIRA_TABLE_NAME=agentis-tickets`
 - `EVENTS_TABLE=agentis-events`
-- Plus Jira credentials if using `TICKET_PROVIDER=jira`
+- `ARTIFACT_BUCKET=agentis-artifacts-<ACCOUNT_ID>-us-east-1`
+- `JIRA_SITE_URL=your-site.atlassian.net`
+- `JIRA_EMAIL=you@company.com`
+- `JIRA_API_TOKEN=your-api-token`
+- `JIRA_PROJECT_KEY=TEAM`
+- `GITHUB_PAT=ghp_xxx` (for MCP tools)
+
+**Note:** No DynamoDB tickets table is needed when using Jira. The `agentis-jira-real` Lambda writes to Jira as the sole ticket store. DynamoDB writes in the Lambda will silently fail if no table exists — this is expected and harmless.
 
 #### Option B: AWS Amplify Hosting
 

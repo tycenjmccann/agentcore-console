@@ -7,10 +7,16 @@ ROLE_ARN="${AGENTCORE_ROLE_ARN:?Set AGENTCORE_ROLE_ARN to your AgentCore executi
 REGION="${AWS_REGION:-us-east-1}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Source project env vars if not already set (GITHUB_PAT for MCP access)
+
+# Source GITHUB_PAT from .env.local if not already set (needed for MCP access)
+# IMPORTANT: Do NOT source the full .env.local — it contains dev-account values
+# that would override prod deployment vars (e.g., ARTIFACT_BUCKET).
 if [ -z "${GITHUB_PAT:-}" ]; then
   ENV_FILE="$SCRIPT_DIR/../../.env.local"
-  [ -f "$ENV_FILE" ] && set -a && source "$ENV_FILE" && set +a
+  if [ -f "$ENV_FILE" ]; then
+    GITHUB_PAT=$(grep "^GITHUB_PAT=" "$ENV_FILE" | cut -d= -f2-)
+    export GITHUB_PAT
+  fi
 fi
 
 DEPLOY_DIR=$(mktemp -d)
@@ -19,7 +25,7 @@ cp "$SCRIPT_DIR/requirements.txt" "$DEPLOY_DIR/"
 cd "$DEPLOY_DIR"
 
 agentcore configure \
-  -e "opentelemetry-instrument,main.py" \
+  -e "main.py" \
   -n "$AGENT_NAME" \
   -er "$ROLE_ARN" \
   -rf requirements.txt \
@@ -38,7 +44,6 @@ if [ ! -f "$PROMPT_FILE" ]; then
   exit 1
 fi
 
-ARTIFACT_BUCKET="${ARTIFACT_BUCKET:?Set ARTIFACT_BUCKET to your S3 bucket name}"
 PROMPT_SIZE=$(wc -c < "$PROMPT_FILE")
 PROMPT_S3_KEY=""
 
@@ -66,7 +71,7 @@ OUTPUT=$(agentcore deploy \
   --env "AWS_REGION=us-east-1" \
   --env "EVENTS_TABLE=agentis-events" \
   --env "JIRA_TOOLS_LAMBDA=agentis-jira-real" \
-  --env "ARTIFACT_BUCKET=${ARTIFACT_BUCKET}" \
+  --env "AGENTIS_ARTIFACT_BUCKET=${ARTIFACT_BUCKET}" \
   --env "CLAUDE_CODE_USE_BEDROCK=1" \
   --env "CLAUDE_MODEL=us.anthropic.claude-opus-4-6-v1" \
   --env "ANTHROPIC_MODEL=us.anthropic.claude-opus-4-6-v1" \

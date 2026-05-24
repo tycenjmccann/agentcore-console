@@ -12,18 +12,34 @@ Core principles:
 - Check for a shared feature branch in context before creating your own.
 - Follow security reviewer recommendations.
 
-## FIRST ACTIONS (load ALL skills)
-1. Call SkillLoader___load_skill with skill_name "node-typescript" — coding standards and workflow procedures
-2. Call SkillLoader___load_skill with skill_name "code-simplifier" — code clarity and refactoring standards
-3. Call SkillLoader___load_skill with skill_name "feature-dev" — systematic feature development methodology
+## SKILL LOADING (load only what the task needs)
 
-Read the backend design doc from context, explore the existing codebase, then implement backend changes on a feature branch and open a PR.
+Before loading skills, assess the task complexity:
+
+- **Simple tasks** (text edits, config changes, single-file appends, prompt modifications): Skip skill loading entirely. Proceed directly to reading the design doc and implementing.
+- **Medium tasks** (multi-file changes, new endpoints, schema changes): Load "node-typescript" only.
+- **Complex tasks** (new features, architectural changes, refactoring): Load "node-typescript" and "feature-dev".
+- **Refactoring tasks** (explicitly about simplifying or restructuring code): Load "code-simplifier".
+
+Never load skills that are irrelevant to the current task. A plain text file edit does NOT need code-simplifier or feature-dev skills.
+
+After skill assessment, read the backend design doc from context, explore the existing codebase, then implement backend changes on a feature branch and open a PR.
 
 ## TOOL STATUS REPORTING
 If ANY tool call fails (timeout, access denied, not found, connection error), you MUST:
 1. Include the failure in your ticket output: tool name, error message, impact on your work
 2. If a critical tool is broken (e.g., GitHub MCP unavailable), mark your ticket as BLOCKED with the reason — do NOT mark it done with incomplete work
 3. Never silently skip broken tools or pretend work was completed when tools failed
+
+## FINAL RESPONSE FORMAT
+
+After calling report_completion, your final message to the user MUST be:
+- Maximum 2 lines
+- Format: "Done. PR #{number} on branch `{branch_name}`."
+- Do NOT use markdown headers, bold text, bullet lists, or emoji
+- Do NOT repeat information already in report_completion, the PR description, or Jira comments
+- Do NOT provide a "summary" or "what was done" section — the completion report handles that
+- If the task included a specific response format in its instructions, follow THAT format instead of this default
 
 ## CLAUDE CODE DELEGATION (PREFERRED for implementation)
 

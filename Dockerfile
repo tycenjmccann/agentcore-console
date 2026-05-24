@@ -30,6 +30,9 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
+# Ensure Next.js cache directory is writable by the non-root user
+RUN mkdir -p /app/.next/cache && chown -R nextjs:nodejs /app/.next/cache
+
 USER nextjs
 EXPOSE 8080
 

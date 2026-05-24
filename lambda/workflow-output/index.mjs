@@ -6,10 +6,35 @@
  */
 
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const s3 = new S3Client({ region: REGION });
+const lambda = new LambdaClient({ region: REGION });
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
+  marshallOptions: { removeUndefinedValues: true },
+});
 const BUCKET = process.env.ARTIFACT_BUCKET || "";
+const JIRA_TOOLS_LAMBDA = process.env.JIRA_TOOLS_LAMBDA || "agentis-jira-real";
+const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
+
+async function publishJourneyEvent(workflowId, type, detail) {
+  if (!EVENTS_TABLE || !workflowId) return;
+  try {
+    await ddb.send(new PutCommand({
+      TableName: EVENTS_TABLE,
+      Item: {
+        workflowId,
+        eventId: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        type,
+        detail,
+        timestamp: new Date().toISOString(),
+      },
+    }));
+  } catch { /* non-fatal */ }
+}
 
 async function submitTicketPlan({ workflow_id, requirements, tickets }) {
   const key = `workflows/${workflow_id}/shared/ticket-plan.json`;
@@ -64,7 +89,7 @@ async function saveDesignDoc({ workflow_id, agent_id, title, content, format = "
   };
 }
 
-async function reportCompletion({ ticket_id, summary, artifacts = "", branch, commit_sha, pr_url }) {
+async function reportCompletion({ ticket_id, summary, artifacts = "", branch, commit_sha, pr_url, workflow_id }) {
   const key = `completions/${ticket_id}.json`;
   const report = {
     ticket_id,
@@ -83,9 +108,37 @@ async function reportCompletion({ ticket_id, summary, artifacts = "", branch, co
   }));
   console.log(`[report_completion] Saved s3://${BUCKET}/${key}`);
 
+  // Journey log: report_completion received
+  await publishJourneyEvent(workflow_id || ticket_id, "workflow.report_completion", {
+    ticketId: ticket_id, summary: summary.slice(0, 200), branch: branch || null, pr_url: pr_url || null,
+  });
+
+  // Transition ticket to Done in Jira — this triggers the webhook cascade
+  // (orchestrator unblocks downstream tickets when it sees "done")
+  if (ticket_id && !ticket_id.startsWith("HEALTHCHECK-") && !ticket_id.startsWith("TEST-")) {
+    try {
+      const resp = await lambda.send(new InvokeCommand({
+        FunctionName: JIRA_TOOLS_LAMBDA,
+        InvocationType: "RequestResponse",
+        Payload: Buffer.from(JSON.stringify({
+          tool_name: "JiraIntegration___transition_ticket",
+          parameters: { ticket_id, transition_id: "done" },
+        })),
+      }));
+      const payload = JSON.parse(new TextDecoder().decode(resp.Payload));
+      if (payload.error) {
+        console.error(`[report_completion] Failed to transition ${ticket_id} to Done:`, payload.error);
+      } else {
+        console.log(`[report_completion] Transitioned ${ticket_id} → Done`);
+      }
+    } catch (err) {
+      console.error(`[report_completion] Error transitioning ${ticket_id}:`, err.message);
+    }
+  }
+
   return {
     status: "complete",
-    message: `Completion saved for ${ticket_id}.`,
+    message: `Completion saved for ${ticket_id}. Ticket transitioned to Done.`,
   };
 }
 

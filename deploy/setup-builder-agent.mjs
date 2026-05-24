@@ -129,7 +129,7 @@ if (existing) {
 // --- Build tools array ---
 const tools = [
   // code_interpreter lets the builder use boto3 to call CreateHarness, ListAgentRuntimes, etc.
-  { type: "code_interpreter", name: "code_interpreter" },
+  { type: "agentcore_code_interpreter", name: "code_interpreter" },
 ];
 
 // Add customer's MCP servers for tool discovery

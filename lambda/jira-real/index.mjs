@@ -163,10 +163,10 @@ async function createTicket(params) {
     }
   }
 
-  // 3. Transition in Jira to the correct initial status BEFORE the webhook can race.
-  //    - If blockers exist: transition to "Blocked" (prevents orchestrator from invoking)
+  // 3. Transition in Jira to the correct initial status.
+  //    - If blockers exist: transition to "Blocked" (prevents premature "Ready" webhooks)
   //    - If no blockers + has assignee: transition to "Ready" (tells orchestrator to invoke)
-  //    This eliminates the race where the "To Do" webhook arrives before links are created.
+  //    Note: orchestrator also checks blockedBy via issue links as a safety net.
   const ddbStatus = blockers.length > 0 ? "blocked" : "todo";
   if (blockers.length > 0) {
     try {
@@ -179,9 +179,11 @@ async function createTicket(params) {
           method: "POST",
           body: JSON.stringify({ transition: { id: blockedTransition.id } }),
         });
+      } else {
+        console.warn(`[jira-tools] No "Blocked" transition available for ${ticketId} — ticket stays in To Do. Orchestrator blockedBy guard will prevent premature invocation.`);
       }
     } catch (err) {
-      console.log(`[jira-tools] Could not transition ${ticketId} to Blocked: ${err.message}`);
+      console.warn(`[jira-tools] Could not transition ${ticketId} to Blocked: ${err.message}`);
     }
   } else if (assignee) {
     try {

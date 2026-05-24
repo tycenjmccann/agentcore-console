@@ -93,6 +93,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(3); // multiplier: 3x = 3 times real-time
   const replayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // DVR: "at live edge" means scrubber follows incoming events in real-time
+  const [atLiveEdge, setAtLiveEdge] = useState(true);
 
   // Nudge pulse effect — hot pink full-screen flash during replay
   const [nudgePulse, setNudgePulse] = useState(false);
@@ -355,8 +357,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   }, []);
 
   // Apply events up to replayIndex when it changes
+  // Runs in replay mode OR when user scrubs back during live (DVR)
   useEffect(() => {
-    if (!replayMode || replayEvents.length === 0) return;
+    if (replayEvents.length === 0) return;
+    // In live mode at the live edge, state is driven by handleEvent — skip reconstruction
+    if (!replayMode && atLiveEdge) return;
     // If scrubber is at the very end, just set phase to "complete" directly
     // This avoids any reconstruction race that could flash a non-complete state
     const atEnd = replayIndex >= replayEvents.length - 1;
@@ -387,7 +392,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     if (replayIndex < replayEvents.length) {
       fireReplayVisuals(replayEvents[replayIndex]);
     }
-  }, [replayIndex, replayMode, replayEvents, fireReplayVisuals]);
+  }, [replayIndex, replayMode, replayEvents, atLiveEdge, fireReplayVisuals]);
 
 
   // Seek to a specific position
@@ -398,6 +403,15 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       replayPhaseHighWaterRef.current = 0;
     }
     setReplayIndex(target);
+    // DVR: track if user is at the live edge
+    setAtLiveEdge(target >= replayEvents.length - 1);
+  }, [replayEvents.length]);
+
+  // DVR: snap to live edge
+  const snapToLive = useCallback(() => {
+    setReplayIndex(replayEvents.length - 1);
+    setAtLiveEdge(true);
+    setIsPlaying(false);
   }, [replayEvents.length]);
 
   // Start/stop replay
@@ -412,7 +426,17 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     }
   }, [replayIndex, replayEvents.length]);
 
+  // Use a ref to avoid stale closure for atLiveEdge in handleEvent
+  const atLiveEdgeRef = useRef(atLiveEdge);
+  atLiveEdgeRef.current = atLiveEdge;
+
   const handleEvent = useCallback((event: WorkflowEvent) => {
+    // DVR: always append to timeline so scrubber can access history
+    setReplayEvents((prev) => [...prev, event]);
+    if (atLiveEdgeRef.current) {
+      setReplayIndex((prev) => prev + 1);
+    }
+
     switch (event.type) {
       case "phase_change": {
         const newPhaseIndex = PHASE_ORDER[event.phase] ?? -1;
@@ -747,57 +771,61 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       )}
 
       <div className="pipeline-viz">
-        {/* Status header — shows current phase */}
-        <div className={`pipeline-status-header ${isComplete ? "settled" : ""}`}>
-          {isComplete ? "Complete" : state.phase === "error" ? "Error" : `In Progress: ${PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase}`}
-        </div>
+        {/* Top bar: scrubber left, status right */}
+        <div className="pipeline-top-bar">
+          {replayEvents.length > 0 && (
+            <div className="replay-bar">
+              {catchingUp ? (
+                <>
+                  <span className="catching-up-indicator">Catching up...</span>
+                  <input
+                    type="range"
+                    className="replay-scrubber"
+                    min={0}
+                    max={replayEvents.length - 1}
+                    value={replayIndex}
+                    readOnly
+                  />
+                  <span className="replay-counter">{replayIndex + 1} / {replayEvents.length}</span>
+                </>
+              ) : (
+                <>
+                  <button className="replay-btn" onClick={togglePlay} title={isPlaying ? "Pause" : "Replay"}>
+                    {isPlaying ? "⏸" : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/><polygon points="10 8 16 12 10 16" fill="currentColor" stroke="none"/></svg>}
+                  </button>
+                  <input
+                    type="range"
+                    className="replay-scrubber"
+                    min={0}
+                    max={replayEvents.length - 1}
+                    value={replayIndex}
+                    onChange={(e) => seekTo(Number(e.target.value))}
+                  />
+                  <span className="replay-counter">{replayIndex + 1} / {replayEvents.length}</span>
+                  {!atLiveEdge && !isComplete && (
+                    <button className="live-btn" onClick={snapToLive} title="Jump to live">LIVE</button>
+                  )}
+                  <select
+                    className="replay-speed"
+                    value={playbackSpeed}
+                    onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
+                  >
+                    <option value={1}>1x (real-time)</option>
+                    <option value={3}>3x</option>
+                    <option value={5}>5x</option>
+                    <option value={10}>10x</option>
+                    <option value={20}>20x</option>
+                    <option value={50}>50x</option>
+                  </select>
+                </>
+              )}
+            </div>
+          )}
 
-        {/* Replay scrubber bar — positioned in top space */}
-        {replayMode && replayEvents.length > 0 && (
-          <div className="replay-bar">
-            {catchingUp ? (
-              <>
-                <span className="catching-up-indicator">Catching up...</span>
-                <input
-                  type="range"
-                  className="replay-scrubber"
-                  min={0}
-                  max={replayEvents.length - 1}
-                  value={replayIndex}
-                  readOnly
-                />
-                <span className="replay-counter">{replayIndex + 1} / {replayEvents.length}</span>
-              </>
-            ) : (
-              <>
-                <button className="replay-btn" onClick={togglePlay} title={isPlaying ? "Pause" : "Replay"}>
-                  {isPlaying ? "⏸" : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/><polygon points="10 8 16 12 10 16" fill="currentColor" stroke="none"/></svg>}
-                </button>
-                <input
-                  type="range"
-                  className="replay-scrubber"
-                  min={0}
-                  max={replayEvents.length - 1}
-                  value={replayIndex}
-                  onChange={(e) => seekTo(Number(e.target.value))}
-                />
-                <span className="replay-counter">{replayIndex + 1} / {replayEvents.length}</span>
-                <select
-                  className="replay-speed"
-                  value={playbackSpeed}
-                  onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
-                >
-                  <option value={1}>1x (real-time)</option>
-                  <option value={3}>3x</option>
-                  <option value={5}>5x</option>
-                  <option value={10}>10x</option>
-                  <option value={20}>20x</option>
-                  <option value={50}>50x</option>
-                </select>
-              </>
-            )}
+          <div className={`pipeline-status-header ${isComplete ? "settled" : ""}`}>
+            {isComplete ? "Complete" : state.phase === "error" ? "Error" : `In Progress: ${PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase}`}
           </div>
-        )}
+        </div>
 
         {/* Canvas */}
         <div className="pipeline-canvas" ref={pipelineRef}>
@@ -1048,7 +1076,8 @@ const PIPELINE_STYLES = `
 .pipeline-subtitle{display:none}
 @keyframes shimmer{to{background-position:200% center}}
 
-.pipeline-status-header{align-self:center;font-size:16px;font-weight:700;color:#e2e8f0;letter-spacing:0.5px;margin-bottom:10px;text-transform:capitalize;transition:color .4s}
+.pipeline-top-bar{display:flex;align-items:center;width:1720px;margin-bottom:10px;position:relative}
+.pipeline-status-header{position:absolute;left:50%;transform:translateX(-50%);font-size:16px;font-weight:700;color:#e2e8f0;letter-spacing:0.5px;text-transform:capitalize;transition:color .4s;white-space:nowrap}
 .pipeline-status-header.settled{color:#f97316;animation:settledHeaderGlow 6s ease-in-out infinite}
 
 .pipeline-canvas{position:relative;width:1720px;min-height:840px}
@@ -1148,7 +1177,7 @@ const PIPELINE_STYLES = `
 .item.done.settled .svc-icon{filter:drop-shadow(0 0 3px rgba(249,115,22,.3))}
 .flow-path.settled{stroke:#f97316;opacity:.7;stroke-width:2.5;animation:settledPathGlow 6s ease-in-out infinite}
 
-.replay-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:6px 12px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;width:fit-content;max-width:400px}
+.replay-bar{display:flex;align-items:center;gap:10px;padding:6px 12px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;position:relative;z-index:20}
 .replay-btn{background:none;border:1px solid #334155;color:#e2e8f0;font-size:14px;width:32px;height:32px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .replay-btn:hover{border-color:#0ea5e9;background:#0ea5e920}
 .replay-scrubber{flex:1;height:4px;-webkit-appearance:none;appearance:none;background:#334155;border-radius:2px;cursor:pointer;outline:none}
@@ -1157,6 +1186,10 @@ const PIPELINE_STYLES = `
 .replay-counter{font-size:11px;color:#64748b;font-family:"JetBrains Mono",monospace;min-width:80px;text-align:center}
 .replay-speed{background:#0f1419;border:1px solid #334155;color:#e2e8f0;font-size:11px;padding:4px 8px;border-radius:4px;cursor:pointer}
 .replay-speed:hover{border-color:#0ea5e9}
+.live-btn{display:flex;align-items:center;gap:4px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;letter-spacing:0.5px;padding:4px 10px;border-radius:4px;border:none;cursor:pointer;animation:livePulse 1.5s ease-in-out infinite}
+.live-btn::before{content:"";width:6px;height:6px;border-radius:50%;background:#fff;animation:liveDot 1.5s ease-in-out infinite}
+@keyframes livePulse{0%,100%{opacity:1}50%{opacity:0.7}}
+@keyframes liveDot{0%,100%{opacity:1}50%{opacity:0.4}}
 .catching-up-indicator{font-size:12px;color:#0ea5e9;font-weight:500;letter-spacing:0.5px;animation:catchUpPulse 1.2s ease-in-out infinite}
 @keyframes catchUpPulse{0%,100%{opacity:1}50%{opacity:0.5}}
 
