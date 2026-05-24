@@ -268,6 +268,27 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     };
   }, [workflowId, replayMode, catchingUp]);
 
+  // Live-poll agent output while panel is open and agent is running
+  useEffect(() => {
+    if (!expandedAgent || !state) return;
+    const agentTask = Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent);
+    if (!agentTask || agentTask.status === "complete" || agentTask.status === "error") return;
+
+    const poll = () => {
+      fetch(`/api/workflow/${workflowId}/agent-output?agentId=${expandedAgent}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.output) {
+            setAgentFullOutput((prev) => ({ ...prev, [expandedAgent]: d.output }));
+          }
+        })
+        .catch(() => {});
+    };
+
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [expandedAgent, state?.agentTasks, workflowId]);
+
   // Replay playback timer — uses real timestamps for natural pacing
   // Only re-runs when isPlaying or playbackSpeed changes (not on every replayIndex tick)
   const replayIndexRef = useRef(replayIndex);
