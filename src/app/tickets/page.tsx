@@ -49,14 +49,6 @@ function extractTicketId(sessionId: string): string | null {
   return match ? match[1] : null;
 }
 
-function fuzzyMatch(text: string, query: string): boolean {
-  if (!text || !query) return false;
-  const lower = text.toLowerCase();
-  const q = query.toLowerCase().trim();
-  if (!q) return true;
-  return lower.includes(q);
-}
-
 function timeAgo(dateStr: string): string {
   if (!dateStr) return "";
   // Handle unix timestamps (milliseconds) or ISO date strings
@@ -67,12 +59,6 @@ function timeAgo(dateStr: string): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
-}
-
-function formatDurationMs(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
 }
 
 function getPhaseBadge(agentName: string | undefined): { label: string; color: string } {

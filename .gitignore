@@ -24,11 +24,18 @@ deploy/runtime-agent/repl_state
 deploy/runtime-agent/.bedrock_agentcore/
 deploy/runtime-agent/.bedrock_agentcore.yaml
 deploy/runtime-agent/test-streaming/.bedrock_agentcore.yaml
+deploy/runtime-agent/test-streaming/.bedrock_agentcore/
 repl_state
 
 # Agent state
 .memory-mappings.json
 .payload-formats.json
+
+# Traces (debug logs)
+traces/
+
+# Lambda zips (built artifacts)
+lambda/jira-real/function.zip
 
 # Test results
 test-results/

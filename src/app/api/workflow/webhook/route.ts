@@ -1,14 +1,8 @@
 /**
- * POST /api/workflow/webhook — Unified Webhook Handler
+ * POST /api/workflow/webhook — Webhook Handler (Lambda mode)
  *
- * Mode-aware routing based on ORCHESTRATION_MODE env var:
- *
- * - "lambda" mode (target): THIN handler — writes status to DynamoDB only.
- *   The DynamoDB Stream triggers the Orchestration Lambda for all downstream logic.
- *   This is the Jira-equivalent pattern: webhook just writes, state machine (DynamoDB/Jira) drives.
- *
- * - "in-process" mode (default): FULL handler — delegates to engine.ts for
- *   in-process orchestration (handleAgentCompletion, handleJiraWebhook, etc.)
+ * THIN handler — writes status to DynamoDB only.
+ * The DynamoDB Stream triggers the Orchestration Lambda for all downstream logic.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -19,7 +13,6 @@ const REGION = process.env.AWS_REGION || "us-east-1";
 const TICKETS_TABLE = process.env.JIRA_TABLE_NAME || "agentis-tickets";
 const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "dev-secret";
-const ORCHESTRATION_MODE = process.env.ORCHESTRATION_MODE || "in-process";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },
@@ -39,11 +32,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // Route to appropriate handler based on orchestration mode
-  if (ORCHESTRATION_MODE === "lambda") {
-    return handleLambdaMode(body);
-  }
-  return handleInProcessMode(body);
+  return handleLambdaMode(body);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -158,99 +147,6 @@ async function handleLambdaMode(body: Record<string, unknown>): Promise<NextResp
     }
   } catch (err) {
     console.error("[webhook:lambda] Error:", err);
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// IN-PROCESS MODE — Full handler: delegates to engine.ts for inline orchestration
-// ═══════════════════════════════════════════════════════════════════════════════
-
-async function handleInProcessMode(body: Record<string, unknown>): Promise<NextResponse> {
-  // Lazy import to avoid circular deps when in lambda mode
-  const { handleAgentCompletion, handleJiraWebhook, handleQaFixRequest } = await import("@/lib/workflow/engine");
-  const { ensureRehydrated } = await import("@/lib/workflow/store");
-
-  await ensureRehydrated();
-
-  const eventType = body.event_type as string;
-
-  try {
-    switch (eventType) {
-      case "agent_completion": {
-        const workflowId = body.workflow_id as string;
-        const agentId = body.agent_id as string;
-        if (!workflowId || !agentId) {
-          return NextResponse.json({ error: "workflow_id and agent_id are required" }, { status: 400 });
-        }
-
-        const result = await handleAgentCompletion(workflowId, agentId, {
-          output: body.output as string | undefined,
-          summary: body.summary as string | undefined,
-          branch: body.branch as string | undefined,
-          commitSha: body.commit_sha as string | undefined,
-          prUrl: body.pr_url as string | undefined,
-          artifacts: body.artifacts as Array<{ name: string; type: string }> | undefined,
-          source: "webhook",
-        });
-
-        if (!result.success) {
-          return NextResponse.json({ received: true, warning: result.error });
-        }
-        return NextResponse.json({ received: true, processed: true, mode: "in-process" });
-      }
-
-      case "request_fix": {
-        const workflowId = body.workflow_id as string;
-        const targetAgent = body.target_agent as string;
-        const findings = body.findings as string;
-        const qaTicketId = body.qa_ticket_id as string;
-        if (!workflowId || !targetAgent || !findings || !qaTicketId) {
-          return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-        }
-
-        const result = await handleQaFixRequest(workflowId, {
-          targetAgent,
-          findings,
-          severity: (body.severity as "blocking" | "cosmetic") || "blocking",
-          qaTicketId,
-        });
-        if (!result.success) {
-          return NextResponse.json({ received: true, warning: result.error });
-        }
-        return NextResponse.json({ received: true, processed: true, mode: "in-process" });
-      }
-
-      case "jira_transition": {
-        const issueKey = body.issue_key as string || (body.issue as { key?: string })?.key as string;
-        const status = body.status as string ||
-          (body.changelog as { items?: Array<{ field: string; toString: string }> })
-            ?.items?.find((i) => i.field === "status")?.toString?.toLowerCase();
-        if (!issueKey) {
-          return NextResponse.json({ error: "issue_key required" }, { status: 400 });
-        }
-        const result = await handleJiraWebhook(issueKey, status || "done");
-        return NextResponse.json({ received: true, processed: result.success, mode: "in-process" });
-      }
-
-      case undefined: {
-        if (body.webhookEvent === "jira:issue_updated" || body.issue) {
-          const issueKey = (body.issue as { key?: string })?.key;
-          const changelog = body.changelog as { items?: Array<{ field: string; toString: string }> };
-          const statusChange = changelog?.items?.find((i) => i.field === "status");
-          if (issueKey && statusChange) {
-            const result = await handleJiraWebhook(issueKey, statusChange.toString.toLowerCase());
-            return NextResponse.json({ received: true, processed: result.success, mode: "in-process" });
-          }
-        }
-        return NextResponse.json({ received: true, ignored: true });
-      }
-
-      default:
-        return NextResponse.json({ received: true, ignored: true });
-    }
-  } catch (err) {
-    console.error("[webhook:in-process] Error:", err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }
