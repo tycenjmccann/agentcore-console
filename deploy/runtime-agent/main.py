@@ -172,7 +172,7 @@ lambda_client = boto3.client("lambda", region_name=REGION)
 
 # Tool Lambda function names (the gateway targets are backed by these)
 S3_TOOLS_LAMBDA = os.getenv("S3_TOOLS_LAMBDA", "agentis-s3-tools")
-JIRA_TOOLS_LAMBDA = os.getenv("JIRA_TOOLS_LAMBDA", "agentis-jira-real")
+TICKET_TOOLS_LAMBDA = os.getenv("TICKET_TOOLS_LAMBDA", "agentis-tickets")
 BUILDER_TOOLS_LAMBDA = os.getenv("BUILDER_TOOLS_LAMBDA", "agentis-builder-tools")
 WORKFLOW_OUTPUT_LAMBDA = os.getenv("WORKFLOW_OUTPUT_LAMBDA", "agentis-workflow-output")
 SKILL_LOADER_LAMBDA = os.getenv("SKILL_LOADER_LAMBDA", "agentis-skill-loader")
@@ -303,10 +303,10 @@ def S3Storage___list_objects(prefix: str = "", bucket: str = "") -> str:
     return _invoke_lambda(S3_TOOLS_LAMBDA, "S3Storage___list_objects", {"bucket": bucket or ARTIFACT_BUCKET, "prefix": prefix})
 
 
-# ─── Jira Integration Tools ──────────────────────────────────────────────────
+# ─── Ticket Tools ────────────────────────────────────────────────────────────
 
 @tool
-def JiraIntegration___create_ticket(title: str, description: str, parent_id: str = "", assignee: str = "", ticket_type: str = "task", blocked_by: str = "", workflow_id: str = "") -> str:
+def Tickets___create_ticket(title: str, description: str, parent_id: str = "", assignee: str = "", ticket_type: str = "task", blocked_by: str = "", workflow_id: str = "") -> str:
     """Create a new ticket in the project tracker.
 
     MANDATORY TICKETS (create these for EVERY workflow, no exceptions):
@@ -329,7 +329,7 @@ def JiraIntegration___create_ticket(title: str, description: str, parent_id: str
         workflow_id: Workflow ID this ticket belongs to
     """
     blockers = [b.strip() for b in blocked_by.split(",") if b.strip()] if blocked_by else []
-    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___create_ticket", {
+    return _invoke_lambda(TICKET_TOOLS_LAMBDA, "Tickets___create_ticket", {
         "summary": title, "description": description, "parent_key": parent_id,
         "assignee": assignee, "issue_type": ticket_type, "blocked_by": blockers,
         "workflow_id": workflow_id
@@ -337,7 +337,7 @@ def JiraIntegration___create_ticket(title: str, description: str, parent_id: str
 
 
 @tool
-def JiraIntegration___transition_ticket(ticket_id: str, transition_id: str, reason: str = "") -> str:
+def Tickets___transition_ticket(ticket_id: str, transition_id: str, reason: str = "") -> str:
     """Transition a ticket to a new status (e.g., done, skip, blocked).
 
     Args:
@@ -345,13 +345,13 @@ def JiraIntegration___transition_ticket(ticket_id: str, transition_id: str, reas
         transition_id: Target status (done, skip, blocked, in_progress, todo)
         reason: Reason for the transition
     """
-    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___transition_ticket", {
+    return _invoke_lambda(TICKET_TOOLS_LAMBDA, "Tickets___transition_ticket", {
         "ticket_id": ticket_id, "transition_id": transition_id, "reason": reason
     })
 
 
 @tool
-def JiraIntegration___update_ticket(ticket_id: str, description: str = "", title: str = "") -> str:
+def Tickets___update_ticket(ticket_id: str, description: str = "", title: str = "") -> str:
     """Update an existing ticket's title or description.
 
     Args:
@@ -364,41 +364,41 @@ def JiraIntegration___update_ticket(ticket_id: str, description: str = "", title
         args["description"] = description
     if title:
         args["title"] = title
-    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___update_ticket", args)
+    return _invoke_lambda(TICKET_TOOLS_LAMBDA, "Tickets___update_ticket", args)
 
 
 @tool
-def JiraIntegration___list_tickets(parent_id: str) -> str:
+def Tickets___list_tickets(parent_id: str) -> str:
     """List all child tickets under a parent (epic or story).
 
     Args:
         parent_id: Parent ticket ID to list children of
     """
-    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___list_tickets", {"parent_id": parent_id})
+    return _invoke_lambda(TICKET_TOOLS_LAMBDA, "Tickets___list_tickets", {"parent_id": parent_id})
 
 
 @tool
-def JiraIntegration___add_comment(ticket_id: str, comment: str) -> str:
+def Tickets___add_comment(ticket_id: str, comment: str) -> str:
     """Add a comment to a ticket.
 
     Args:
         ticket_id: The ticket ID to comment on
         comment: Comment text to add
     """
-    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___add_comment", {
+    return _invoke_lambda(TICKET_TOOLS_LAMBDA, "Tickets___add_comment", {
         "ticket_id": ticket_id, "comment": comment
     })
 
 
 @tool
-def JiraIntegration___search_issues(query: str, max_results: int = 20) -> str:
+def Tickets___search_issues(query: str, max_results: int = 20) -> str:
     """Search for tickets matching a query.
 
     Args:
         query: Search query string
         max_results: Maximum number of results to return
     """
-    return _invoke_lambda(JIRA_TOOLS_LAMBDA, "JiraIntegration___search_issues", {
+    return _invoke_lambda(TICKET_TOOLS_LAMBDA, "Tickets___search_issues", {
         "query": query, "max_results": max_results
     })
 
@@ -407,7 +407,7 @@ def JiraIntegration___search_issues(query: str, max_results: int = 20) -> str:
 
 @tool
 def WorkflowOutput___report_completion(ticket_id: str, summary: str, artifacts: str = "", branch: str = "", commit_sha: str = "", pr_url: str = "") -> str:
-    """Report that your work is complete. This saves your completion summary to S3 AND automatically transitions your Jira ticket to Done. Do NOT call JiraIntegration___transition_ticket to mark your own ticket done — this tool handles that for you.
+    """Report that your work is complete. This saves your completion summary to S3 AND automatically transitions your Jira ticket to Done. Do NOT call Tickets___transition_ticket to mark your own ticket done — this tool handles that for you.
 
     Args:
         ticket_id: Your assigned ticket ID
@@ -591,13 +591,13 @@ LAMBDA_TOOLS = [
     S3Storage___read_object,
     S3Storage___write_object,
     S3Storage___list_objects,
-    # Jira (Lambda-backed)
-    JiraIntegration___create_ticket,
-    JiraIntegration___transition_ticket,
-    JiraIntegration___update_ticket,
-    JiraIntegration___list_tickets,
-    JiraIntegration___add_comment,
-    JiraIntegration___search_issues,
+    # Tickets (Lambda-backed)
+    Tickets___create_ticket,
+    Tickets___transition_ticket,
+    Tickets___update_ticket,
+    Tickets___list_tickets,
+    Tickets___add_comment,
+    Tickets___search_issues,
     # Workflow (Lambda-backed)
     WorkflowOutput___report_completion,
     WorkflowOutput___save_design_doc,

@@ -77,9 +77,9 @@ Structural analysis / code review via API is NOT CI. If you cannot run `build` a
 - NEVER report "CONDITIONAL PASS" — valid verdicts are only: PASS (all commands exit 0), FAIL (a command failed), or BLOCKED (cannot execute required commands)
 
 ## ON FAILURE (build/lint/test fails)
-1. Create a fix ticket: JiraIntegration___create_ticket(title="Fix: {error}", assignee="team-frontend-dev" or "team-backend-dev", description=detailed error with acceptance criteria)
-2. Create a QA ticket: JiraIntegration___create_ticket(title="QA: Verify {fix description}", assignee="team-qa-verifier", blocked_by="{fix_ticket_id}")
-3. Create a CI ticket: JiraIntegration___create_ticket(title="CI: Validate build and tests for {fix description}", assignee="team-ci-agent", blocked_by="{qa_ticket_id}")
+1. Create a fix ticket: Tickets___create_ticket(title="Fix: {error}", assignee="team-frontend-dev" or "team-backend-dev", description=detailed error with acceptance criteria)
+2. Create a QA ticket: Tickets___create_ticket(title="QA: Verify {fix description}", assignee="team-qa-verifier", blocked_by="{fix_ticket_id}")
+3. Create a CI ticket: Tickets___create_ticket(title="CI: Validate build and tests for {fix description}", assignee="team-ci-agent", blocked_by="{qa_ticket_id}")
 4. Report completion with status noting the failure and referencing all created tickets
 
 The dependency chain MUST be: fix ticket → QA ticket (blocked by fix) → CI ticket (blocked by QA). Never create a fix ticket without its QA and CI follow-up tickets.

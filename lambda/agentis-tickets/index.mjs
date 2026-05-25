@@ -1,8 +1,8 @@
 /**
- * Mock Jira MCP Lambda — DynamoDB-backed ticket management.
+ * agentis-tickets — Ticket tools Lambda backed by DynamoDB.
  *
- * Replaces the stub `jira-tools-lambda` with a real DynamoDB-backed implementation.
- * Tool schema matches the existing gateway target definition so no target reconfiguration needed.
+ * Deploy this when TICKET_PROVIDER=dynamodb.
+ * Agents call this Lambda to create/update/transition tickets stored in DynamoDB.
  *
  * Tools (matching existing gateway schema):
  *   - create_ticket: Create a new issue (story/task/bug/epic)
@@ -33,7 +33,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TABLE_NAME = process.env.JIRA_TABLE_NAME || "agentis-tickets";
+const TABLE_NAME = process.env.TICKETS_TABLE || "agentis-tickets";
 const PROJECT_KEY = process.env.PROJECT_KEY || "TEAM";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
@@ -71,9 +71,13 @@ export const handler = async (event) => {
   console.log("Jira MCP invoked:", JSON.stringify(event));
 
   // Gateway sends tool name via different field patterns
-  const toolName = event._tool_name || event.tool_name || event.name || detectTool(event);
-  // Arguments may come nested under "arguments" or "input" or at top level
-  const args = event.arguments || event.input || event;
+  let toolName = event._tool_name || event.tool_name || event.name || detectTool(event);
+  // Strip prefix (agents call as "Tickets___create_ticket" → "create_ticket")
+  if (toolName && toolName.includes("___")) {
+    toolName = toolName.split("___").pop();
+  }
+  // Arguments may come nested under "arguments" or "input" or "parameters" or at top level
+  const args = event.parameters || event.arguments || event.input || event;
 
   try {
     switch (toolName) {

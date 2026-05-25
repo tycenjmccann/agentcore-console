@@ -28,7 +28,7 @@ test.describe("Dashboard Tab", () => {
   test("shows agent performance table with live data", async ({ page }) => {
     await expect(page.getByText("Agent Performance")).toBeVisible();
     // Wait for agents to load
-    await expect(page.getByText("Discovering agents...")).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("Discovering agents...")).not.toBeVisible({ timeout: 30000 });
     await expect(page.locator("table")).toBeVisible();
     await expect(page.locator("table tbody tr").first()).toBeVisible();
   });

@@ -17,7 +17,7 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
   marshallOptions: { removeUndefinedValues: true },
 });
 const BUCKET = process.env.ARTIFACT_BUCKET || "";
-const JIRA_TOOLS_LAMBDA = process.env.JIRA_TOOLS_LAMBDA || "agentis-jira-real";
+const TICKET_TOOLS_LAMBDA = process.env.TICKET_TOOLS_LAMBDA || "agentis-tickets";
 const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
 
 async function publishJourneyEvent(workflowId, type, detail) {
@@ -118,10 +118,10 @@ async function reportCompletion({ ticket_id, summary, artifacts = "", branch, co
   if (ticket_id && !ticket_id.startsWith("HEALTHCHECK-") && !ticket_id.startsWith("TEST-")) {
     try {
       const resp = await lambda.send(new InvokeCommand({
-        FunctionName: JIRA_TOOLS_LAMBDA,
+        FunctionName: TICKET_TOOLS_LAMBDA,
         InvocationType: "RequestResponse",
         Payload: Buffer.from(JSON.stringify({
-          tool_name: "JiraIntegration___transition_ticket",
+          tool_name: "Tickets___transition_ticket",
           parameters: { ticket_id, transition_id: "done" },
         })),
       }));

@@ -10,7 +10,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TICKETS_TABLE = process.env.JIRA_TABLE_NAME || "agentis-tickets";
+const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
 const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "dev-secret";
 

@@ -19,7 +19,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand, UpdateCommand, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TICKETS_TABLE = process.env.JIRA_TABLE_NAME || "agentis-tickets";
+const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
 const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
 const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
 

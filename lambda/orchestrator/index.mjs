@@ -125,7 +125,7 @@ async function processStatusChange(ticketId, newStatus, oldStatus) {
     case "todo": {
       // Ticket created — check blockers and route accordingly
       if (TICKET_PROVIDER === "jira") {
-        // Jira mode: the jira-real Lambda handles initial routing by transitioning
+        // Jira mode: the agentis-jira Lambda handles initial routing by transitioning
         // to "Ready" (no blockers) or "Blocked" (has blockers) AFTER creating links.
         // We do NOT auto-transition here — doing so races with the Lambda's link creation.
         // The "ready" webhook will arrive when the Lambda transitions the ticket.
@@ -870,12 +870,12 @@ async function buildAgentContext(ticket, workflow) {
     const validAgents = AGENT_ROSTER.filter(a => a.id !== "team-requirements-analyst")
       .map(a => `  - "${a.id}" (${a.phase})`)
       .join("\n");
-    context += `## Ticket Creation Instructions\nYou are responsible for creating tickets for all agents that need to work on this feature.\n\n**VALID AGENT ROSTER (you MUST only assign to these exact IDs):**\n${validAgents}\n\n⚠️ DO NOT invent agent IDs. If an agent is not in the list above, it does not exist. Ticket creation will FAIL if you use an invalid assignee.\n\n**EXACT tool call format (use these parameter names EXACTLY):**\n\`\`\`\nJiraIntegration___create_ticket(\n    title="Frontend: Implement [feature]",\n    description="## Summary\\n...",\n    parent_id="${workflow.epicId}",\n    assignee="team-frontend-dev",\n    ticket_type="task",\n    blocked_by="",\n    workflow_id="${workflow.id}"\n)\n\`\`\`\n\nParameter names: title, description, parent_id, assignee, ticket_type, blocked_by, workflow_id.\nDo NOT use "summary", "parent_key", or any other names.\n\nYour own ticket_id: "${ticket.ticketId}" — transition it to "done" when finished.\n\n`;
+    context += `## Ticket Creation Instructions\nYou are responsible for creating tickets for all agents that need to work on this feature.\n\n**VALID AGENT ROSTER (you MUST only assign to these exact IDs):**\n${validAgents}\n\n⚠️ DO NOT invent agent IDs. If an agent is not in the list above, it does not exist. Ticket creation will FAIL if you use an invalid assignee.\n\n**EXACT tool call format (use these parameter names EXACTLY):**\n\`\`\`\nTickets___create_ticket(\n    title="Frontend: Implement [feature]",\n    description="## Summary\\n...",\n    parent_id="${workflow.epicId}",\n    assignee="team-frontend-dev",\n    ticket_type="task",\n    blocked_by="",\n    workflow_id="${workflow.id}"\n)\n\`\`\`\n\nParameter names: title, description, parent_id, assignee, ticket_type, blocked_by, workflow_id.\nDo NOT use "summary", "parent_key", or any other names.\n\nYour own ticket_id: "${ticket.ticketId}" — transition it to "done" when finished.\n\n`;
   }
 
   // For ALL agents: include canonical identifiers they need for tool calls
   context += `## Tool Call Reference\n`;
-  context += `When calling JiraIntegration tools, use these values:\n`;
+  context += `When calling Tickets tools, use these values:\n`;
   context += `- parent_id: "${workflow.epicId}" (epic for this workflow)\n`;
   context += `- workflow_id: "${workflow.id}"\n`;
   context += `- your ticket_id: "${ticket.ticketId}"\n`;

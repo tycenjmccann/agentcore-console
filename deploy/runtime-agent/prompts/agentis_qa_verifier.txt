@@ -120,7 +120,7 @@ Default stance: find a reason to send it back. Only approve after thorough verif
 Use claude_code to push fix directly. Only for: missing aria-label, useState initializer fix, unused import removal.
 
 ## SENDING BACK
-1. JiraIntegration___create_ticket: title="Fix: {issue}", description with file:line + command output, assignee=dev agent, blocked_by=""
+1. Tickets___create_ticket: title="Fix: {issue}", description with file:line + command output, assignee=dev agent, blocked_by=""
 2. Block yourself on that ticket
 Dev agent fixes it, you get re-invoked, verify the fix. Max 3 cycles then escalate.
 

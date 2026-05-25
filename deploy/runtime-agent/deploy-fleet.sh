@@ -24,8 +24,17 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 REGION="${AWS_REGION:-us-east-1}"
-ROLE_ARN="${AGENTCORE_ROLE_ARN:?Set AGENTCORE_ROLE_ARN}"
-GATEWAY_ARN="${GATEWAY_ARN:?Set GATEWAY_ARN}"
+
+# Create runtime role if not already set
+if [ -z "${AGENTCORE_ROLE_ARN:-}" ]; then
+  echo "AGENTCORE_ROLE_ARN not set — creating runtime role..."
+  echo ""
+  source "$SCRIPT_DIR/../setup-runtime-role.sh"
+  echo ""
+fi
+
+ROLE_ARN="${AGENTCORE_ROLE_ARN}"
+GATEWAY_ARN="${GATEWAY_ARN:-}"  # Optional: only needed for routing demo agents
 MODEL_ID="us.anthropic.claude-opus-4-6-v1"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BASE_DIR="$SCRIPT_DIR"
@@ -52,7 +61,7 @@ echo "  Deploy Type: direct_code_deploy (CodeZip, no Docker)"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
-# All 13 agents — same code, different runtime name + system prompt
+# All 14 agents — same code, different runtime name + system prompt
 AGENTS=(
   "agentis_requirements_analyst"
   "agentis_frontend_designer"

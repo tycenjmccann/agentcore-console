@@ -2,15 +2,25 @@
 # Creates the DynamoDB tables required by Agentis Hub.
 # Run once per account/region. Safe to re-run (will skip existing tables).
 #
-# Usage: AWS_PROFILE=your-profile ./scripts/create-dynamodb-tables.sh
+# Usage:
+#   ./scripts/create-dynamodb-tables.sh                      # Creates workflows + events tables
+#   ./scripts/create-dynamodb-tables.sh --with-tickets       # Also creates tickets table (for TICKET_PROVIDER=dynamodb)
 #
 # Tables:
 #   agentis-workflows  — PK: workflowId (S), GSI: epicId-index
-#   agentis-tickets    — PK: ticketId (S), GSIs: parentId-index, assignee-index
 #   agentis-events     — PK: workflowId (S), SK: eventId (S), TTL: ttl
+#   agentis-tickets    — PK: ticketId (S), GSIs: parentId-index, assignee-index (only with --with-tickets)
 
 set -euo pipefail
 REGION="${AWS_REGION:-us-east-1}"
+WITH_TICKETS=false
+
+for arg in "$@"; do
+  case $arg in
+    --with-tickets) WITH_TICKETS=true ;;
+    *) echo "Unknown argument: $arg"; echo "Usage: $0 [--with-tickets]"; exit 1 ;;
+  esac
+done
 
 echo "=== Creating DynamoDB tables in $REGION ==="
 
@@ -32,31 +42,6 @@ aws dynamodb create-table \
   --billing-mode PAY_PER_REQUEST \
   --region "$REGION" 2>&1 || echo "  (table may already exist)"
 
-# ─── agentis-tickets ─────────────────────────────────────────────────────────
-echo "Creating agentis-tickets (PK=ticketId, Stream=NEW_AND_OLD_IMAGES)..."
-aws dynamodb create-table \
-  --table-name agentis-tickets \
-  --attribute-definitions \
-    AttributeName=ticketId,AttributeType=S \
-    AttributeName=parentId,AttributeType=S \
-    AttributeName=assignee,AttributeType=S \
-  --key-schema AttributeName=ticketId,KeyType=HASH \
-  --global-secondary-indexes '[
-    {
-      "IndexName": "parentId-index",
-      "KeySchema": [{"AttributeName":"parentId","KeyType":"HASH"}],
-      "Projection": {"ProjectionType":"ALL"}
-    },
-    {
-      "IndexName": "assignee-index",
-      "KeySchema": [{"AttributeName":"assignee","KeyType":"HASH"}],
-      "Projection": {"ProjectionType":"ALL"}
-    }
-  ]' \
-  --billing-mode PAY_PER_REQUEST \
-  --stream-specification StreamEnabled=true,StreamViewType=NEW_AND_OLD_IMAGES \
-  --region "$REGION" 2>&1 || echo "  (table may already exist)"
-
 # ─── agentis-events ──────────────────────────────────────────────────────────
 echo "Creating agentis-events (PK=workflowId, SK=eventId, TTL=ttl)..."
 aws dynamodb create-table \
@@ -75,6 +60,35 @@ aws dynamodb update-time-to-live \
   --table-name agentis-events \
   --time-to-live-specification Enabled=true,AttributeName=ttl \
   --region "$REGION" 2>&1 || echo "  (TTL may already be enabled)"
+
+# ─── agentis-tickets (optional) ─────────────────────────────────────────────
+if [ "$WITH_TICKETS" = true ]; then
+  echo "Creating agentis-tickets (PK=ticketId, Stream=NEW_AND_OLD_IMAGES)..."
+  aws dynamodb create-table \
+    --table-name agentis-tickets \
+    --attribute-definitions \
+      AttributeName=ticketId,AttributeType=S \
+      AttributeName=parentId,AttributeType=S \
+      AttributeName=assignee,AttributeType=S \
+    --key-schema AttributeName=ticketId,KeyType=HASH \
+    --global-secondary-indexes '[
+      {
+        "IndexName": "parentId-index",
+        "KeySchema": [{"AttributeName":"parentId","KeyType":"HASH"}],
+        "Projection": {"ProjectionType":"ALL"}
+      },
+      {
+        "IndexName": "assignee-index",
+        "KeySchema": [{"AttributeName":"assignee","KeyType":"HASH"}],
+        "Projection": {"ProjectionType":"ALL"}
+      }
+    ]' \
+    --billing-mode PAY_PER_REQUEST \
+    --stream-specification StreamEnabled=true,StreamViewType=NEW_AND_OLD_IMAGES \
+    --region "$REGION" 2>&1 || echo "  (table may already exist)"
+else
+  echo "Skipping agentis-tickets (pass --with-tickets to create it for TICKET_PROVIDER=dynamodb)"
+fi
 
 echo ""
 echo "=== Done. Verify with: aws dynamodb list-tables --region $REGION ==="

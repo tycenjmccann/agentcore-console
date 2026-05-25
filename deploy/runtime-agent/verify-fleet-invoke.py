@@ -114,22 +114,22 @@ Return your FULL response as a single JSON array. Nothing else.
 
 ## TEST GROUP 6: Jira Workflow (simulates ticket lifecycle)
 
-16. JiraIntegration___search_issues: Search 'project = TEAM ORDER BY created DESC' max_results=1
+16. Tickets___search_issues: Search 'project = TEAM ORDER BY created DESC' max_results=1
     VALIDATE: Returns at least 1 result with a ticket ID matching TEAM-*
 
-17. JiraIntegration___create_ticket: Create with summary='[HEALTHCHECK-{TIMESTAMP}] Integration Test', description='Automated integration test. This ticket tests the full lifecycle: create→comment→transition→done.', issue_type='Task', parent_key='TEAM-116', workflow_id='healthcheck-{TIMESTAMP}'
+17. Tickets___create_ticket: Create with summary='[HEALTHCHECK-{TIMESTAMP}] Integration Test', description='Automated integration test. This ticket tests the full lifecycle: create→comment→transition→done.', issue_type='Task', parent_key='TEAM-116', workflow_id='healthcheck-{TIMESTAMP}'
     VALIDATE: Returns a ticketId (save it for next steps)
 
-18. JiraIntegration___add_comment: Add comment to the ticket from step 17: '[HEALTHCHECK] Step 2: Adding comment to verify comment tool works'
+18. Tickets___add_comment: Add comment to the ticket from step 17: '[HEALTHCHECK] Step 2: Adding comment to verify comment tool works'
     VALIDATE: Response must NOT contain 'Error' or 'error' or 'AccessDenied'. Must return a comment ID or success confirmation.
 
-19. JiraIntegration___transition_ticket: Transition ticket from step 17 to 'done'
+19. Tickets___transition_ticket: Transition ticket from step 17 to 'done'
     VALIDATE: Response must NOT contain 'Error' or 'error' or 'AccessDenied'. Must indicate transition succeeded.
 
-20. JiraIntegration___update_ticket: Update ticket from step 17 description to '[HEALTHCHECK] Integration test completed successfully at {TIMESTAMP}'
+20. Tickets___update_ticket: Update ticket from step 17 description to '[HEALTHCHECK] Integration test completed successfully at {TIMESTAMP}'
     VALIDATE: Response must NOT contain 'Error' or 'error' or 'AccessDenied'. Must indicate update succeeded.
 
-21. JiraIntegration___list_tickets: List tickets under parent 'TEAM-116'
+21. Tickets___list_tickets: List tickets under parent 'TEAM-116'
     VALIDATE: Response must NOT contain 'Error' or 'AccessDenied'. Must return a JSON array or list (can be empty).
 
 ## TEST GROUP 7: Workflow Output Tools (simulates agent completion reporting)
@@ -217,9 +217,9 @@ ALL_EXPECTED_TOOLS = [
     # Lambda-backed (15)
     "download_s3_file",
     "s3storage___read_object", "s3storage___write_object", "s3storage___list_objects",
-    "jiraintegration___search_issues", "jiraintegration___list_tickets",
-    "jiraintegration___add_comment", "jiraintegration___create_ticket",
-    "jiraintegration___transition_ticket", "jiraintegration___update_ticket",
+    "tickets___search_issues", "tickets___list_tickets",
+    "tickets___add_comment", "tickets___create_ticket",
+    "tickets___transition_ticket", "tickets___update_ticket",
     "workflowoutput___report_completion", "workflowoutput___save_design_doc",
     "workflowoutput___submit_ticket_plan",
     "skillloader___load_skill",
@@ -260,8 +260,8 @@ REQUIRED_TOOLS_BY_ROLE = {
     "_all": [
         "skillloader___load_skill",
         "s3storage___read_object", "s3storage___write_object", "s3storage___list_objects",
-        "jiraintegration___search_issues", "jiraintegration___create_ticket",
-        "jiraintegration___transition_ticket",
+        "tickets___search_issues", "tickets___create_ticket",
+        "tickets___transition_ticket",
         "workflowoutput___report_completion",
         "get_file_contents", "search_code", "get_me",
     ],
@@ -467,10 +467,10 @@ def print_results(results):
                      "environment", "retrieve", "code_interpreter", "browser"],
         "SDK": ["claude_code"],
         "Lambda": ["download_s3_file", "s3storage___read_object", "s3storage___write_object",
-                   "s3storage___list_objects", "jiraintegration___search_issues",
-                   "jiraintegration___list_tickets", "jiraintegration___add_comment",
-                   "jiraintegration___create_ticket", "jiraintegration___transition_ticket",
-                   "jiraintegration___update_ticket", "workflowoutput___report_completion",
+                   "s3storage___list_objects", "tickets___search_issues",
+                   "tickets___list_tickets", "tickets___add_comment",
+                   "tickets___create_ticket", "tickets___transition_ticket",
+                   "tickets___update_ticket", "workflowoutput___report_completion",
                    "workflowoutput___save_design_doc", "workflowoutput___submit_ticket_plan",
                    "skillloader___load_skill"],
         "GitHub MCP": ["get_me", "get_file_contents", "search_code", "list_branches",
@@ -489,7 +489,7 @@ def print_results(results):
         print(f"  {'Agent':<30}", end="")
         for t in tools:
             # Short names for display
-            short = t.replace("s3storage___", "s3_").replace("jiraintegration___", "jira_")
+            short = t.replace("s3storage___", "s3_").replace("tickets___", "tkt_")
             short = short.replace("workflowoutput___", "wf_").replace("skillloader___", "sk_")
             short = short[:12]
             print(f" {short:>12}", end="")
@@ -520,7 +520,7 @@ def print_results(results):
                 if normalized in tool_map:
                     symbol = format_tool_status(tool_map[normalized])
                 else:
-                    # Check for partial matches (e.g., agent reported "search_issues" not "jiraintegration___search_issues")
+                    # Check for partial matches (e.g., agent reported "search_issues" not "tickets___search_issues")
                     short_name = t.split("___")[-1] if "___" in t else t
                     matched = False
                     for reported_name, status in tool_map.items():
@@ -616,7 +616,7 @@ def print_results(results):
             normalized_req = normalize_tool_name(req_tool)
             # Fuzzy match: check if required tool name appears in any reported tool
             found = any(normalized_req in t or t in normalized_req for t in reported_tools)
-            # Also check short name (e.g., "search_issues" matches "jiraintegration___search_issues")
+            # Also check short name (e.g., "search_issues" matches "tickets___search_issues")
             if not found:
                 short = req_tool.split("___")[-1] if "___" in req_tool else req_tool
                 found = any(short in t for t in reported_tools)

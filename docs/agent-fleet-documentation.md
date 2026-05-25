@@ -90,12 +90,12 @@
 | `S3Storage___read_object` | agentis-s3-tools | Read text from S3 |
 | `S3Storage___write_object` | agentis-s3-tools | Write text to S3 |
 | `S3Storage___list_objects` | agentis-s3-tools | List S3 objects |
-| `JiraIntegration___create_ticket` | datespark-jira-mcp | Create tickets |
-| `JiraIntegration___transition_ticket` | datespark-jira-mcp | Change ticket status |
-| `JiraIntegration___update_ticket` | datespark-jira-mcp | Update ticket fields |
-| `JiraIntegration___list_tickets` | datespark-jira-mcp | List child tickets |
-| `JiraIntegration___add_comment` | datespark-jira-mcp | Comment on tickets |
-| `JiraIntegration___search_issues` | datespark-jira-mcp | Search tickets |
+| `Tickets___create_ticket` | datespark-jira-mcp | Create tickets |
+| `Tickets___transition_ticket` | datespark-jira-mcp | Change ticket status |
+| `Tickets___update_ticket` | datespark-jira-mcp | Update ticket fields |
+| `Tickets___list_tickets` | datespark-jira-mcp | List child tickets |
+| `Tickets___add_comment` | datespark-jira-mcp | Comment on tickets |
+| `Tickets___search_issues` | datespark-jira-mcp | Search tickets |
 | `WorkflowOutput___report_completion` | agentis-workflow-output | Mark work done |
 | `WorkflowOutput___save_design_doc` | agentis-workflow-output | Save artifacts |
 | `WorkflowOutput___submit_ticket_plan` | agentis-workflow-output | Batch create tickets |
@@ -177,7 +177,7 @@ Plugins live in the **repo**, not the agent. When you add/update plugins in `.cl
 | `READ_TIMEOUT` | `600` | Boto3 read timeout (10 min) |
 | `GATEWAY_ARN` | `arn:aws:bedrock-agentcore:...` | AgentCore gateway |
 | `EVENTS_TABLE` | `agentis-events` | DynamoDB events table |
-| `JIRA_TOOLS_LAMBDA` | `datespark-jira-mcp` | Jira tools Lambda |
+| `TICKET_TOOLS_LAMBDA` | `agentis-tickets` or `agentis-jira` | Ticket operations Lambda (matches TICKET_PROVIDER) |
 | `ARTIFACT_BUCKET` | `agentcore-artifacts-...` | S3 artifact bucket |
 | `SYSTEM_PROMPT` | (agent-specific) | Baked system prompt |
 | `BYPASS_TOOL_CONSENT` | `true` | Non-interactive tools |

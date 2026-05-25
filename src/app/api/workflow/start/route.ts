@@ -17,11 +17,11 @@ import { validateIntakeSources } from "@/lib/workflow/intake";
 import type { WorkflowInput } from "@/lib/workflow/types";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TICKETS_TABLE = process.env.JIRA_TABLE_NAME || "agentis-tickets";
+const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
 const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
 const PROJECT_KEY = process.env.JIRA_PROJECT_KEY || process.env.PROJECT_KEY || "TEAM";
 const TICKET_PROVIDER = process.env.TICKET_PROVIDER || "dynamodb";
-const JIRA_TOOLS_LAMBDA = process.env.JIRA_TOOLS_LAMBDA || "agentis-jira-real";
+const TICKET_TOOLS_LAMBDA = process.env.TICKET_TOOLS_LAMBDA || "agentis-tickets";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },
@@ -106,13 +106,13 @@ async function startWithJira(body: WorkflowInput) {
   return NextResponse.json({ workflowId, epicId });
 }
 
-// ─── DynamoDB Backend (dual-write via jira-real Lambda) ───────────────────────
+// ─── DynamoDB Backend (via ticket tools Lambda) ──────────────────────────────
 
 async function startWithDynamoDB(body: WorkflowInput) {
   const workflowId = `wf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  // 1. Create the epic via jira-real Lambda (dual-writes to Jira Cloud + DDB)
-  const epicResult = await invokeJiraLambda("JiraIntegration___create_ticket", {
+  // 1. Create the epic via ticket tools Lambda
+  const epicResult = await invokeTicketLambda("Tickets___create_ticket", {
     summary: body.title,
     description: body.description || "",
     issue_type: "Epic",
@@ -126,7 +126,7 @@ async function startWithDynamoDB(body: WorkflowInput) {
   const epicId = epicResult.ticketId;
 
   // 2. Transition epic to in_progress in both systems
-  await invokeJiraLambda("JiraIntegration___transition_ticket", {
+  await invokeTicketLambda("Tickets___transition_ticket", {
     ticket_id: epicId,
     transition_id: "in_progress",
   });
@@ -148,9 +148,9 @@ async function startWithDynamoDB(body: WorkflowInput) {
     },
   }));
 
-  // 4. Create requirements ticket via jira-real Lambda (dual-write)
+  // 4. Create requirements ticket via ticket tools Lambda
   //    DDB write triggers Stream → orchestrator Lambda picks it up
-  const reqResult = await invokeJiraLambda("JiraIntegration___create_ticket", {
+  const reqResult = await invokeTicketLambda("Tickets___create_ticket", {
     summary: `Requirements: requirements analyst — ${body.title}`,
     description: `Analyze the feature request and create tickets for the relevant agents.\n\nTitle: ${body.title}\nDescription: ${body.description}`,
     issue_type: "Task",
@@ -165,16 +165,16 @@ async function startWithDynamoDB(body: WorkflowInput) {
 
   const reqTicketId = reqResult.ticketId;
 
-  console.log(`[start] Workflow ${workflowId} created via dual-write. Epic: ${epicId}. Requirements ticket ${reqTicketId} will trigger first.`);
+  console.log(`[start] Workflow ${workflowId} created. Epic: ${epicId}. Requirements ticket ${reqTicketId} will trigger first.`);
 
   return NextResponse.json({ workflowId, epicId });
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-async function invokeJiraLambda(toolName: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function invokeTicketLambda(toolName: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
   const resp = await lambda.send(new InvokeCommand({
-    FunctionName: JIRA_TOOLS_LAMBDA,
+    FunctionName: TICKET_TOOLS_LAMBDA,
     InvocationType: "RequestResponse",
     Payload: Buffer.from(JSON.stringify({
       tool_name: toolName,

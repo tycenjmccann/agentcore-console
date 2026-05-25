@@ -4,15 +4,14 @@
 >
 > **Component**: `src/components/workflow/WorkflowBoard.tsx` + backend event system
 > **Runtime**: `deploy/runtime-agent/main.py` (all 14 agents)
-> **Orchestrator (Lambda mode)**: `lambda/orchestrator/index.mjs` (Stream handler) + `agent-invoker.mjs`
-> **Orchestrator (in-process mode)**: `src/lib/workflow/engine.ts`
-> **Mode switch**: `ORCHESTRATION_MODE=lambda|in-process` (env var)
+> **Orchestrator**: `lambda/orchestrator/index.mjs` (handles both DynamoDB Stream events and Jira webhook invocations)
+> **Provider switch**: `TICKET_PROVIDER=dynamodb|jira` (env var on the orchestrator Lambda)
 
 ---
 
 ## Current Architecture (as of 2026-05-19)
 
-### Mode: In-Process (ORCHESTRATION_MODE=in-process, default)
+### Mode: DynamoDB (TICKET_PROVIDER=dynamodb)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -35,7 +34,7 @@
               (tool_use)      (trace events)     (workflow.*)
 ```
 
-### Mode: Lambda (ORCHESTRATION_MODE=lambda, target for production)
+### Mode: Jira (TICKET_PROVIDER=jira)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -424,7 +423,7 @@ Fixing the internal bug makes Harness viable for simple agents. Fixing the LB ti
 ### DL-005: DynamoDB as Sole State Machine (Lambda Orchestration Mode)
 
 **Date**: 2026-05-19
-**Decision**: Implement `ORCHESTRATION_MODE=lambda` — DynamoDB ticket status is the state machine, DynamoDB Streams drive all orchestration
+**Decision**: Implement `TICKET_PROVIDER=dynamodb` — DynamoDB ticket status is the state machine, DynamoDB Streams drive all orchestration
 **Status**: IMPLEMENTED (not yet deployed)
 
 **Context**: The current architecture uses a hybrid model: DynamoDB stores tickets, but the Next.js engine syncs them to an in-memory store and drives orchestration inline (`processReadyTickets`). This has two problems:
@@ -433,10 +432,10 @@ Fixing the internal bug makes Harness viable for simple agents. Fixing the LB ti
 
 **Solution — Two-mode architecture**:
 
-| Mode | Env Var | Who Orchestrates | State Location |
-|------|---------|-----------------|----------------|
-| `in-process` (default) | `ORCHESTRATION_MODE=in-process` | Next.js engine.ts | In-memory + S3 |
-| `lambda` (target) | `ORCHESTRATION_MODE=lambda` | DynamoDB Streams → orchestrator Lambda | DynamoDB only |
+| Mode | Env Var | Who Orchestrates | Trigger |
+|------|---------|-----------------|---------|
+| DynamoDB | `TICKET_PROVIDER=dynamodb` | DynamoDB Streams → orchestrator Lambda | Automatic on ticket table writes |
+| Jira | `TICKET_PROVIDER=jira` | Jira webhook → orchestrator Lambda | Jira Cloud webhook on status change |
 
 **Lambda mode flow**:
 ```
@@ -574,13 +573,13 @@ Switch: disable Streams, point Jira webhooks at `/api/workflow/webhook`, set `TI
 ```
 QA finds issues
   ↓
-QA calls JiraIntegration___create_ticket:
+QA calls Tickets___create_ticket:
   - title: "Fix: {what's broken}"
   - description: findings + evidence + S3 paths for prior work
   - assignee: target dev agent
   - blocked_by: [] (immediately invocable)
   ↓
-QA calls JiraIntegration___transition_ticket on ITSELF:
+QA calls Tickets___transition_ticket on ITSELF:
   - transition_id: "block"
   - blocked_by: [fix-ticket-id]
   ↓
@@ -925,10 +924,10 @@ aws dynamodb update-table \
 #    RUNTIME_ARN_AGENTIS_*=<arns>     (orchestrator only — one per agent)
 
 # 3. Set env vars on Next.js app:
-ORCHESTRATION_MODE=lambda
+TICKET_PROVIDER=dynamodb
 TICKET_PROVIDER=dynamodb
 WORKFLOWS_TABLE=agentis-workflows
-JIRA_TABLE_NAME=agentis-tickets
+TICKETS_TABLE=agentis-tickets
 
 # 4. Set Runtime agent ARNs as env vars on orchestrator Lambda:
 # (one per agent — format: RUNTIME_ARN_AGENTIS_{AGENT_NAME_UPPER})
@@ -1196,7 +1195,7 @@ Image pushed to ECR, deployed via `update_agent_runtime` API with `container_uri
 ### DL-018: Dual-Write Ticket Lambda — Jira-First, Same ID in DynamoDB
 
 **Date**: 2026-05-20
-**Decision**: The agent tool Lambda (`agentis-jira-real`) ALWAYS writes tickets to BOTH Jira Cloud AND DynamoDB, using Jira's auto-generated key as the canonical ID in both systems.
+**Decision**: The agent tool Lambda (`agentis-tickets`) ALWAYS writes tickets to BOTH Jira Cloud AND DynamoDB, using Jira's auto-generated key as the canonical ID in both systems.
 **Status**: ACTIVE (deployed 2026-05-20)
 
 **Context**: The system supports two deployment modes via `TICKET_PROVIDER` flag on the orchestrator Lambda:
@@ -1210,7 +1209,7 @@ Both modes need ticket data to exist. The agents have ONE tool Lambda — it can
 **Solution — Jira-first, then DDB with same key**:
 
 ```
-Agent calls JiraIntegration___create_ticket
+Agent calls Tickets___create_ticket
   ↓
 1. Create in Jira Cloud → get TEAM-XX key (Jira auto-generates)
 2. Write to DynamoDB with ticketId = TEAM-XX (same key)
@@ -1259,15 +1258,15 @@ Both systems have the ticket under the same ID
 4. Ticket IDs are consistent — no cross-reference mapping needed
 
 **Files**:
-- `lambda/jira-real/index.mjs` — The dual-write tool Lambda (source of truth)
+- `lambda/agentis-jira/index.mjs` — The dual-write tool Lambda (source of truth)
 - `lambda/jira-unified/index.mjs` — DEPRECATED (old approach: DDB-first with Jira mirror, different IDs). Scheduled for deletion in cleanup.
 
-**Env vars on `agentis-jira-real` Lambda**:
+**Env vars on `agentis-tickets` Lambda**:
 - `JIRA_SITE_URL` — Jira Cloud site (e.g., agentis-demo.atlassian.net)
 - `JIRA_EMAIL` — Auth email
 - `JIRA_API_TOKEN` — API token
 - `JIRA_PROJECT_KEY` — Project key (TEAM)
-- `JIRA_TABLE_NAME` — DynamoDB table (agentis-tickets)
+- `TICKETS_TABLE` — DynamoDB table (agentis-tickets)
 - `AWS_REGION` — Region (us-east-1)
 
 **DO NOT**:
@@ -1297,7 +1296,7 @@ Without guards, the orchestrator processes BOTH triggers, invoking agents twice 
 - 7509 events, 15 tickets (should be ~5-6), workflow stuck
 
 **Root cause timeline**:
-1. `agentis-jira-real` dual-write deployed (DL-018) — writes to Jira + DDB for every ticket operation
+1. `agentis-tickets` dual-write deployed (DL-018) — writes to Jira + DDB for every ticket operation
 2. In DDB mode: DDB stream fires → orchestrator invokes agent ✓
 3. Jira issue_created webhook ALSO fires → App Runner route invokes orchestrator → agent invoked AGAIN ✗
 4. Two requirements agents run simultaneously, interleave output, create duplicate/wrong tickets
@@ -1501,7 +1500,7 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 
 | # | What | Why | File(s) |
 |---|------|-----|---------|
-| 1 | Deployed dual-write `agentis-jira-real` Lambda | Agents always write to BOTH Jira + DDB with same ticket ID (DL-018) | `lambda/jira-real/index.mjs` |
+| 1 | Deployed dual-write `agentis-tickets` Lambda | Agents always write to BOTH Jira + DDB with same ticket ID (DL-018) | `lambda/agentis-jira/index.mjs` |
 | 2 | Added symmetric webhook guard to orchestrator | Prevents double agent invocation when dual-write fires both event sources (DL-019) | `lambda/orchestrator/index.mjs` |
 | 3 | Documented DL-018 (dual-write architecture) | Cement the decision — never revisit | This file |
 | 4 | Documented DL-019 (symmetric guards) | Explain the double-invocation root cause and fix | This file |
@@ -1511,7 +1510,7 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 
 | Lambda | Version | What Changed |
 |--------|---------|-------------|
-| `agentis-jira-real` | 2026-05-21T02:02:35Z | Dual-write: Jira-first → DDB with same key |
+| `agentis-tickets` | 2026-05-21T02:02:35Z | Dual-write: Jira-first → DDB with same key |
 | `agentis-orchestrator` | 2026-05-21T05:54:49Z | Webhook guard: reject when TICKET_PROVIDER≠jira |
 
 ### Current State (as of 2026-05-23)
@@ -1519,11 +1518,11 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 | Setting | Value | Notes |
 |---------|-------|-------|
 | `TICKET_PROVIDER` on App Runner | `jira` | Production path — Jira is ticket authority |
-| `ORCHESTRATION_MODE` on App Runner | `lambda` | Lambda orchestrator is sole driver (only supported mode for production) |
+| `TICKET_PROVIDER` on App Runner | Must match orchestrator Lambda | Ensures consistent ticket backend |
 | `TICKET_PROVIDER` on orchestrator Lambda | `jira` | Reads/writes via Jira API |
 | DDB Stream mapping | Enabled | Fires orchestrator on ticket status changes |
 | App Runner URL | *(set DEPLOYMENT_URL in deploy/config.sh)* | Your deployed instance |
-| `agentis-jira-real` | Writes to Jira (primary). DDB writes are best-effort — no tickets table is provisioned, so they silently fail. This is expected. |
+| `agentis-tickets` | Writes to Jira (primary). DDB writes are best-effort — no tickets table is provisioned, so they silently fail. This is expected. |
 
 **DynamoDB tables required:** `agentis-workflows`, `agentis-events` only. No tickets table needed — Jira is the sole ticket store.
 
@@ -1550,7 +1549,7 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 - Then removed the `else` path entirely — dead code that should never execute
 - Removed all supporting dead code: `parseRequirementsOutput()`, `createTicketsFromPlan()`, `readTicketPlanFromS3()`, `resolveAssignee()`, `buildKeywordMap()`, `TicketPlan` interface
 
-**Principle**: There is ONE path for ticket creation — the agent calls `JiraIntegration___create_ticket` sequentially, gets real IDs back, and passes them as `blocked_by` in subsequent calls. The engine never creates tickets.
+**Principle**: There is ONE path for ticket creation — the agent calls `Tickets___create_ticket` sequentially, gets real IDs back, and passes them as `blocked_by` in subsequent calls. The engine never creates tickets.
 
 **Files modified**:
 - `src/lib/workflow/engine.ts` — removed ~250 lines of dead code
@@ -1607,19 +1606,19 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 | Env Var | App Runner | Orchestrator Lambda | What breaks if wrong |
 |---------|-----------|-------------------|---------------------|
 | `TICKET_PROVIDER` | `jira` | `jira` | Engine falls into legacy text-parsing path, creates duplicate broken tickets |
-| `ORCHESTRATION_MODE` | `lambda` | N/A | If set to `in-process`, App Runner tries to orchestrate alongside Lambda → chaos |
-| `JIRA_TABLE_NAME` | Not set (or any value) | N/A | Not needed in Jira mode. The `agentis-jira-real` Lambda may attempt DDB writes which silently fail — this is expected. |
+| `TICKET_PROVIDER` | Must match on App Runner AND orchestrator Lambda | Mismatch causes missed events | App reads tickets from one source while orchestrator writes to another |
+| `TICKETS_TABLE` | Not set (or any value) | N/A | Not needed in Jira mode. The `agentis-tickets` Lambda may attempt DDB writes which silently fail — this is expected. |
 | `MODEL_ID` (on agents) | N/A | N/A | Must be valid Bedrock model ID. Opus has `-v1`, Sonnet does NOT |
 
 ### The Flow (authoritative)
 
 ```
 1. User submits workflow via UI → POST /api/workflow/start
-2. App Runner creates epic in Jira (via agentis-jira-real Lambda)
+2. App Runner creates epic in Jira (via agentis-tickets Lambda)
 3. App Runner creates requirements ticket (status=todo, no blockers)
 4. Jira webhook fires → Orchestrator Lambda receives it
 5. Orchestrator invokes reqs agent (Runtime) with task context
-6. Reqs agent analyzes scope, calls JiraIntegration___create_ticket for each needed ticket
+6. Reqs agent analyzes scope, calls Tickets___create_ticket for each needed ticket
    - Gets real TEAM-XXX IDs back from each call
    - Passes those IDs in blocked_by for downstream tickets
 7. Reqs agent marks its own ticket "done"
