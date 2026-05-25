@@ -28,8 +28,8 @@ export default function ProfilePhotoSection({
 
   const handleRemovePhoto = async () => {
     try {
-      const res = await fetch("/api/profile/photo/remove", {
-        method: "POST",
+      const res = await fetch("/api/profile/photo", {
+        method: "DELETE",
       });
       if (res.ok) {
         setCurrentAvatarUrl(null);
