@@ -34,20 +34,20 @@ const s3 = new S3Client({ region: REGION });
 const agentcore = new BedrockAgentCoreClient({ region: REGION });
 
 const CONFIG_TO_AGENT = {
-  eval_analytics_designer: "agentis_analytics_designer",
-  eval_android_designer: "agentis_android_designer",
-  eval_api_dev: "agentis_api_dev",
-  eval_backend_designer: "agentis_backend_designer",
-  eval_backend_dev: "agentis_backend_dev",
-  eval_ci_agent: "agentis_ci_agent",
-  eval_frontend_designer: "agentis_frontend_designer",
-  eval_frontend_dev: "agentis_frontend_dev",
-  eval_ios_designer: "agentis_ios_designer",
-  eval_legal_compliance: "agentis_legal_compliance",
-  eval_localization: "agentis_localization",
-  eval_qa_verifier: "agentis_qa_verifier",
-  eval_requirements_analyst: "agentis_requirements_analyst",
-  eval_security_reviewer: "agentis_security_reviewer",
+  eval_agentis_analytics_designer: "agentis_analytics_designer",
+  eval_agentis_android_designer: "agentis_android_designer",
+  eval_agentis_api_dev: "agentis_api_dev",
+  eval_agentis_backend_designer: "agentis_backend_designer",
+  eval_agentis_backend_dev: "agentis_backend_dev",
+  eval_agentis_ci_agent: "agentis_ci_agent",
+  eval_agentis_frontend_designer: "agentis_frontend_designer",
+  eval_agentis_frontend_dev: "agentis_frontend_dev",
+  eval_agentis_ios_designer: "agentis_ios_designer",
+  eval_agentis_legal_compliance: "agentis_legal_compliance",
+  eval_agentis_localization: "agentis_localization",
+  eval_agentis_qa_verifier: "agentis_qa_verifier",
+  eval_agentis_requirements_analyst: "agentis_requirements_analyst",
+  eval_agentis_security_reviewer: "agentis_security_reviewer",
 };
 
 // All agents share the same tool set

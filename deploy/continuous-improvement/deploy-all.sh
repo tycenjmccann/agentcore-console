@@ -36,8 +36,8 @@ echo "║  Bucket:  ${ARTIFACT_BUCKET}                                  ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 echo ""
 
-# ─── Step 1: XRay Indexing ───────────────────────────────────────────────────
-echo "┌─ Step 1/7: XRay Indexing ──────────────────────────────────────────────┐"
+# ─── Step 1: XRay Indexing + Sampling ────────────────────────────────────────
+echo "┌─ Step 1/7: XRay Indexing + Sampling ───────────────────────────────────┐"
 
 CURRENT_RATE=$(aws xray get-indexing-rules --region "$AWS_REGION" \
   --query 'IndexingRules[0].Rule.Probabilistic.DesiredSamplingPercentage' --output text 2>/dev/null || echo "0")
@@ -49,6 +49,33 @@ if [ "$CURRENT_RATE" != "100.0" ] && [ "$CURRENT_RATE" != "100" ]; then
   echo "  ✓ XRay indexing set to 100% (was ${CURRENT_RATE}%)"
 else
   echo "  ✓ XRay indexing already at 100%"
+fi
+
+# Sampling rule: The Default XRay sampling rule is only 5% — online evals need
+# 100% of traces to reach Transaction Search. Create a high-priority rule for AgentCore.
+SAMPLING_RULE_EXISTS=$(aws xray get-sampling-rules --region "$AWS_REGION" \
+  --query 'SamplingRuleRecords[?SamplingRule.RuleName==`AgentCore100Percent`].SamplingRule.RuleName' --output text 2>/dev/null || echo "")
+
+if [ -z "$SAMPLING_RULE_EXISTS" ]; then
+  aws xray create-sampling-rule --cli-input-json '{
+    "SamplingRule": {
+      "RuleName": "AgentCore100Percent",
+      "ResourceARN": "*",
+      "Priority": 1,
+      "FixedRate": 1.0,
+      "ReservoirSize": 100,
+      "ServiceName": "*",
+      "ServiceType": "*",
+      "Host": "*",
+      "HTTPMethod": "*",
+      "URLPath": "*",
+      "Version": 1,
+      "Attributes": {"cloud.platform": "aws_bedrock_agentcore"}
+    }
+  }' --region "$AWS_REGION" --output text >/dev/null 2>&1
+  echo "  ✓ Created AgentCore100Percent sampling rule (priority 1, 100% rate)"
+else
+  echo "  ✓ AgentCore100Percent sampling rule already exists"
 fi
 
 # ─── Step 2: XRay IAM Permissions ───────────────────────────────────────────

@@ -46,12 +46,13 @@ cd deploy/continuous-improvement
 ```
 
 This script:
-1. Creates online eval configs for all 14 agents (if not already present)
-2. Deploys the eval-packager and prd-submitter Lambdas
-3. Sets up CW Logs subscription filters (eval results → packager)
-4. Creates EventBridge rule (S3 PRD → submitter)
-5. Syncs agent prompts to S3
-6. Runs a verification check
+1. Sets XRay sampling to 100% (creates `AgentCore100Percent` rule) + indexing to 100%
+2. Adds XRay IAM permissions to the agent runtime role
+3. Creates online eval configs for all 14 agents (if not already present)
+4. Deploys the eval-packager and prd-submitter Lambdas
+5. Sets up CW Logs subscription filters (eval results → packager)
+6. Creates EventBridge rule (S3 PRD → submitter)
+7. Syncs agent prompts to S3
 
 ### Environment Variables
 
@@ -108,16 +109,41 @@ The eval-packager and prd-submitter Lambdas need:
 }
 ```
 
-### XRay Indexing
+### XRay Sampling + Indexing (Both Required)
 
-XRay Transaction Search must be set to 100% indexing (not just sampling):
+XRay has **two separate percentage settings** that both must be 100%:
+
+1. **Sampling Rule** — controls what % of traces are *captured* by XRay in the first place. The Default rule is only 5%. You need a custom rule at priority 1 with 100% rate:
+
+```bash
+aws xray create-sampling-rule --cli-input-json '{
+  "SamplingRule": {
+    "RuleName": "AgentCore100Percent",
+    "ResourceARN": "*",
+    "Priority": 1,
+    "FixedRate": 1.0,
+    "ReservoirSize": 100,
+    "ServiceName": "*",
+    "ServiceType": "*",
+    "Host": "*",
+    "HTTPMethod": "*",
+    "URLPath": "*",
+    "Version": 1,
+    "Attributes": {"cloud.platform": "aws_bedrock_agentcore"}
+  }
+}'
+```
+
+2. **Indexing Rule** — controls what % of captured traces are *indexed* into Transaction Search (which online evals query). Must also be 100%:
 
 ```bash
 aws xray update-indexing-rule --name "Default" \
   --rule '{"Probabilistic": {"DesiredSamplingPercentage": 100}}'
 ```
 
-The `deploy-all.sh` script sets this automatically.
+**If either is below 100%, online evals will miss sessions.** The Default sampling rule at 5% was the root cause of "No spans found" in our initial deployment — traces simply weren't being captured.
+
+The `deploy-all.sh` script configures both automatically.
 
 ## Verification
 
@@ -159,21 +185,27 @@ Each agent is evaluated by 10 evaluators (9 built-in + 1 custom):
 
 ### Evals show "No spans found"
 
-**Cause:** Traces aren't reaching XRay.
+**Cause:** Traces aren't reaching XRay, or aren't being indexed.
 
-1. Check XRay permissions on the agent runtime role:
+1. Check XRay **sampling** rule exists with 100% rate:
+   ```bash
+   aws xray get-sampling-rules --query 'SamplingRuleRecords[?SamplingRule.RuleName==`AgentCore100Percent`]'
+   ```
+   If missing, the Default rule only captures 5% of traces. Create the AgentCore100Percent rule (see IAM section above).
+
+2. Check XRay **indexing** is at 100%:
+   ```bash
+   aws xray get-indexing-rules
+   ```
+
+3. Check XRay permissions on the agent runtime role:
    ```bash
    aws iam get-role-policy --role-name agentis-agentcore-role --policy-name agentcore-permissions \
      | grep -A2 xray
    ```
    If missing, add the XRay statement (see IAM section above).
 
-2. Check XRay indexing is at 100%:
-   ```bash
-   aws xray get-indexing-rules
-   ```
-
-3. Verify spans appear after an invocation:
+4. Verify spans appear after an invocation:
    ```bash
    # Invoke an agent, wait 60s, then:
    aws logs filter-log-events --log-group-name "aws/spans" \
@@ -191,8 +223,20 @@ aws lambda get-function-concurrency --function-name agentis-eval-packager
 
 # Check subscription filter exists
 aws logs describe-subscription-filters \
-  --log-group-name "/aws/bedrock-agentcore/evaluations/results/eval_qa_verifier-P4T5vs6w6Y"
+  --log-group-name "/aws/bedrock-agentcore/evaluations/results/eval_agentis_qa_verifier-PwVe4ADk1U"
 ```
+
+### Eval-packager logs "Unknown log group"
+
+**Cause:** The `CONFIG_TO_AGENT` map in `lambda/eval-packager/index.mjs` doesn't match the eval config naming convention. Log group names use the full pattern `eval_agentis_{role}` (e.g., `eval_agentis_qa_verifier-PwVe4ADk1U`), so the keys in the map must also use `eval_agentis_` prefix.
+
+```bash
+# Check what log groups exist
+aws logs describe-log-groups --log-group-name-prefix /aws/bedrock-agentcore/evaluations/results/eval_agentis_ \
+  --query 'logGroups[].logGroupName' --output table
+```
+
+If new agents are added to the fleet, add matching entries to both `setup-evaluations.sh` and the `CONFIG_TO_AGENT` map in `eval-packager/index.mjs`.
 
 ### PRD-submitter can't reach workflow API
 
