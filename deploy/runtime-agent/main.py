@@ -611,7 +611,7 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
             cwd=working_directory,
             capture_output=True,
             text=True,
-            timeout=900,  # 15 min — claude_code needs room for complex tasks
+            timeout=600,  # 10 min — forces scoped work; agents told this limit in blueprints
             env={
                 **os.environ,
                 "CLAUDE_CODE_ENTRYPOINT": "agentis-pipeline",
@@ -630,7 +630,7 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
         return output if output else f"Claude Code exited with code {result.returncode}. Stderr: {result.stderr[-300:]}"
 
     except subprocess.TimeoutExpired:
-        return "ERROR: Claude Code timed out after 900 seconds. The task may be too complex for a single delegation — break it into smaller steps."
+        return "ERROR: Claude Code timed out after 600 seconds (10 min limit). Break this into smaller, focused claude_code calls — each should do ONE thing (implement, test, or fix)."
     except FileNotFoundError:
         return "ERROR: 'claude' CLI not found in this environment. Falling back — use shell, editor, and file_write tools directly."
     except Exception as e:

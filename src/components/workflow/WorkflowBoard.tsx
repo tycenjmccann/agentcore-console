@@ -511,6 +511,10 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         }));
         break;
       case "tool_use": {
+        // Track last tool per agent for tiered stale detection
+        if (event.agentId && event.toolName) {
+          lastToolPerAgentRef.current[event.agentId] = event.toolName;
+        }
         // Flash the corresponding icon/item in the pipeline
         const resolved = resolveToolIcon(event.toolName);
         if (resolved) {
@@ -634,6 +638,10 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const lastActivityRef = useRef<number>(Date.now());
   const nudgeFiredRef = useRef<string>(""); // tracks workflowId+phase to avoid repeat nudges
   const [isStale, setIsStale] = useState(false);
+  // Track last tool called per agent — used for tiered stale thresholds
+  const lastToolPerAgentRef = useRef<Record<string, string>>({});
+  // Manual override: user can click status dot to force-mark an agent as stuck
+  const [manualStaleAgents, setManualStaleAgents] = useState<Set<string>>(new Set());
   // Track total streaming length to detect NEW content (not just presence of old keys)
   // Initialize to -1 as sentinel: first effect run seeds the baseline without resetting activity
   const prevStreamingLenRef = useRef(-1);
@@ -653,8 +661,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       // Reset nudge flag when activity resumes (new phase or agent started)
       nudgeFiredRef.current = "";
       if (isStale) setIsStale(false);
+      if (manualStaleAgents.size > 0) setManualStaleAgents(new Set());
     }
-  }, [state, streamingText, isStale]);
+  }, [state, streamingText, isStale, manualStaleAgents]);
 
   useEffect(() => {
     if (!state || state.phase === "complete" || state.phase === "error" || replayMode) return;
@@ -665,8 +674,18 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       );
       const nudgeKey = `${workflowId}:${state.phase}`;
 
-      // Mark stale after 6 min of no streaming while agents are "running"
-      if (hasRunning && idle > 360_000 && !isStale) {
+      // Tiered stale threshold based on last tool called:
+      // - claude_code: 12 min (600s timeout + 120s buffer) — it goes dark for the full run
+      // - anything else: 3 min — normal tools return in seconds
+      const runningAgents = Object.entries(state.agentTasks || {})
+        .filter(([, t]) => t.status === "running" || t.status === "waiting_response")
+        .map(([key]) => key);
+      const anyInClaudeCode = runningAgents.some(
+        (id) => lastToolPerAgentRef.current[id] === "claude_code"
+      );
+      const staleThreshold = anyInClaudeCode ? 720_000 : 180_000; // 12 min vs 3 min
+
+      if (hasRunning && idle > staleThreshold && !isStale) {
         setIsStale(true);
       }
 
@@ -960,7 +979,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                         <div className="sec-label">Agents ({phase.agents.length})</div>
                         {phase.agents.map((agent) => {
                           const agentTask = state?.agentTasks[agent.id];
-                          const isAgentStale = isStale && agentTask && (agentTask.status === "running" || agentTask.status === "waiting_response");
+                          const isAgentStale = (isStale || manualStaleAgents.has(agent.id)) && agentTask && (agentTask.status === "running" || agentTask.status === "waiting_response");
                           const agentItemClass = agentTask
                             ? isAgentStale
                               ? "error"
@@ -993,7 +1012,19 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                             >
                               <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
                               <span className="item-label">{agent.displayName}</span>
-                              <span className="item-status" />
+                              <span
+                                className="item-status cursor-pointer"
+                                title="Click to mark agent as stuck"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (agentTask && (agentTask.status === "running" || agentTask.status === "waiting_response")) {
+                                    if (window.confirm(`Mark "${agent.displayName}" as stuck?\n\nThis will flag the agent as unresponsive and show recovery options.`)) {
+                                      setManualStaleAgents((prev) => new Set([...prev, agent.id]));
+                                      setIsStale(true);
+                                    }
+                                  }
+                                }}
+                              />
                             </div>
                           );
                         })}
@@ -1082,7 +1113,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         <AgentOutputPanel
           isOpen={!!expandedAgent}
           onClose={() => setExpandedAgent(null)}
-          isStale={isStale && !!expandedAgent && (Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.status === "running")}
+          isStale={(isStale || (!!expandedAgent && manualStaleAgents.has(expandedAgent))) && !!expandedAgent && (Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.status === "running")}
           workflowId={workflowId}
           task={expandedAgent ? {
             id: `task_${expandedAgent}`,
