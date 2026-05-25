@@ -119,11 +119,13 @@ async function retryDynamoDB(workflowId: string, agentId: string) {
     ExpressionAttributeValues: { ":wid": workflowId, ":aid": agentId },
   }));
 
+  // Accept any non-complete status — the agent might show "running" in the workflow
+  // but be stuck at "todo" or "in_progress" in the tickets table
   const ticket = ticketResult.Items?.find(
-    t => t.status === "in_progress" || t.status === "error" || t.status === "blocked"
+    t => t.status !== "done" && t.status !== "complete"
   );
   if (!ticket) {
-    throw new Error(`No stuck ticket found for agent ${agentId}`);
+    throw new Error(`No restartable ticket found for agent ${agentId}`);
   }
 
   const ticketId = ticket.ticketId;
