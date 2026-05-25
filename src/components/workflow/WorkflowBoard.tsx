@@ -309,6 +309,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       if (catchingUp) {
         // Catch-up: uniform spacing, always finishes in 3 seconds total
         delay = 3000 / replayEvents.length;
+        if (currentIdx === 0) console.log(`[catch-up] ${replayEvents.length} events, ${delay.toFixed(1)}ms each, ~3s total`);
       } else {
         // Normal replay: timestamp-based with playback speed
         const currentTs = new Date(replayEvents[currentIdx].timestamp || 0).getTime();
