@@ -149,6 +149,30 @@ async function retryDynamoDB(workflowId: string, agentId: string) {
   return ticketId;
 }
 
+// ─── Retry via workflow record only (fallback when Jira creds unavailable) ───
+
+async function retryWorkflowOnly(workflowId: string, agentId: string, agentTasks: Record<string, Record<string, unknown>>) {
+  const ticketId = Object.keys(agentTasks).find((key) => {
+    const t = agentTasks[key];
+    return (t.agentId === agentId || t.assignee === agentId) &&
+      (t.status === "running" || t.status === "in_progress");
+  });
+
+  if (!ticketId) {
+    throw new Error(`No active ticket found for agent ${agentId}`);
+  }
+
+  await ddb.send(new UpdateCommand({
+    TableName: WORKFLOWS_TABLE,
+    Key: { workflowId },
+    UpdateExpression: "SET #at.#tid.#s = :s",
+    ExpressionAttributeNames: { "#at": "agentTasks", "#tid": ticketId, "#s": "status" },
+    ExpressionAttributeValues: { ":s": "ready" },
+  }));
+
+  return ticketId;
+}
+
 // ─── Route Handler ──────────────────────────────────────────────────────────
 
 export async function POST(
@@ -197,10 +221,13 @@ export async function POST(
       // Non-critical
     }
 
-    // 3. Execute retry based on provider
+    // 3. Execute retry based on provider (fall back to DDB if Jira not configured)
     let ticketId: string;
-    if (ticketProvider === "jira") {
+    if (ticketProvider === "jira" && getJiraAuth()) {
       ticketId = await retryJira(workflowId, agentId, agentTasks);
+    } else if (ticketProvider === "jira" && !getJiraAuth()) {
+      // Jira workflow but no creds (local dev) — just reset in workflow record
+      ticketId = await retryWorkflowOnly(workflowId, agentId, agentTasks);
     } else {
       ticketId = await retryDynamoDB(workflowId, agentId);
     }
