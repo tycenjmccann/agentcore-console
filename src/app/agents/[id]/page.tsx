@@ -11,6 +11,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { streamAgentInvocation, AgentInfo, TraceEvent } from "@/lib/agentcore-stream";
 import { cachedFetch, getCached, getClientRegion } from "@/lib/client-cache";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import { useTypingIndicator } from "@/hooks/useTypingIndicator";
+import { TypingIndicator } from "@/components/TypingIndicator";
 
 interface AgentDetail {
   id: string;
@@ -248,6 +251,24 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
   const traceEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const wsEnabled = !!process.env.NEXT_PUBLIC_WS_URL;
+  const { isConnected, send: wsSend } = useWebSocket({
+    enabled: wsEnabled,
+    onMessage: (msg) => {
+      if (msg.type === 'typing_start' || msg.type === 'typing_stop') {
+        typingIndicator.handleIncomingMessage(msg);
+      }
+    },
+  });
+
+  const typingIndicator = useTypingIndicator({
+    chatId: sessionId,
+    userId: 'local-user',
+    userName: 'You',
+    send: wsSend,
+    enabled: wsEnabled && isConnected,
+  });
+
   useEffect(() => {
     if (!sessionId) {
       setSessionId(`sess_${crypto.randomUUID().replace(/-/g, "")}${Date.now()}`);
@@ -452,6 +473,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    typingIndicator.sendTypingStop();
     setIsStreaming(true);
     setSessionStatus("active");
     if (!sessionStartTime) setSessionStartTime(Date.now());
@@ -518,6 +540,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
         onDone: () => {
           setIsStreaming(false);
           setSessionStatus("complete");
+          typingIndicator.clearUser(agent.id);
           storeInMemory(userText, fullResponse);
           const doneStep: TraceStep = {
             id: `trace_done_${Date.now()}`,
@@ -547,7 +570,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
     } catch {
       setIsStreaming(false);
     }
-  }, [input, isStreaming, isReadOnly, agent, sessionId, storeInMemory, persistTraces, messages, sessionStartTime]);
+  }, [input, isStreaming, isReadOnly, agent, sessionId, storeInMemory, persistTraces, messages, sessionStartTime, typingIndicator]);
 
   // Auto-resize textarea
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -916,6 +939,7 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                   </div>
                 ))
               )}
+              <TypingIndicator typingUsers={typingIndicator.typingUsers} />
               <div ref={messagesEndRef} />
             </div>
 
@@ -943,8 +967,11 @@ function InvokeUI({ agent }: { agent: AgentDetail }) {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       handleSend();
+                    } else {
+                      typingIndicator.sendTypingStart();
                     }
                   }}
+                  onBlur={() => typingIndicator.sendTypingStop()}
                   placeholder={isReadOnly ? "Read-only — start a new session to chat" : `Message ${agent.name}...`}
                   rows={1}
                   className="flex-1 bg-surface-2 border border-surface-4 rounded-xl px-4 py-2.5 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-brand-500/50 resize-none overflow-y-auto disabled:opacity-50 disabled:cursor-not-allowed"
