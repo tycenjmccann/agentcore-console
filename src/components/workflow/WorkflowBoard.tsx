@@ -1020,7 +1020,12 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                                   if (agentTask && (agentTask.status === "running" || agentTask.status === "waiting_response")) {
                                     if (window.confirm(`Mark "${agent.displayName}" as stuck?\n\nThis will flag the agent as unresponsive and show recovery options.`)) {
                                       setManualStaleAgents((prev) => new Set([...prev, agent.id]));
-                                      setIsStale(true);
+                                      // Also expand this agent's panel immediately
+                                      setExpandedAgent(agent.id);
+                                      fetch(`/api/workflow/${workflowId}/agent-output?agentId=${agent.id}`)
+                                        .then((r) => r.json())
+                                        .then((data) => { if (data.output) setAgentFullOutput((prev) => ({ ...prev, [agent.id]: data.output })); })
+                                        .catch(() => {});
                                     }
                                   }
                                 }}
@@ -1112,9 +1117,24 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         {/* Agent Output Pop-Out Card */}
         <AgentOutputPanel
           isOpen={!!expandedAgent}
-          onClose={() => setExpandedAgent(null)}
+          onClose={() => {
+            // Clear manual stale override for this agent when closing the modal
+            if (expandedAgent && manualStaleAgents.has(expandedAgent)) {
+              setManualStaleAgents((prev) => {
+                const next = new Set(prev);
+                next.delete(expandedAgent);
+                return next;
+              });
+              // Also reset global isStale if no other manual overrides remain
+              if (manualStaleAgents.size <= 1) setIsStale(false);
+            }
+            setExpandedAgent(null);
+          }}
           isStale={(isStale || (!!expandedAgent && manualStaleAgents.has(expandedAgent))) && !!expandedAgent && (Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.status === "running")}
           workflowId={workflowId}
+          lastToolName={expandedAgent ? lastToolPerAgentRef.current[expandedAgent] : undefined}
+          lastActivityTime={lastActivityRef.current}
+          staleThreshold={expandedAgent && lastToolPerAgentRef.current[expandedAgent] === "claude_code" ? 720_000 : 180_000}
           task={expandedAgent ? {
             id: `task_${expandedAgent}`,
             agentId: expandedAgent,

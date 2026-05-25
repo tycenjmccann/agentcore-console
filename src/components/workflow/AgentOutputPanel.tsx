@@ -15,6 +15,9 @@ interface AgentOutputPanelProps {
   isStale?: boolean;
   workflowId?: string;
   triggerRef?: React.RefObject<HTMLElement | null>;
+  lastToolName?: string;
+  lastActivityTime?: number; // Date.now() timestamp of last streaming activity
+  staleThreshold?: number; // ms — threshold for stale detection (720_000 or 180_000)
 }
 
 /** Format agent ID to display name */
@@ -38,6 +41,9 @@ export default function AgentOutputPanel({
   isStale,
   workflowId,
   triggerRef,
+  lastToolName,
+  lastActivityTime,
+  staleThreshold,
 }: AgentOutputPanelProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -48,6 +54,19 @@ export default function AgentOutputPanel({
   const [mounted, setMounted] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  // Count-up timer: seconds since last activity
+  const [elapsedSec, setElapsedSec] = useState(0);
+  useEffect(() => {
+    if (!isOpen || !lastActivityTime || task?.status === "complete") {
+      setElapsedSec(0);
+      return;
+    }
+    const tick = () => setElapsedSec(Math.floor((Date.now() - lastActivityTime) / 1000));
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [isOpen, lastActivityTime, task?.status]);
 
   // Clear restarting state when agent comes back to life (isStale clears)
   // or after 30s timeout (so button isn't stuck disabled forever if agent never starts)
@@ -352,44 +371,113 @@ export default function AgentOutputPanel({
         </div>
 
         {/* Footer */}
-        {task && (
-          <div className="modal-footer">
-            <div className="flex items-center gap-3">
-              <span>Status: {isStale ? "Stale (no activity for 6 min)" : task.status}</span>
-              {task.branch && <span>Branch: {task.branch}</span>}
-            </div>
-            <div className="flex items-center gap-3">
-              {task.error && (
-                <div className="flex items-center gap-1.5">
-                  <AlertCircle size={14} style={{ color: "var(--pipeline-error)" }} aria-hidden="true" />
-                  <span className="modal-footer-error truncate max-w-[400px]">
-                    {task.error}
+        {task && (() => {
+          const threshold = staleThreshold || 720_000;
+          const thresholdSec = threshold / 1000;
+          const isRunningAgent = task.status === "running" || task.status === "waiting_response";
+          // Timer color: green → orange (last 30s before threshold) → red (past threshold)
+          const timerColor = elapsedSec >= thresholdSec
+            ? "#ef4444" // red — stale
+            : elapsedSec >= thresholdSec - 30
+            ? "#f59e0b" // amber — approaching
+            : "#22c55e"; // green — healthy
+          const timerGlow = elapsedSec >= thresholdSec
+            ? "0 0 8px rgba(239, 68, 68, 0.6)"
+            : elapsedSec >= thresholdSec - 30
+            ? "0 0 6px rgba(245, 158, 11, 0.4)"
+            : "none";
+          const formatTime = (s: number) => {
+            const m = Math.floor(s / 60);
+            const sec = s % 60;
+            return `${m}:${sec.toString().padStart(2, "0")}`;
+          };
+          // Format tool name for display
+          const displayTool = lastToolName
+            ? lastToolName.replace(/___/g, ".").replace(/_/g, " ")
+            : null;
+
+          return (
+            <div className="modal-footer">
+              <div className="flex items-center gap-3">
+                {/* Last tool event */}
+                {isRunningAgent && displayTool && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--pipeline-text-dim)" }}>
+                      Last tool
+                    </span>
+                    <span
+                      className="px-2 py-0.5 rounded text-xs font-mono"
+                      style={{
+                        background: "rgba(99, 102, 241, 0.15)",
+                        color: "#a5b4fc",
+                        border: "1px solid rgba(99, 102, 241, 0.3)",
+                      }}
+                    >
+                      {displayTool}
+                    </span>
+                  </div>
+                )}
+                {/* Activity timer — always show for running agents */}
+                {isRunningAgent && lastActivityTime && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--pipeline-text-dim)" }}>
+                      {isStale ? "Stuck" : "Idle"}
+                    </span>
+                    <span
+                      className="px-2 py-0.5 rounded text-xs font-mono font-bold tabular-nums"
+                      style={{
+                        color: timerColor,
+                        textShadow: timerGlow,
+                        transition: "color 0.5s, text-shadow 0.5s",
+                      }}
+                    >
+                      {formatTime(elapsedSec)}
+                    </span>
+                  </div>
+                )}
+                {/* Fallback: show timer even without lastActivityTime for running agents */}
+                {isRunningAgent && !lastActivityTime && (
+                  <span style={{ color: isStale ? "#ef4444" : "var(--pipeline-text-muted)" }}>
+                    {isStale ? "Agent unresponsive" : "Working..."}
                   </span>
-                </div>
-              )}
-              {(isStale || task.status === "error") && workflowId && (
-                <button
-                  onClick={async () => {
-                    if (isRestarting) return;
-                    setIsRestarting(true);
-                    try {
-                      await fetch(`/api/workflow/${workflowId}/retry`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ agentId: task.agentId }),
-                      });
-                      // Don't reset isRestarting — keep showing "Starting..." until isStale clears
-                    } catch { setIsRestarting(false); }
-                  }}
-                  disabled={isRestarting}
-                  className="px-3 py-1.5 text-xs font-medium rounded bg-amber-600/80 text-white hover:bg-amber-500 disabled:opacity-50 transition-colors"
-                >
-                  {isRestarting ? "Starting session..." : "Restart Agent"}
-                </button>
-              )}
+                )}
+                {!isRunningAgent && (
+                  <span>Status: {task.status}</span>
+                )}
+                {task.branch && <span className="text-xs" style={{ color: "var(--pipeline-text-muted)" }}>Branch: {task.branch}</span>}
+              </div>
+              <div className="flex items-center gap-3">
+                {task.error && (
+                  <div className="flex items-center gap-1.5">
+                    <AlertCircle size={14} style={{ color: "var(--pipeline-error)" }} aria-hidden="true" />
+                    <span className="modal-footer-error truncate max-w-[400px]">
+                      {task.error}
+                    </span>
+                  </div>
+                )}
+                {(isStale || task.status === "error") && workflowId && (
+                  <button
+                    onClick={async () => {
+                      if (isRestarting) return;
+                      setIsRestarting(true);
+                      try {
+                        await fetch(`/api/workflow/${workflowId}/retry`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ agentId: task.agentId }),
+                        });
+                      } catch { setIsRestarting(false); }
+                    }}
+                    disabled={isRestarting}
+                    className="px-3 py-1.5 text-xs font-medium rounded bg-amber-600/80 text-white hover:bg-amber-500 disabled:opacity-50 transition-colors"
+                  >
+                    {isRestarting ? "Starting session..." : "Restart Agent"}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Screen reader live region */}
         <div aria-live="polite" aria-atomic="true" className="sr-only">
