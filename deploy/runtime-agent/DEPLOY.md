@@ -49,7 +49,7 @@ python3 verify-fleet-invoke.py --fleet-file fleet-runtime-ids.json --timeout 600
 |----------|---------|---------|
 | `AWS_PROFILE` | your-profile | AWS credentials profile |
 | `AGENTCORE_ROLE_ARN` | `arn:aws:iam::${ACCOUNT_ID}:role/agentis-agentcore-role` | Runtime execution role |
-| `ARTIFACT_BUCKET` | `agentis-artifacts-${ACCOUNT_ID}` | S3 bucket for prompts & artifacts |
+| `ARTIFACT_BUCKET` | `agentis-artifacts-${ACCOUNT_ID}-${REGION}` | S3 bucket for prompts & artifacts |
 | `GATEWAY_ARN` | `arn:aws:bedrock-agentcore:us-east-1:${ACCOUNT_ID}:gateway/...` | AgentCore MCP gateway |
 | `AWS_REGION` | `us-east-1` | Deployment region |
 | `GITHUB_PAT` | *(from .env.local)* | GitHub MCP authentication |
@@ -60,7 +60,7 @@ These are passed via `--env` in deploy-one.sh and available inside the runtime a
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `AGENTIS_ARTIFACT_BUCKET` | `agentis-artifacts-${ACCOUNT_ID}` | S3 bucket for agent file ops |
+| `AGENTIS_ARTIFACT_BUCKET` | `agentis-artifacts-${ACCOUNT_ID}-${REGION}` | S3 bucket for agent file ops |
 | `GATEWAY_ARN` | *(gateway ARN)* | AgentCore gateway reference |
 | `MODEL_ID` | `us.anthropic.claude-opus-4-6-v1` | Default model for agents |
 | `READ_TIMEOUT` | `600` | Bedrock invoke timeout (seconds) |

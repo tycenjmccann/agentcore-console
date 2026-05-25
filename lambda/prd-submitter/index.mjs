@@ -35,7 +35,7 @@ export async function handler(event) {
 
   // Submit to workflow API
   const payload = {
-    title: prd.title,
+    title: `[SI] ${prd.title}`,
     description: prd.description,
     repoConfig: {
       layout: "monorepo",

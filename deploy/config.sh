@@ -22,8 +22,8 @@ export FLEET_REPO_URL="${FLEET_REPO_URL:-https://github.com/${GITHUB_OWNER}/agen
 export AGENTCORE_ROLE_ARN="${AGENTCORE_ROLE_ARN:-arn:aws:iam::${ACCOUNT_ID}:role/agentis-agentcore-role}"
 export LAMBDA_ROLE_ARN="${LAMBDA_ROLE_ARN:-arn:aws:iam::${ACCOUNT_ID}:role/agentis-lambda-role}"
 
-# S3
-export ARTIFACT_BUCKET="${ARTIFACT_BUCKET:-agentis-artifacts-${ACCOUNT_ID}}"
+# S3 — single bucket shared by App Runner, Lambdas, and runtime agents
+export ARTIFACT_BUCKET="${ARTIFACT_BUCKET:-agentis-artifacts-${ACCOUNT_ID}-${AWS_REGION}}"
 
 # DynamoDB tables
 export EVENTS_TABLE="${EVENTS_TABLE:-agentis-events}"

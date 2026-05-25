@@ -322,6 +322,45 @@ An alternative deployment path (`deploy/setup-team-agents.mjs`) deploys agents a
 
 ---
 
+## Continuous Improvement (Self-Improvement Loop)
+
+The platform includes an optional **self-improvement loop** that automatically evaluates every agent invocation and fixes issues without human intervention.
+
+### How It Works
+
+```
+Agent runs → OTEL traces → XRay → Online Evaluation (10 evaluators)
+    → Low scores trigger eval-packager Lambda
+    → Fleet Improver agent performs root-cause analysis
+    → Writes PRD → prd-submitter → [SI] Workflow Run → PR
+```
+
+Every agent invocation is evaluated by 10 criteria (tool selection, instruction following, correctness, etc.) using a judge model. When scores drop, the fleet improver agent determines whether the fix is a prompt change, a missing tool, a permissions issue, or an infrastructure problem — then creates a PRD that triggers the same 14-agent pipeline to produce a fix PR.
+
+### One-Command Setup
+
+```bash
+export DEPLOYMENT_URL=https://your-app.us-east-1.awsapprunner.com
+cd deploy/continuous-improvement
+./deploy-all.sh
+```
+
+This sets up: XRay indexing (100%), online eval configs for all 14 agents, the eval-packager and prd-submitter Lambdas, CW Logs subscription filters, and EventBridge wiring.
+
+### Verification
+
+```bash
+./verify.sh    # Checks all 8 components of the loop
+```
+
+### Toggle On/Off
+
+The Evaluations page in the UI provides a toggle. Under the hood, it sets eval-packager Lambda concurrency to 0 (paused) or removes the limit (active). Eval results still accumulate when paused.
+
+See [`deploy/continuous-improvement/README.md`](deploy/continuous-improvement/README.md) for full architecture, IAM requirements, and troubleshooting.
+
+---
+
 ## Routing Demo (Agent Skills)
 
 The Routing tab demonstrates end-to-end agent orchestration with **dynamic skill loading**:
@@ -463,7 +502,7 @@ Set environment variables on the App Runner service (via Console or `update-serv
 - `TICKET_PROVIDER=jira`
 - `WORKFLOWS_TABLE=agentis-workflows`
 - `EVENTS_TABLE=agentis-events`
-- `ARTIFACT_BUCKET=agentis-artifacts-<ACCOUNT_ID>-us-east-1`
+- `ARTIFACT_BUCKET=agentis-artifacts-<ACCOUNT_ID>-<REGION>` (e.g. `agentis-artifacts-123456789012-us-east-1`)
 - `JIRA_SITE_URL=your-site.atlassian.net`
 - `JIRA_EMAIL=you@company.com`
 - `JIRA_API_TOKEN=your-api-token`
@@ -585,6 +624,27 @@ To restrict to specific agents or regions:
 - The `CloudWatchLogsTraces` statement is already scoped to AgentCore log groups and the `aws/spans` group
 - The `PassRoleForHarnessCreation` statement is only needed if using the Deploy button on the Build page. Scope the `Resource` to your specific harness execution role ARN for tighter security.
 - The `BedrockModelAccess` is only needed if using the Builder feature (agent creation via Converse API)
+
+### Agent Runtime Role (`agentis-agentcore-role`)
+
+The 14 pipeline agents run on AgentCore Runtime with their own execution role. This role needs:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], "Resource": "*"},
+    {"Effect": "Allow", "Action": ["bedrock-agentcore:*"], "Resource": "*"},
+    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"], "Resource": ["arn:aws:s3:::agentis-artifacts-ACCOUNT-REGION", "arn:aws:s3:::agentis-artifacts-ACCOUNT-REGION/*"]},
+    {"Effect": "Allow", "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"], "Resource": "*"},
+    {"Effect": "Allow", "Action": ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchWriteItem"], "Resource": "arn:aws:dynamodb:*:*:table/agentis-*"},
+    {"Effect": "Allow", "Action": ["lambda:InvokeFunction"], "Resource": "arn:aws:lambda:*:*:function:agentis-*"},
+    {"Effect": "Allow", "Action": ["xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets"], "Resource": "*"}
+  ]
+}
+```
+
+> **Critical:** The XRay permissions are required for the Self-Improvement loop. Without them, the OTEL collector cannot export traces, and evaluations will report "No spans found."
 
 ### Authentication
 
