@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, UpdateCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
@@ -111,26 +111,18 @@ async function retryJira(workflowId: string, agentId: string, agentTasks: Record
 
 // ─── Retry via DynamoDB ─────────────────────────────────────────────────────
 
-async function retryDynamoDB(workflowId: string, agentId: string) {
-  // Find the ticket in the tickets table
-  const ticketResult = await ddb.send(new ScanCommand({
-    TableName: TICKETS_TABLE,
-    FilterExpression: "workflowId = :wid AND assignee = :aid",
-    ExpressionAttributeValues: { ":wid": workflowId, ":aid": agentId },
-  }));
+async function retryDynamoDB(workflowId: string, agentId: string, agentTasks: Record<string, Record<string, unknown>>) {
+  // Find the ticket ID from the workflow record (already in memory — no scan needed)
+  const ticketId = Object.keys(agentTasks).find((key) => {
+    const t = agentTasks[key];
+    return (t.agentId === agentId || t.assignee === agentId);
+  });
 
-  // Accept any non-complete status — the agent might show "running" in the workflow
-  // but be stuck at "todo" or "in_progress" in the tickets table
-  const ticket = ticketResult.Items?.find(
-    t => t.status !== "done" && t.status !== "complete"
-  );
-  if (!ticket) {
-    throw new Error(`No restartable ticket found for agent ${agentId}`);
+  if (!ticketId) {
+    throw new Error(`No ticket found for agent ${agentId}`);
   }
 
-  const ticketId = ticket.ticketId;
-
-  // Reset ticket to "ready"
+  // Reset ticket to "ready" in the tickets table
   await ddb.send(new UpdateCommand({
     TableName: TICKETS_TABLE,
     Key: { ticketId },
@@ -183,7 +175,7 @@ export async function POST(
     if (ticketProvider === "jira") {
       ticketId = await retryJira(workflowId, agentId, agentTasks);
     } else {
-      ticketId = await retryDynamoDB(workflowId, agentId);
+      ticketId = await retryDynamoDB(workflowId, agentId, agentTasks);
     }
 
     // 4. Publish retry event
