@@ -634,12 +634,15 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const lastActivityRef = useRef<number>(Date.now());
   const nudgeFiredRef = useRef<string>(""); // tracks workflowId+phase to avoid repeat nudges
   const [isStale, setIsStale] = useState(false);
-  // Update activity timestamp only on ACTUAL streaming (not just status="running" in DDB)
-  // A dead agent still has status="running" but produces no streaming tokens.
+  // Track total streaming length to detect NEW content (not just presence of old keys)
+  const prevStreamingLenRef = useRef(0);
+  // Update activity timestamp only on ACTUAL new streaming (not just status="running" in DDB)
+  // A dead agent still has status="running" and stale keys in streamingText.
   useEffect(() => {
     if (!state || state.phase === "complete" || state.phase === "error") return;
-    const hasStreaming = Object.keys(streamingText).length > 0;
-    if (hasStreaming) {
+    const totalLen = Object.values(streamingText).reduce((sum, t) => sum + t.length, 0);
+    if (totalLen > prevStreamingLenRef.current) {
+      prevStreamingLenRef.current = totalLen;
       lastActivityRef.current = Date.now();
       // Reset nudge flag when activity resumes (new phase or agent started)
       nudgeFiredRef.current = "";
@@ -951,8 +954,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                         <div className="sec-label">Agents ({phase.agents.length})</div>
                         {phase.agents.map((agent) => {
                           const agentTask = state?.agentTasks[agent.id];
+                          const isAgentStale = isStale && agentTask && (agentTask.status === "running" || agentTask.status === "waiting_response");
                           const agentItemClass = agentTask
-                            ? agentTask.status === "running" || agentTask.status === "waiting_response"
+                            ? isAgentStale
+                              ? "error"
+                              : agentTask.status === "running" || agentTask.status === "waiting_response"
                               ? "working"
                               : agentTask.status === "complete"
                               ? "done"
