@@ -633,19 +633,19 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   // ─── Auto-Nudge: if workflow active, no agent running, idle >60s → auto-fix stuck tickets ───
   const lastActivityRef = useRef<number>(Date.now());
   const nudgeFiredRef = useRef<string>(""); // tracks workflowId+phase to avoid repeat nudges
-  // Update activity timestamp whenever an agent is running or streaming
+  const [isStale, setIsStale] = useState(false);
+  // Update activity timestamp only on ACTUAL streaming (not just status="running" in DDB)
+  // A dead agent still has status="running" but produces no streaming tokens.
   useEffect(() => {
     if (!state || state.phase === "complete" || state.phase === "error") return;
-    const hasRunning = Object.values(state.agentTasks || {}).some(
-      (t) => t.status === "running" || t.status === "waiting_response"
-    );
     const hasStreaming = Object.keys(streamingText).length > 0;
-    if (hasRunning || hasStreaming) {
+    if (hasStreaming) {
       lastActivityRef.current = Date.now();
       // Reset nudge flag when activity resumes (new phase or agent started)
       nudgeFiredRef.current = "";
+      if (isStale) setIsStale(false);
     }
-  }, [state, streamingText]);
+  }, [state, streamingText, isStale]);
 
   useEffect(() => {
     if (!state || state.phase === "complete" || state.phase === "error" || replayMode) return;
@@ -655,6 +655,11 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         (t) => t.status === "running" || t.status === "waiting_response"
       );
       const nudgeKey = `${workflowId}:${state.phase}`;
+
+      // Mark stale after 6 min of no streaming while agents are "running"
+      if (hasRunning && idle > 360_000 && !isStale) {
+        setIsStale(true);
+      }
 
       // Fire nudge if:
       // 1. No agent is currently running (impossible stuck state — e.g. blocked with no blockers)
@@ -676,7 +681,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       }
     }, 15_000); // check every 15s
     return () => clearInterval(check);
-  }, [workflowId, state?.phase, replayMode]);
+  }, [workflowId, state?.phase, replayMode, isStale]);
 
   // Measure element positions and compute connector paths:
   // FROM: last output/trigger item (right edge) of phase[i]
@@ -1065,6 +1070,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         <AgentOutputPanel
           isOpen={!!expandedAgent}
           onClose={() => setExpandedAgent(null)}
+          isStale={isStale && !!expandedAgent && (Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.status === "running")}
+          workflowId={workflowId}
           task={expandedAgent ? {
             id: `task_${expandedAgent}`,
             agentId: expandedAgent,

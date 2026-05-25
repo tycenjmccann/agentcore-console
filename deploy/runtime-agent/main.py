@@ -9,7 +9,7 @@ The orchestrator is thin/dumb — it only passes the task prompt (ticket context
 Agent identity (system prompt, tools, model) is fixed at deploy time.
 
 Key advantages over Harness:
-  - We control botocore read_timeout (600s) so Opus can think without being killed
+  - We control botocore read_timeout (1200s) so Opus can think without being killed
   - OTel auto-instrumentation is enabled via the CMD in deployment
   - Streaming responses via async generator entrypoint
   - All gateway tools (S3, Jira, GitHub, SkillLoader, WorkflowOutput) via Lambda invocation
@@ -130,7 +130,7 @@ def _load_builtin_tools():
 # --- Configuration ---
 REGION = os.getenv("AWS_REGION", "us-east-1")
 MODEL_ID = os.getenv("MODEL_ID", "us.anthropic.claude-opus-4-6-v1")
-READ_TIMEOUT = int(os.getenv("READ_TIMEOUT", "600"))  # 10 minutes — no more urllib3 kills
+READ_TIMEOUT = int(os.getenv("READ_TIMEOUT", "1200"))  # 20 minutes — agents need room for complex claude_code calls
 GATEWAY_ARN = os.getenv("GATEWAY_ARN", "")
 # NOTE: AgentCore reserves "ARTIFACT_BUCKET" as a system env var (points to CodeBuild source bucket).
 # We use AGENTIS_ARTIFACT_BUCKET to avoid the collision.
@@ -152,6 +152,37 @@ else:
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("agentis-pipeline-agent")
+
+# --- Load Claude Code skills from S3 at cold start ---
+# Skills are stored as SKILL.md files in S3 under skills/{role}/.
+# We sync them to /tmp/.claude/skills/ so claude_code auto-discovers them.
+# Mapping from agent name → skill folder in S3 (multiple agents can share a skill set)
+_AGENT_SKILL_MAP = {
+    "agentis_ios_designer": "ios-designer",
+    # Future: "agentis_frontend_dev": "frontend-dev", etc.
+}
+_agent_name_from_prompt_key = os.path.basename(_prompt_s3_key).replace(".txt", "") if _prompt_s3_key else ""
+_skill_set = _AGENT_SKILL_MAP.get(_agent_name_from_prompt_key, "")
+
+if _skill_set and ARTIFACT_BUCKET:
+    import pathlib
+    _skills_prefix = f"skills/{_skill_set}/"
+    _skills_dir = pathlib.Path("/tmp/.claude/skills")
+    try:
+        _s3_skills = boto3.client("s3", region_name=REGION)
+        _paginator = _s3_skills.get_paginator("list_objects_v2")
+        _count = 0
+        for page in _paginator.paginate(Bucket=ARTIFACT_BUCKET, Prefix=_skills_prefix):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                rel_path = key[len(_skills_prefix):]  # e.g., "swiftui-patterns/SKILL.md"
+                local_path = _skills_dir / rel_path
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                _s3_skills.download_file(ARTIFACT_BUCKET, key, str(local_path))
+                _count += 1
+        logger.info(f"Loaded {_count} Claude Code skill files for role '{_skill_set}' → /tmp/.claude/skills/")
+    except Exception as _e:
+        logger.warning(f"Failed to load Claude Code skills from S3: {_e}")
 
 # --- Model with custom timeout (THE FIX) ---
 boto_config = BotocoreConfig(
@@ -454,16 +485,40 @@ def WorkflowOutput___submit_ticket_plan(workflow_id: str, epic_id: str, tickets:
     })
 
 
-# ─── Skill Loader Tool ────────────────────────────────────────────────────────
+# ─── Blueprint Loader Tool ────────────────────────────────────────────────────
+# Blueprints are process/workflow instructions that tell the agent HOW to do its job.
+# Stored in S3 at: s3://{ARTIFACT_BUCKET}/blueprints/{name}.md
+# This is distinct from Claude Code skills (domain knowledge for code generation).
 
 @tool
-def SkillLoader___load_skill(skill_name: str) -> str:
-    """Load detailed skill instructions for a specific agent role.
+def load_blueprint(blueprint_name: str) -> str:
+    """Load a process blueprint with step-by-step workflow instructions for your role.
+
+    Call this FIRST when starting a new ticket to get your detailed process instructions.
+    Blueprints tell you HOW to approach your work (e.g., what tools to use, what order
+    to follow, what artifacts to produce). They are different from domain knowledge —
+    domain expertise is handled by Claude Code's pre-loaded skills.
 
     Args:
-        skill_name: Name of the skill to load (e.g., 'security_reviewer', 'ios_designer')
+        blueprint_name: Name of the blueprint to load (e.g., 'ios-designer', 'backend-dev')
     """
-    return _invoke_lambda(SKILL_LOADER_LAMBDA, "SkillLoader___load_skill", {"skill_name": skill_name})
+    if not ARTIFACT_BUCKET:
+        return "ERROR: No artifact bucket configured. Cannot load blueprint."
+    s3_key = f"blueprints/{blueprint_name}.md"
+    try:
+        s3 = boto3.client("s3", region_name=REGION)
+        resp = s3.get_object(Bucket=ARTIFACT_BUCKET, Key=s3_key)
+        return resp["Body"].read().decode("utf-8")
+    except s3.exceptions.NoSuchKey:
+        # List available blueprints so the agent knows what's there
+        try:
+            objs = s3.list_objects_v2(Bucket=ARTIFACT_BUCKET, Prefix="blueprints/", Delimiter="/")
+            available = [o["Key"].replace("blueprints/", "").replace(".md", "") for o in objs.get("Contents", [])]
+            return f"Blueprint '{blueprint_name}' not found. Available: {', '.join(available)}"
+        except Exception:
+            return f"Blueprint '{blueprint_name}' not found at s3://{ARTIFACT_BUCKET}/{s3_key}"
+    except Exception as e:
+        return f"ERROR loading blueprint: {e}"
 
 
 # ─── External Tool Integration (via MCP — GitHub, GitLab, Jira, etc.) ────────
@@ -556,7 +611,7 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
             cwd=working_directory,
             capture_output=True,
             text=True,
-            timeout=540,  # 9 min (leave 1 min buffer for agent to process result)
+            timeout=900,  # 15 min — claude_code needs room for complex tasks
             env={
                 **os.environ,
                 "CLAUDE_CODE_ENTRYPOINT": "agentis-pipeline",
@@ -575,7 +630,7 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
         return output if output else f"Claude Code exited with code {result.returncode}. Stderr: {result.stderr[-300:]}"
 
     except subprocess.TimeoutExpired:
-        return "ERROR: Claude Code timed out after 540 seconds. The task may be too complex for a single delegation — break it into smaller steps."
+        return "ERROR: Claude Code timed out after 900 seconds. The task may be too complex for a single delegation — break it into smaller steps."
     except FileNotFoundError:
         return "ERROR: 'claude' CLI not found in this environment. Falling back — use shell, editor, and file_write tools directly."
     except Exception as e:
@@ -602,8 +657,8 @@ LAMBDA_TOOLS = [
     WorkflowOutput___report_completion,
     WorkflowOutput___save_design_doc,
     WorkflowOutput___submit_ticket_plan,
-    # Skills (Lambda-backed)
-    SkillLoader___load_skill,
+    # Blueprint (Lambda-backed) — process/workflow instructions for the agent's role
+    load_blueprint,
     # GitHub tools come from MCPClient (remote MCP) — not Lambda-backed
 ]
 
