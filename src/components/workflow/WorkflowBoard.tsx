@@ -635,12 +635,18 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const nudgeFiredRef = useRef<string>(""); // tracks workflowId+phase to avoid repeat nudges
   const [isStale, setIsStale] = useState(false);
   // Track total streaming length to detect NEW content (not just presence of old keys)
-  const prevStreamingLenRef = useRef(0);
+  // Initialize to -1 as sentinel: first effect run seeds the baseline without resetting activity
+  const prevStreamingLenRef = useRef(-1);
   // Update activity timestamp only on ACTUAL new streaming (not just status="running" in DDB)
   // A dead agent still has status="running" and stale keys in streamingText.
   useEffect(() => {
     if (!state || state.phase === "complete" || state.phase === "error") return;
     const totalLen = Object.values(streamingText).reduce((sum, t) => sum + t.length, 0);
+    // First run: seed baseline from whatever is already in streamingText (stale content from dead agent)
+    if (prevStreamingLenRef.current === -1) {
+      prevStreamingLenRef.current = totalLen;
+      return;
+    }
     if (totalLen > prevStreamingLenRef.current) {
       prevStreamingLenRef.current = totalLen;
       lastActivityRef.current = Date.now();
