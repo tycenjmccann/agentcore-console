@@ -25,7 +25,7 @@ cp "$SCRIPT_DIR/requirements.txt" "$DEPLOY_DIR/"
 cd "$DEPLOY_DIR"
 
 agentcore configure \
-  -e "main.py" \
+  -e "opentelemetry-instrument,main.py" \
   -n "$AGENT_NAME" \
   -er "$ROLE_ARN" \
   -rf requirements.txt \
