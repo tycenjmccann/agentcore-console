@@ -16,6 +16,7 @@ interface AgentOutputPanelProps {
   workflowId?: string;
   triggerRef?: React.RefObject<HTMLElement | null>;
   lastToolName?: string;
+  lastEvent?: string; // Human-readable last event from the SSE stream (from DDB)
   lastActivityTime?: number; // Date.now() timestamp of last streaming activity
   staleThreshold?: number; // ms — threshold for stale detection (720_000 or 180_000)
 }
@@ -42,6 +43,7 @@ export default function AgentOutputPanel({
   workflowId,
   triggerRef,
   lastToolName,
+  lastEvent,
   lastActivityTime,
   staleThreshold,
 }: AgentOutputPanelProps) {
@@ -399,52 +401,38 @@ export default function AgentOutputPanel({
           return (
             <div className="modal-footer">
               <div className="flex items-center gap-3">
-                {/* Last tool event */}
-                {isRunningAgent && displayTool && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--pipeline-text-dim)" }}>
-                      Last tool
-                    </span>
-                    <span
-                      className="px-2 py-0.5 rounded text-xs font-mono"
-                      style={{
-                        background: "rgba(99, 102, 241, 0.15)",
-                        color: "#a5b4fc",
-                        border: "1px solid rgba(99, 102, 241, 0.3)",
-                      }}
-                    >
-                      {displayTool}
-                    </span>
-                  </div>
-                )}
-                {/* Activity timer — always show for running agents */}
+                {/* Status */}
+                <span className="text-xs font-medium" style={{ color: isStale ? "#ef4444" : "#22c55e" }}>
+                  {isStale ? "STUCK" : isRunningAgent ? "ACTIVE" : task.status.toUpperCase()}
+                </span>
+
+                {/* Idle timer */}
                 {isRunningAgent && lastActivityTime && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--pipeline-text-dim)" }}>
-                      {isStale ? "Stuck" : "Idle"}
-                    </span>
-                    <span
-                      className="px-2 py-0.5 rounded text-xs font-mono font-bold tabular-nums"
-                      style={{
-                        color: timerColor,
-                        textShadow: timerGlow,
-                        transition: "color 0.5s, text-shadow 0.5s",
-                      }}
-                    >
-                      {formatTime(elapsedSec)}
-                    </span>
-                  </div>
-                )}
-                {/* Fallback: show timer even without lastActivityTime for running agents */}
-                {isRunningAgent && !lastActivityTime && (
-                  <span style={{ color: isStale ? "#ef4444" : "var(--pipeline-text-muted)" }}>
-                    {isStale ? "Agent unresponsive" : "Working..."}
+                  <span
+                    className="text-xs font-mono font-bold tabular-nums"
+                    style={{
+                      color: timerColor,
+                      textShadow: timerGlow,
+                      transition: "color 0.5s, text-shadow 0.5s",
+                    }}
+                  >
+                    {formatTime(elapsedSec)}
                   </span>
                 )}
-                {!isRunningAgent && (
-                  <span>Status: {task.status}</span>
+
+                {/* Last event from DB stream */}
+                {isRunningAgent && (lastEvent || displayTool) && (
+                  <span
+                    className="px-2 py-0.5 rounded text-xs font-mono truncate max-w-[300px]"
+                    style={{
+                      background: "rgba(99, 102, 241, 0.12)",
+                      color: "#a5b4fc",
+                      border: "1px solid rgba(99, 102, 241, 0.25)",
+                    }}
+                  >
+                    {lastEvent || (displayTool ? `Tool: ${displayTool}` : "")}
+                  </span>
                 )}
-                {task.branch && <span className="text-xs" style={{ color: "var(--pipeline-text-muted)" }}>Branch: {task.branch}</span>}
               </div>
               <div className="flex items-center gap-3">
                 {task.error && (

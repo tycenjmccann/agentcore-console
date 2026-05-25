@@ -503,17 +503,23 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           }
           return { ...s, agentTasks: tasks };
         });
+        if (event.agentId) {
+          setLastEventPerAgent((prev) => ({ ...prev, [event.agentId]: `Agent ${event.status}` }));
+        }
         break;
       case "agent_output":
         setStreamingText((prev) => ({
           ...prev,
           [event.agentId]: (prev[event.agentId] || "") + event.chunk,
         }));
+        setLastEventPerAgent((prev) => ({ ...prev, [event.agentId]: "Streaming text..." }));
         break;
       case "tool_use": {
         // Track last tool per agent for tiered stale detection
         if (event.agentId && event.toolName) {
           lastToolPerAgentRef.current[event.agentId] = event.toolName;
+          const displayName = event.toolName.replace(/___/g, " → ").replace(/_/g, " ");
+          setLastEventPerAgent((prev) => ({ ...prev, [event.agentId]: `Tool: ${displayName}` }));
         }
         // Flash the corresponding icon/item in the pipeline
         const resolved = resolveToolIcon(event.toolName);
@@ -640,6 +646,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const [isStale, setIsStale] = useState(false);
   // Track last tool called per agent — used for tiered stale thresholds
   const lastToolPerAgentRef = useRef<Record<string, string>>({});
+  // Track last event description per agent — displayed in panel footer
+  const [lastEventPerAgent, setLastEventPerAgent] = useState<Record<string, string>>({});
   // Manual override: user can click status dot to force-mark an agent as stuck
   const [manualStaleAgents, setManualStaleAgents] = useState<Set<string>>(new Set());
   // Track total streaming length to detect NEW content (not just presence of old keys)
@@ -1133,6 +1141,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           isStale={(isStale || (!!expandedAgent && manualStaleAgents.has(expandedAgent))) && !!expandedAgent && (Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.status === "running")}
           workflowId={workflowId}
           lastToolName={expandedAgent ? lastToolPerAgentRef.current[expandedAgent] : undefined}
+          lastEvent={expandedAgent ? lastEventPerAgent[expandedAgent] : undefined}
           lastActivityTime={lastActivityRef.current}
           staleThreshold={expandedAgent && lastToolPerAgentRef.current[expandedAgent] === "claude_code" ? 720_000 : 180_000}
           task={expandedAgent ? {
