@@ -185,15 +185,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                       lastEventIdRef.current = lastEv.eventId || "";
                       setReplayMode(true);
                       setReplayEvents(evData.events);
-                      // Dynamic speed: catch-up should take ~4s max regardless of event count/duration
-                      // Calculate based on total time span of events
-                      const firstTs = new Date(evData.events[0].timestamp || 0).getTime();
-                      const lastTs = new Date(lastEv.timestamp || 0).getTime();
-                      const totalSpanMs = Math.max(1000, lastTs - firstTs);
-                      const targetDurationMs = 4000; // 4 seconds target
-                      // Speed = timeSpan / target, floored at 20x, no ceiling (let it rip for long runs)
-                      const dynamicSpeed = Math.max(20, totalSpanMs / targetDurationMs);
-                      setPlaybackSpeed(dynamicSpeed);
+                      // Catch-up uses uniform spacing (3s / eventCount) — no speed calc needed
+                      setPlaybackSpeed(1);
                       setIsPlaying(true);
                     } else {
                       // No historical events — go straight to live
@@ -312,15 +305,17 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         }
         return;
       }
-      const currentTs = new Date(replayEvents[currentIdx].timestamp || 0).getTime();
-      const nextTs = new Date(replayEvents[currentIdx + 1].timestamp || 0).getTime();
-      // Real delay between events, compressed by playback speed
-      // During catch-up: lower the floor so long runs finish in ~4s
-      // Normal replay: 50ms floor for smooth visual pacing
-      const minDelay = catchingUp ? Math.max(3, 4000 / replayEvents.length) : 50;
-      const maxDelay = catchingUp ? 200 : 2000;
-      const realDelay = Math.max(0, nextTs - currentTs);
-      const delay = Math.min(maxDelay, Math.max(minDelay, realDelay / playbackSpeed));
+      let delay: number;
+      if (catchingUp) {
+        // Catch-up: uniform spacing, always finishes in 3 seconds total
+        delay = 3000 / replayEvents.length;
+      } else {
+        // Normal replay: timestamp-based with playback speed
+        const currentTs = new Date(replayEvents[currentIdx].timestamp || 0).getTime();
+        const nextTs = new Date(replayEvents[currentIdx + 1].timestamp || 0).getTime();
+        const realDelay = Math.max(0, nextTs - currentTs);
+        delay = Math.min(2000, Math.max(50, realDelay / playbackSpeed));
+      }
 
       replayTimerRef.current = setTimeout(() => {
         if (stopped) return;
