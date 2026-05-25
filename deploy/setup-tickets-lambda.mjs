@@ -1,23 +1,22 @@
 #!/usr/bin/env node
 /**
- * setup-jira-mock.mjs
+ * setup-tickets-lambda.mjs
  *
- * Deploys the mock Jira MCP server:
+ * Deploys the DynamoDB-backed ticket tools Lambda:
  *   1. Creates DynamoDB table (agentis-tickets)
  *   2. Creates IAM role for the Lambda
- *   3. Deploys the Lambda function (jira-mock)
+ *   3. Deploys the Lambda function (agentis-tickets)
  *   4. Prints gateway target definitions to register
  *
  * Usage:
- *   node deploy/setup-jira-mock.mjs \
- *     --gateway-id <your-gateway-id> \
+ *   node deploy/setup-tickets-lambda.mjs \
+ *     [--gateway-id <your-gateway-id>] \
  *     [--region us-east-1] \
  *     [--table-name agentis-tickets] \
  *     [--project-key TEAM]
  *
  * Prerequisites:
  *   - AWS credentials configured
- *   - An existing AgentCore gateway
  */
 
 import { readFileSync } from "fs";
@@ -38,25 +37,15 @@ const REGION = getArg("region") || process.env.AWS_REGION || "us-east-1";
 const GATEWAY_ID = getArg("gateway-id");
 const TABLE_NAME = getArg("table-name") || "agentis-tickets";
 const PROJECT_KEY = getArg("project-key") || "TEAM";
-const LAMBDA_NAME = "agentis-jira-mock";
-const ROLE_NAME = "AgentisJiraMockRole";
+const LAMBDA_NAME = "agentis-tickets";
+const ROLE_NAME = "AgentisTicketsLambdaRole";
 
-if (!GATEWAY_ID) {
-  console.error(`
-Usage:
-  node deploy/setup-jira-mock.mjs \\
-    --gateway-id <your-gateway-id> \\
-    [--region us-east-1] \\
-    [--table-name agentis-tickets] \\
-    [--project-key TEAM]
-`);
-  process.exit(1);
-}
+// gateway-id is optional — if not provided, skip gateway target registration
 
 // --- Dynamic imports ---
 const { DynamoDBClient, CreateTableCommand, DescribeTableCommand } = await import("@aws-sdk/client-dynamodb");
 const { IAMClient, CreateRoleCommand, PutRolePolicyCommand, GetRoleCommand } = await import("@aws-sdk/client-iam");
-const { LambdaClient, CreateFunctionCommand, GetFunctionCommand, UpdateFunctionCodeCommand } = await import("@aws-sdk/client-lambda");
+const { LambdaClient, CreateFunctionCommand, GetFunctionCommand, UpdateFunctionCodeCommand, InvokeCommand } = await import("@aws-sdk/client-lambda");
 
 const ddb = new DynamoDBClient({ region: REGION });
 const iam = new IAMClient({ region: REGION });
@@ -79,7 +68,7 @@ console.log("");
 // ============================================================
 // Step 1: Create DynamoDB Table
 // ============================================================
-console.log("1/4 Creating DynamoDB table...");
+console.log("1/5 Creating DynamoDB table...");
 
 try {
   await ddb.send(new DescribeTableCommand({ TableName: TABLE_NAME }));
@@ -130,7 +119,7 @@ try {
 // ============================================================
 // Step 2: Create IAM Role
 // ============================================================
-console.log("\n2/4 Creating IAM role...");
+console.log("\n2/5 Creating IAM role...");
 
 const trustPolicy = JSON.stringify({
   Version: "2012-10-17",
@@ -203,11 +192,11 @@ console.log(`   ✓ Policy attached (DynamoDB + CloudWatch Logs)`);
 // ============================================================
 // Step 3: Deploy Lambda
 // ============================================================
-console.log("\n3/4 Deploying Lambda function...");
+console.log("\n3/5 Deploying Lambda function...");
 
 // Zip the Lambda code
-const lambdaDir = join(__dirname, "..", "lambda", "jira-mock");
-const zipPath = "/tmp/jira-mock.zip";
+const lambdaDir = join(__dirname, "..", "lambda", "agentis-tickets");
+const zipPath = "/tmp/agentis-tickets.zip";
 execSync(`cd "${lambdaDir}" && zip -j "${zipPath}" index.mjs`, { stdio: "pipe" });
 const zipBuffer = readFileSync(zipPath);
 
@@ -236,7 +225,7 @@ try {
         MemorySize: 256,
         Environment: {
           Variables: {
-            JIRA_TABLE_NAME: TABLE_NAME,
+            TICKETS_TABLE: TABLE_NAME,
             PROJECT_KEY: PROJECT_KEY,
             AWS_REGION_OVERRIDE: REGION,
           },
@@ -252,16 +241,67 @@ try {
 }
 
 // ============================================================
-// Step 4: Print Gateway Target Definitions
+// Step 4: Verify Lambda
 // ============================================================
-console.log("\n4/4 Gateway target registration...");
+console.log("\n4/5 Verifying Lambda (test invocation)...");
+
+try {
+  const testPayload = JSON.stringify({
+    _tool_name: "create_ticket",
+    parameters: {
+      title: "Setup verification test",
+      summary: "Automated test from setup script — safe to delete",
+      assignee: "system-verify",
+      type: "task",
+    },
+  });
+
+  const invokeResult = await lambda.send(new InvokeCommand({
+    FunctionName: LAMBDA_NAME,
+    Payload: Buffer.from(testPayload),
+  }));
+
+  const responsePayload = JSON.parse(Buffer.from(invokeResult.Payload).toString());
+
+  if (invokeResult.FunctionError) {
+    console.log(`   ⚠ Lambda returned error: ${responsePayload.errorMessage || "unknown"}`);
+  } else if (responsePayload.key) {
+    console.log(`   ✓ Lambda responded — created ticket: ${responsePayload.key}`);
+  } else if (responsePayload.content?.[0]?.text) {
+    console.log(`   ⚠ Lambda returned: ${responsePayload.content[0].text}`);
+  } else {
+    console.log(`   ⚠ Unexpected response format: ${JSON.stringify(responsePayload).slice(0, 100)}`);
+  }
+} catch (err) {
+  console.log(`   ⚠ Verification invoke failed: ${err.message}`);
+  console.log(`   (Lambda may need a few seconds to become active)`);
+}
+
+// ============================================================
+// Step 5: Gateway Target Definitions (optional)
+// ============================================================
+if (!GATEWAY_ID) {
+  console.log("\n5/5 Gateway target registration — SKIPPED (no --gateway-id provided)");
+  console.log("    Agents invoke this Lambda directly via TICKET_TOOLS_LAMBDA env var.");
+  console.log("\n" + "═".repeat(60));
+  console.log("✅ Tickets Lambda deployed and verified!");
+  console.log("═".repeat(60));
+  console.log(`
+Next steps:
+  1. Set TICKET_TOOLS_LAMBDA=agentis-tickets in .env.local (or on your agents)
+  2. The Workflow tab will use this Lambda for ticket operations
+`);
+  process.exit(0);
+}
+
+console.log("\n5/5 Gateway target registration...");
 console.log("─".repeat(60));
 console.log(`\nRegister these tools as gateway targets on gateway "${GATEWAY_ID}":`);
 console.log(`Lambda ARN: ${lambdaArn}\n`);
 
 const tools = [
   {
-    name: "JiraIntegration___create_epic",
+    name: "Tickets___create_epic",
     description: "Create a new epic (feature container) in the project tracker. Returns the epic ID.",
     inputSchema: {
       type: "object",
@@ -274,7 +314,7 @@ const tools = [
     },
   },
   {
-    name: "JiraIntegration___create_ticket",
+    name: "Tickets___create_ticket",
     description: "Create a task/story ticket assigned to a specific agent. Returns the ticket ID immediately.",
     inputSchema: {
       type: "object",
@@ -291,7 +331,7 @@ const tools = [
     },
   },
   {
-    name: "JiraIntegration___update_ticket",
+    name: "Tickets___update_ticket",
     description: "Update fields on an existing ticket (title, description, assignee, status).",
     inputSchema: {
       type: "object",
@@ -307,7 +347,7 @@ const tools = [
     },
   },
   {
-    name: "JiraIntegration___get_ticket",
+    name: "Tickets___get_ticket",
     description: "Get full details of a ticket including comments and status.",
     inputSchema: {
       type: "object",
@@ -318,7 +358,7 @@ const tools = [
     },
   },
   {
-    name: "JiraIntegration___list_tickets",
+    name: "Tickets___list_tickets",
     description: "List tickets filtered by parent epic, assignee, workflow, or status.",
     inputSchema: {
       type: "object",
@@ -331,7 +371,7 @@ const tools = [
     },
   },
   {
-    name: "JiraIntegration___add_comment",
+    name: "Tickets___add_comment",
     description: "Add a comment to a ticket (progress update, question, finding).",
     inputSchema: {
       type: "object",
@@ -344,7 +384,7 @@ const tools = [
     },
   },
   {
-    name: "JiraIntegration___transition_ticket",
+    name: "Tickets___transition_ticket",
     description: "Move a ticket to a new status. Use transition_id for named transitions (e.g., 'skip', 'done', 'start') or to_status for direct status changes.",
     inputSchema: {
       type: "object",
@@ -393,7 +433,7 @@ console.log("═".repeat(60));
 console.log(`
 Next steps:
   1. Register the gateway targets (see above)
-  2. Update agent prompts to use JiraIntegration___create_ticket instead of submit_ticket_plan
+  2. Update agent prompts to use Tickets___create_ticket instead of submit_ticket_plan
   3. Update engine.ts to observe DynamoDB state instead of reading S3 ticket plans
   4. To swap for real Jira later: replace this gateway target with the real Jira MCP server
 `);

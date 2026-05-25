@@ -88,7 +88,7 @@ Create tickets in phases with dependencies:
 3. Follow the structured process from your skill (Phase 1-4) to analyze the feature
 4. Determine which agents from the roster are needed for this feature
 5. Write your requirements artifact to S3 via S3Storage___write_object (path: workflows/{workflow_id}/shared/requirements.md)
-6. CREATE TICKETS for each relevant agent using JiraIntegration___create_ticket:
+6. CREATE TICKETS for each relevant agent using Tickets___create_ticket:
    - For design agents: blocked_by="" (they run immediately)
    - For dev agents: blocked_by="DESIGN_TICKET_1,DESIGN_TICKET_2,..." (all design ticket IDs)
    - For QA: blocked_by="DEV_TICKET_1,DEV_TICKET_2,..." (all dev ticket IDs)
@@ -96,8 +96,8 @@ Create tickets in phases with dependencies:
    - ALWAYS set parent_id to the epic_id from your Workflow Context
    - ALWAYS set workflow_id to the workflow_id from your Workflow Context
    - Write detailed descriptions with requirements, acceptance criteria, file paths, and references
-7. Call JiraIntegration___add_comment on the epic with your roster evaluation summary
-8. Call JiraIntegration___transition_ticket on YOUR OWN ticket with transition_id "done"
+7. Call Tickets___add_comment on the epic with your roster evaluation summary
+8. Call Tickets___transition_ticket on YOUR OWN ticket with transition_id "done"
    - Your ticket ID is provided in your Workflow Context as "ticket_id"
 9. Call WorkflowOutput___report_completion when fully done
 
@@ -105,10 +105,10 @@ IMPORTANT: The epic_id, workflow_id, and your own ticket_id are all provided in 
 
 ## Available Tools
 - SkillLoader___load_skill: Load your detailed process instructions
-- JiraIntegration___create_ticket: Create a new ticket (title, description, parent_id, assignee, blocked_by, workflow_id)
-- JiraIntegration___transition_ticket: Transition ticket status ("done", "in_progress", "todo")
-- JiraIntegration___add_comment: Add comments to tickets
-- JiraIntegration___list_tickets: List tickets under an epic
+- Tickets___create_ticket: Create a new ticket (title, description, parent_id, assignee, blocked_by, workflow_id)
+- Tickets___transition_ticket: Transition ticket status ("done", "in_progress", "todo")
+- Tickets___add_comment: Add comments to tickets
+- Tickets___list_tickets: List tickets under an epic
 - S3Storage___read_object: Read PRD/mockup source files
 - S3Storage___write_object: Write requirements artifact
 - WorkflowOutput___report_completion: Signal you are finished
@@ -147,7 +147,7 @@ Output a markdown design document covering:
 - search_code: Find relevant patterns in the repo
 - WorkflowOutput___save_design_doc: Save your design document (call when done)
 - WorkflowOutput___report_completion: Signal you are finished
-- JiraIntegration___add_comment: Update your ticket with progress
+- Tickets___add_comment: Update your ticket with progress
 
 WORKFLOW: Load skill → Read context → View images → Produce design → save_design_doc → report_completion`,
 
@@ -183,7 +183,7 @@ Output a markdown design document covering:
 - search_code: Find existing patterns/services
 - WorkflowOutput___save_design_doc: Save your design document (call when done)
 - WorkflowOutput___report_completion: Signal you are finished
-- JiraIntegration___add_comment: Update your ticket with progress
+- Tickets___add_comment: Update your ticket with progress
 
 WORKFLOW: Load skill → Read context → View images → Produce design → save_design_doc → report_completion`,
 
@@ -231,7 +231,7 @@ Output a markdown design document covering:
 - search_code: Find relevant patterns/components in the repo
 - WorkflowOutput___save_design_doc: Save your design document (call when done)
 - WorkflowOutput___report_completion: Signal you are finished
-- JiraIntegration___add_comment: Update your ticket with progress
+- Tickets___add_comment: Update your ticket with progress
 
 WORKFLOW: Load skill → Read branding kit → Read context → View images → Produce design → save_design_doc → report_completion`,
 
@@ -284,7 +284,7 @@ Output a markdown security review covering:
 ## Available Tools
 - search_code: Find existing security patterns
 - get_file_contents: Review auth/middleware code
-- JiraIntegration___add_comment: Flag critical findings on tickets
+- Tickets___add_comment: Flag critical findings on tickets
 
 Write your review to S3 when complete.`,
 
@@ -387,7 +387,7 @@ Workflow:
 - create_or_update_file: Commit new/updated files
 - create_pull_request: Open pull request
 - search_code: Find relevant code patterns
-- JiraIntegration___add_comment: Update ticket with progress
+- Tickets___add_comment: Update ticket with progress
 
 When done, report: branch name, PR URL, files changed, test results.`,
 
@@ -434,7 +434,7 @@ Workflow:
 - create_or_update_file: Commit new/updated files
 - create_pull_request: Open pull request
 - search_code: Find relevant code patterns
-- JiraIntegration___add_comment: Update ticket with progress
+- Tickets___add_comment: Update ticket with progress
 
 When done, report: branch name, PR URL, files changed, test results.`,
 
@@ -494,7 +494,7 @@ Workflow:
 - create_or_update_file: Commit new/updated files
 - create_pull_request: Open pull request
 - search_code: Find relevant UI patterns
-- JiraIntegration___add_comment: Update ticket with progress
+- Tickets___add_comment: Update ticket with progress
 
 When done, report: branch name, PR URL, files changed, test results.
 
@@ -580,7 +580,7 @@ You are the LAST LINE OF DEFENSE before code ships. The dev agents say they're d
 - DO NOT report completion
 - Instead, create a fix ticket and block yourself:
 
-1. Call JiraIntegration___create_ticket with:
+1. Call Tickets___create_ticket with:
    - title: "Fix: {concise description of what's broken}"
    - description: Include ALL of the following:
      - What failed (expected vs actual)
@@ -593,7 +593,7 @@ You are the LAST LINE OF DEFENSE before code ships. The dev agents say they're d
    - parent_id: the epic ID from your workflow context
    - blocked_by: [] (empty — so the dev agent gets invoked immediately)
 
-2. Call JiraIntegration___transition_ticket on YOUR OWN ticket:
+2. Call Tickets___transition_ticket on YOUR OWN ticket:
    - ticket_id: your QA ticket ID
    - transition_id: "block"
    - blocked_by: ["{fix-ticket-id}"] (the ticket ID returned from step 1)
@@ -625,10 +625,10 @@ If your ticket description says "Fix:" tickets exist under the epic, this is a R
 ## Available Tools
 - SkillLoader___load_skill: Load QA process instructions
 - get_file_contents: Read code to understand implementation
-- JiraIntegration___create_ticket: Create fix tickets assigned to dev agents
-- JiraIntegration___transition_ticket: Block yourself on the fix ticket
-- JiraIntegration___add_comment: Document findings on tickets
-- JiraIntegration___list_tickets: Check existing tickets under the epic
+- Tickets___create_ticket: Create fix tickets assigned to dev agents
+- Tickets___transition_ticket: Block yourself on the fix ticket
+- Tickets___add_comment: Document findings on tickets
+- Tickets___list_tickets: Check existing tickets under the epic
 - WorkflowOutput___report_completion: Signal pass OR signal blocking on fix
 
 The workflow_id, epic_id, your ticket_id, and original mockup URLs will be provided in your context.`,
@@ -662,7 +662,7 @@ Your job:
 4. Determine root cause and which dev agent is responsible
 
 ### Phase 3: Create Fix Ticket
-1. Call JiraIntegration___create_ticket with:
+1. Call Tickets___create_ticket with:
    - title: "Fix: CI failure — {concise root cause}"
    - description: Include ALL of:
      - The exact error messages from CI
@@ -674,7 +674,7 @@ Your job:
    - parent_id: the epic ID
    - blocked_by: [] (immediately invocable)
 
-2. Call JiraIntegration___transition_ticket on YOUR OWN ticket:
+2. Call Tickets___transition_ticket on YOUR OWN ticket:
    - ticket_id: your CI ticket ID
    - transition_id: "block"
    - blocked_by: ["{fix-ticket-id}"]
@@ -700,10 +700,10 @@ Your job:
 - get_file_contents: Read source files to understand the error
 - pull_request_read: Get PR details
 - create_or_update_file: Fix files directly (for trivial fixes you can do yourself)
-- JiraIntegration___create_ticket: Create fix tickets for dev agents
-- JiraIntegration___transition_ticket: Block yourself on fix tickets
-- JiraIntegration___list_tickets: Check existing tickets under the epic
-- JiraIntegration___add_comment: Document CI findings
+- Tickets___create_ticket: Create fix tickets for dev agents
+- Tickets___transition_ticket: Block yourself on fix tickets
+- Tickets___list_tickets: Check existing tickets under the epic
+- Tickets___add_comment: Document CI findings
 - WorkflowOutput___report_completion: Signal pass or blocking on fix
 
 IMPORTANT: Be precise. Include exact error messages and file paths in fix tickets.

@@ -1,13 +1,10 @@
 import { defineConfig } from "@playwright/test";
 
 /**
- * Target the deployed App Runner site.
- * Set PLAYWRIGHT_BASE_URL in your environment (see .env.example).
+ * Target the deployed App Runner site or default to localhost for local dev.
+ * Set PLAYWRIGHT_BASE_URL in your environment to override (see .env.example).
  */
-const baseURL = process.env.PLAYWRIGHT_BASE_URL;
-if (!baseURL) {
-  throw new Error("PLAYWRIGHT_BASE_URL must be set (e.g. https://xxxxx.us-east-1.awsapprunner.com)");
-}
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000";
 
 export default defineConfig({
   testDir: "./tests",

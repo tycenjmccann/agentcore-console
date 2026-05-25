@@ -491,7 +491,7 @@ npm test 2>&1          # or: pytest, swift test, etc.
 - No security issues
 
 ### FAIL — Create Fix Ticket:
-1. Call JiraIntegration___create_ticket:
+1. Call Tickets___create_ticket:
    - title: "Fix: {specific issue}" (e.g., "Fix: dynamic Tailwind classes in MetricCard.tsx will be purged")
    - description: Include EXACT command output, file:line references, what's wrong, how to fix it
    - assignee: the dev agent who wrote the code
@@ -686,7 +686,7 @@ npm run build 2>&1 | grep -i "size\|chunk\|bundle"
 \`\`\`
 
 ### On FAIL — Create Fix Ticket:
-1. Call JiraIntegration___create_ticket:
+1. Call Tickets___create_ticket:
    - title: "Fix: CI — {specific failure}" (e.g., "Fix: CI — tsc reports 3 type errors in MetricCard.tsx")
    - description: EXACT error output, file:line, root cause, how to fix
    - assignee: responsible dev agent

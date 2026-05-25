@@ -11,7 +11,7 @@
 #   ./scripts/trace-workflow.sh wf_1779511526188_dvjiwq --verbose
 #
 # Output:
-#   1. Ticket creation timeline (jira-real Lambda)
+#   1. Ticket creation timeline (ticket tools Lambda)
 #   2. Webhook events received (orchestrator Lambda)
 #   3. Agent invocations (orchestrator Lambda)
 #   4. Agent completions (workflow-output Lambda)
@@ -33,7 +33,7 @@ REGION="${AWS_REGION:-us-east-1}"
 
 # Log groups
 LOG_ORCHESTRATOR="/aws/lambda/agentis-orchestrator"
-LOG_JIRA_REAL="/aws/lambda/agentis-jira-real"
+LOG_TICKET_TOOLS="/aws/lambda/${TICKET_TOOLS_LAMBDA:-agentis-tickets}"
 LOG_WORKFLOW_OUTPUT="/aws/lambda/agentis-workflow-output"
 LOG_AGENT_INVOKER="/aws/lambda/agentis-agent-invoker"
 
@@ -376,7 +376,7 @@ if [ -n "$BLOCKED_TICKETS" ]; then
   echo "$BLOCKED_TICKETS" | while read -r btid; do
     READY_HIT=$(grep "$btid.*ready\|ready.*$btid" "$OUTPUT_DIR/orchestrator_tickets.log" 2>/dev/null | head -1)
     if [ -n "$READY_HIT" ]; then
-      echo "  ⚠️  RACE: $btid was set 'blocked' by jira-real but received 'ready' webhook"
+      echo "  ⚠️  RACE: $btid was set 'blocked' by ticket tools but received 'ready' webhook"
       echo "      $READY_HIT" | awk -F'\t' '{print "      at ts=" $1}'
     fi
   done
@@ -389,7 +389,7 @@ if [ -n "$UNKNOWN" ]; then
   echo "$UNKNOWN" | head -5 | sed 's/^/      /'
 fi
 
-# Check for ghost tickets (tickets in orchestrator not in jira-real)
+# Check for ghost tickets (tickets in orchestrator not in ticket tools)
 ORCH_TICKETS=$(grep -oE "TEAM-[0-9]+" "$OUTPUT_DIR/orchestrator_wf.log" "$OUTPUT_DIR/orchestrator_tickets.log" 2>/dev/null | sort -u)
 JIRA_TICKETS=$(grep -oE "TEAM-[0-9]+" "$OUTPUT_DIR/jira_real.log" 2>/dev/null | sort -u)
 
@@ -397,7 +397,7 @@ if [ -n "$ORCH_TICKETS" ] && [ -n "$JIRA_TICKETS" ]; then
   GHOSTS=$(comm -23 <(echo "$ORCH_TICKETS") <(echo "$JIRA_TICKETS") 2>/dev/null)
   if [ -n "$GHOSTS" ]; then
     GHOST_COUNT=$(echo "$GHOSTS" | wc -l | tr -d ' ')
-    echo "  ⚠️  GHOST TICKETS: $GHOST_COUNT ticket(s) in orchestrator but NOT in jira-real logs:"
+    echo "  ⚠️  GHOST TICKETS: $GHOST_COUNT ticket(s) in orchestrator but NOT in ticket tools logs:"
     echo "$GHOSTS" | sed 's/^/      /'
     echo "      (These may be from a previous run sharing the same epic)"
   fi

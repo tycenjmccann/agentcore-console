@@ -1,13 +1,12 @@
 /**
- * Jira Tools Lambda — dual-write to Jira Cloud AND DynamoDB.
+ * agentis-jira — Ticket tools Lambda for Jira Cloud.
  *
- * Jira is the ID authority (generates TEAM-XX keys).
- * DynamoDB gets the same record with the same key.
- * The orchestrator reads from ONE source based on TICKET_PROVIDER flag.
+ * Deploy this when TICKET_PROVIDER=jira.
+ * Agents call this Lambda to create/update/transition tickets in Jira.
  *
  * Env vars:
  *   JIRA_SITE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY
- *   AWS_REGION, JIRA_TABLE_NAME (DynamoDB tickets table)
+ *   AWS_REGION, TICKETS_TABLE (optional DynamoDB mirror)
  */
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
@@ -26,7 +25,7 @@ const AUTH = `Basic ${Buffer.from(`${EMAIL}:${TOKEN}`).toString("base64")}`;
 // ─── DynamoDB Config ─────────────────────────────────────────────────────────
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TABLE_NAME = process.env.JIRA_TABLE_NAME || "agentis-tickets";
+const TABLE_NAME = process.env.TICKETS_TABLE || "agentis-tickets";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },
@@ -487,6 +486,18 @@ function mapIssue(issue) {
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 const TOOLS = {
+  Tickets___create_ticket: createTicket,
+  Tickets___transition_ticket: transitionTicket,
+  Tickets___update_ticket: updateTicket,
+  Tickets___list_tickets: listTickets,
+  Tickets___add_comment: addComment,
+  Tickets___search_issues: searchIssues,
+  Tickets___get_issue: getIssue,
+  Tickets___get_transitions: getTransitions,
+  Tickets___list_projects: listProjects,
+  Tickets___get_project_issue_types: getProjectIssueTypes,
+  Tickets___lookup_user: lookupUser,
+  // Backward compat: accept old prefix during transition
   JiraIntegration___create_ticket: createTicket,
   JiraIntegration___transition_ticket: transitionTicket,
   JiraIntegration___update_ticket: updateTicket,

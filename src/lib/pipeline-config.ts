@@ -40,13 +40,13 @@ export const TOOL_ICON_MAP: Record<string, { icon: string; label: string }> = {
   "WorkflowOutput___report_completion": { icon: "agentcore", label: "Report Complete" },
   "WorkflowOutput___save_design_doc": { icon: "agentcore", label: "Save Design" },
 
-  // Jira tools
-  "JiraIntegration___create_ticket": { icon: "jira", label: "Jira Create" },
-  "JiraIntegration___transition_ticket": { icon: "jira", label: "Jira Transition" },
-  "JiraIntegration___update_ticket": { icon: "jira", label: "Jira Update" },
-  "JiraIntegration___list_tickets": { icon: "jira", label: "Jira List" },
-  "JiraIntegration___add_comment": { icon: "jira", label: "Jira Comment" },
-  "JiraIntegration___search_issues": { icon: "jira", label: "Jira Search" },
+  // Ticket tools
+  "Tickets___create_ticket": { icon: "ticket", label: "Create Ticket" },
+  "Tickets___transition_ticket": { icon: "ticket", label: "Transition Ticket" },
+  "Tickets___update_ticket": { icon: "ticket", label: "Update Ticket" },
+  "Tickets___list_tickets": { icon: "ticket", label: "List Tickets" },
+  "Tickets___add_comment": { icon: "ticket", label: "Add Comment" },
+  "Tickets___search_issues": { icon: "ticket", label: "Search Tickets" },
 
   // Code interpreter (AgentCore sandbox)
   "code_interpreter": { icon: "codebuild", label: "Code Interpreter" },

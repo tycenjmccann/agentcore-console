@@ -11,26 +11,26 @@
 │ STEP 1: Workflow Start                                                       │
 │ Who:   App Runner (Next.js)                                                  │
 │ What:  POST /api/workflow/start                                              │
-│ Does:  Creates Jira epic + requirements ticket via agentis-jira-real Lambda  │
+│ Does:  Creates Jira epic + requirements ticket via agentis-tickets Lambda  │
 │ Logs:  App Runner stdout (CloudWatch: /aws/apprunner/agentis-hub/...)        │
 │ IDs:   Returns { workflowId, epicId }                                        │
 └───────────────────────────────────┬─────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ STEP 2: Ticket Creation (agentis-jira-real Lambda)                           │
-│ Who:   Lambda function agentis-jira-real                                     │
+│ STEP 2: Ticket Creation (agentis-tickets Lambda)                           │
+│ Who:   Lambda function agentis-tickets                                     │
 │ What:  Creates issue in Jira + writes to DDB (dual-write)                    │
 │ Does:  1. POST /rest/api/3/issue → gets TEAM-XXX key                         │
 │         2. POST /rest/api/3/issueLink (if blocked_by provided)               │
 │         3. POST /rest/api/3/issue/{id}/transitions → "Blocked" or "Ready"    │
 │         4. DDB PutItem with same TEAM-XXX key                                │
-│ Logs:  CloudWatch: /aws/lambda/agentis-jira-real                             │
+│ Logs:  CloudWatch: /aws/lambda/agentis-tickets                             │
 │ Key log patterns:                                                            │
-│   - "tool=JiraIntegration___create_ticket params={...}"  (input)             │
+│   - "tool=Tickets___create_ticket params={...}"  (input)             │
 │   - "Created TEAM-XXX in Jira + DDB. Status: blocked|todo"  (result)         │
 │   - "Could not transition TEAM-XXX to Blocked: ..."  (CRITICAL — silent fail)│
-│   - "tool=JiraIntegration___transition_ticket params={...}"                   │
+│   - "tool=Tickets___transition_ticket params={...}"                   │
 └───────────────────────────────────┬─────────────────────────────────────────┘
                                     │
                                     ▼
@@ -55,7 +55,7 @@
 │ Who:   Lambda function agentis-orchestrator                                  │
 │ What:  Routes ticket status changes to appropriate handler                   │
 │ Does:                                                                        │
-│   - "todo": Logs and waits (Jira mode — jira-real will transition)           │
+│   - "todo": Logs and waits (Jira mode — ticket tools Lambda will transition)           │
 │   - "ready": Calls handleTicketReadyUnified → invokes agent                  │
 │   - "in_progress": Publishes agent.started event                             │
 │   - "done": Calls handleTicketDoneUnified → unblocks dependents              │
@@ -156,7 +156,7 @@
 | Component | CloudWatch Log Group | Correlation ID |
 |-----------|---------------------|----------------|
 | App Runner (Next.js) | `/aws/apprunner/agentis-hub/application` | workflowId in URL params |
-| Jira Tool Lambda | `/aws/lambda/agentis-jira-real` | Ticket IDs (TEAM-XXX) in log messages |
+| Jira Tool Lambda | `/aws/lambda/agentis-tickets` | Ticket IDs (TEAM-XXX) in log messages |
 | Orchestrator Lambda | `/aws/lambda/agentis-orchestrator` | Ticket IDs + "workflowId=" in handleTicketReady |
 | Agent Invoker | `/aws/lambda/agentis-agent-invoker` | Session ID (contains workflowId) |
 | Workflow Output | `/aws/lambda/agentis-workflow-output` | ticketId + workflowId in payload |
@@ -171,7 +171,7 @@
 **Symptom**: Dev/QA/CI agents start before design agents finish
 **Root cause**: `blocked_by` not set, OR Jira "Blocked" transition failed silently
 **How to trace**:
-1. Check `agentis-jira-real` logs for the `create_ticket` call — was `blocked_by` in params?
+1. Check `agentis-tickets` logs for the `create_ticket` call — was `blocked_by` in params?
 2. Check the result — does it say `Status: blocked` or `Status: todo`?
 3. If `blocked`, check orchestrator logs — did a "ready" webhook arrive anyway?
 4. If yes → the "Blocked" transition in Jira failed (Jira workflow may not have that status)
@@ -205,7 +205,7 @@
 **Symptom**: Tickets with blockers fire immediately instead of waiting
 **Root cause**: Jira workflow missing the "Blocked" status or transitions to it
 **How to trace**:
-1. Check `jira-real` logs for `No "Blocked" transition available for TEAM-XXX`
+1. Check `ticket tools Lambda` logs for `No "Blocked" transition available for TEAM-XXX`
 2. Fix: Jira Project Settings → Board → Workflow — ensure all-to-all transitions exist (see README)
 
 ---

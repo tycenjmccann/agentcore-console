@@ -14,34 +14,122 @@ A web console for Amazon Bedrock AgentCore that dynamically discovers and intera
 
 - Node.js 18+
 - AWS credentials configured (via `~/.aws/credentials`, env vars, or IAM role)
-- At least one agent deployed to Bedrock AgentCore in your account
 
-## Quick Start
+## Setup (Progressive Stages)
+
+Each stage builds on the previous one. Every stage includes a built-in verification step so you know it worked before moving on.
 
 ```bash
 npm install
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000).
-
-## Configuration
-
-### Environment Variables
-
-```bash
 cp .env.example .env.local
 ```
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `AWS_REGION` | No | Defaults to `us-east-1` |
-| `HARNESS_EXECUTION_ROLE_ARN` | **Yes (for Deploy)** | IAM role ARN assigned to newly created harness agents. Must have Bedrock model invoke permissions. |
-| `BUILDER_AGENT_ID` | No | Harness ID of a deployed builder agent. Enables tool-powered builder chat. |
-| `GITHUB_PAT` | No | GitHub Personal Access Token. Pipeline agents use this to connect to GitHub's hosted MCP server. |
-| `MCP_SERVERS` | No | JSON array of MCP server configs: `[{"url":"...","headers":{...}}]`. For custom tooling beyond GitHub. |
+### Stage 1: Configuration
 
-The app uses the standard AWS credential chain — no secrets in env files.
+Choose your ticket provider and edit `.env.local`:
+
+| `TICKET_PROVIDER` | Backend | Orchestration Trigger | Best For |
+|---|---|---|---|
+| `dynamodb` | DynamoDB table | DynamoDB Streams (automatic) | Quick setup, no external dependencies |
+| `jira` | Jira Cloud | Jira webhooks (HTTP) | Production with existing Jira workflow |
+
+**Always required:**
+
+| Variable | Description |
+|----------|-------------|
+| `TICKET_PROVIDER` | `jira` or `dynamodb` |
+| `WORKFLOWS_TABLE` | DynamoDB table for workflow metadata (default: `agentis-workflows`) |
+| `EVENTS_TABLE` | DynamoDB table for real-time events (default: `agentis-events`) |
+| `ARTIFACT_BUCKET` | S3 bucket for agent outputs (convention: `agentis-artifacts-<ACCOUNT_ID>`) |
+| `GITHUB_PAT` | GitHub Personal Access Token for MCP tools (code push, PRs) |
+
+**For DynamoDB mode, also set:**
+
+| Variable | Description |
+|----------|-------------|
+| `TICKETS_TABLE` | DynamoDB tickets table (default: `agentis-tickets`) |
+| `TICKET_TOOLS_LAMBDA` | Set to `agentis-tickets` (the DynamoDB-backed Lambda) |
+
+**For Jira mode, also set:**
+
+| Variable | Description |
+|----------|-------------|
+| `JIRA_SITE_URL` | Your Jira site (e.g., `your-site.atlassian.net`) |
+| `JIRA_EMAIL` | Jira account email |
+| `JIRA_API_TOKEN` | Jira API token |
+| `JIRA_PROJECT_KEY` | Project key (e.g., `TEAM`) |
+| `TICKET_TOOLS_LAMBDA` | Set to `agentis-jira` (the Jira Cloud Lambda) |
+
+### Stage 2: Infrastructure (DynamoDB + S3)
+
+```bash
+# Create DynamoDB tables
+# Default: workflows + events tables (for Jira mode)
+# With --with-tickets: also creates tickets table with DynamoDB Streams (for DynamoDB mode)
+./scripts/create-dynamodb-tables.sh --with-tickets
+
+# Create S3 artifacts bucket
+aws s3 mb s3://agentis-artifacts-<ACCOUNT_ID> --region us-east-1
+```
+
+**Verify:**
+```bash
+./scripts/verify-infra.sh
+```
+
+### Stage 3: Tickets Lambda
+
+Deploys the Lambda that agents call to create/update/query tickets. The script creates the IAM role, deploys the code, and verifies with a test invocation.
+
+```bash
+node deploy/setup-tickets-lambda.mjs
+```
+
+Expected output: `✓ Lambda responded — created ticket: TEAM-1`
+
+### Stage 4: App Smoke Test
+
+```bash
+npm run dev    # Start the app
+npm test       # In another terminal — runs UI + API smoke tests (~15 seconds)
+```
+
+All tabs should load, all API routes should respond. The dashboard will show 0 agents until you deploy them.
+
+### Stage 5: Builder Agent
+
+Deploys the Builder Agent harness — enables the Build page for chat-based agent creation. The script creates the IAM role, deploys the harness, and verifies with a test invocation.
+
+```bash
+node deploy/setup-builder-agent.mjs
+```
+
+Expected output: `✓ Builder agent responded (XXX chars)`
+
+Add the output to `.env.local`:
+```bash
+BUILDER_AGENT_ID=agentis_builder-xxxxxxxxxx
+```
+
+### Stage 6: Agent Fleet (14 Agents)
+
+See [Deploying the Agent Fleet](#deploying-the-agent-fleet) below for full details.
+
+### Full Verification
+
+After all stages are complete, run the full verification suite:
+
+```bash
+./scripts/verify-all.sh
+```
+
+### Optional Variables
+
+| Variable | Description |
+|----------|-------------|
+| `AWS_REGION` | Defaults to `us-east-1` |
+| `HARNESS_EXECUTION_ROLE_ARN` | IAM role for creating new harness agents (enables Deploy button on Build page) |
+| `MCP_SERVERS` | JSON array of MCP server configs for custom tooling beyond GitHub |
 
 ## How It Works
 
@@ -53,7 +141,7 @@ The app uses the standard AWS credential chain — no secrets in env files.
 
 ## Tech Stack
 
-- Next.js 15 (App Router)
+- Next.js 14 (App Router)
 - TypeScript
 - Tailwind CSS
 - AWS SDKs: `@aws-sdk/client-bedrock-agentcore`, `@aws-sdk/client-bedrock-agentcore-control`, `@aws-sdk/client-bedrock-runtime`, `@aws-sdk/client-cloudwatch`, `@aws-sdk/client-cloudwatch-logs`
@@ -278,24 +366,34 @@ To configure:
 4. Filter: project = YOUR_PROJECT_KEY
 
 **Agent Jira Lambda** (separate infra, agents call Jira through this):
-- Function: `agentis-jira-real` — SAM-deployed Lambda
+- Function: `agentis-jira` — SAM-deployed Lambda (for Jira mode) or `agentis-tickets` (for DynamoDB mode)
 - Only invocable by `bedrock-agentcore.amazonaws.com`
-- Deploy: see `lambda/jira-real/` for the function code; deploy with SAM CLI
+- Deploy: see `lambda/agentis-jira/` for Jira mode or `lambda/agentis-tickets/` for DynamoDB mode
 
 ### Deploying the Agent Fleet
 
+**Prerequisites:**
+- Install the AgentCore CLI: `pip install "bedrock-agentcore-starter-toolkit>=0.1.21"`
+- `ARTIFACT_BUCKET` set in `.env.local` (prompts are uploaded to S3 for each agent)
+- `GITHUB_PAT` set in `.env.local` — agents need this for GitHub MCP tools (PRs, code push, file reads). Without it, agents can still run but cannot interact with GitHub.
+
+The script automatically creates the IAM execution role (`agentis-agentcore-role`) if it doesn't exist. It also configures:
+- `CLAUDE_CODE_USE_BEDROCK=1` — enables the Claude Code SDK tool to authenticate via Bedrock (no API key needed)
+- `GITHUB_PAT` — read from `.env.local` and passed to each agent for GitHub MCP access
+
 ```bash
-# Deploy all 14 agents (requires agentcore CLI configured)
+# Deploy all 14 agents (reads GITHUB_PAT from .env.local automatically)
 cd deploy/runtime-agent
 ./deploy-fleet.sh
 
-# With GitHub MCP tools attached
-GITHUB_PAT=ghp_xxx ./deploy-fleet.sh
-
-# With any MCP servers (JSON array)
+# With custom MCP servers (JSON array — overrides GITHUB_PAT shorthand)
 MCP_SERVERS='[{"url":"https://api.githubcopilot.com/mcp/","headers":{"Authorization":"Bearer ghp_xxx"}}]' \
   ./deploy-fleet.sh
 ```
+
+The script deploys all 14 agents (3 concurrent), then runs a health check that invokes each agent to verify it responds.
+
+Expected output: `Results: 14/14 passed, 0 failed`
 
 ### MCP Flexibility
 
@@ -361,7 +459,9 @@ See [`deploy/continuous-improvement/README.md`](deploy/continuous-improvement/RE
 
 ---
 
-## Routing Demo (Agent Skills)
+## Routing Demo (Agent Skills) — Optional
+
+> **This section is optional.** The Routing tab requires an AgentCore Gateway, which is not created by the setup scripts above. Skip this if you just want the core Build + Pipeline experience.
 
 The Routing tab demonstrates end-to-end agent orchestration with **dynamic skill loading**:
 
@@ -376,8 +476,10 @@ Each agent calls `load_skill` at runtime to get detailed instructions before pro
 ```bash
 node deploy/setup-routing-agents.mjs \
   --gateway-id <your-gateway-id> \
-  --harness-role-arn arn:aws:iam::ACCOUNT:role/YourHarnessRole
+  --harness-role-arn arn:aws:iam::ACCOUNT:role/agentis-harness-role
 ```
+
+> **Note:** If you ran `setup-builder-agent.mjs` first (Stage 5), the `agentis-harness-role` already exists and can be reused here.
 
 This creates:
 1. **Skill-loader Lambda** — serves skill instructions (ios-architecture, backend-systems, etc.)
@@ -416,21 +518,30 @@ DEV_AGENT_ID=routing_developer_v2-xxxxxxxxxx
 
 ## Production Deployment
 
+> **Note:** If you followed the Setup stages above, infrastructure (DynamoDB, S3, Lambda) is already created. This section covers deploying the app to a hosted environment instead of `localhost:3000`.
+
 This app is designed to be deployed into a customer's AWS environment. The AWS SDK credential chain means **zero code changes** are needed — just deploy where an IAM role is available.
 
 ### Infrastructure Prerequisites
 
-Create the required DynamoDB tables before deploying (run once per account):
+Create the required DynamoDB tables before deploying (run once per account — **skip if you already ran Stage 3**):
 
 ```bash
+# Default: creates workflows + events tables (for Jira ticket provider)
 ./scripts/create-dynamodb-tables.sh
+
+# With DynamoDB tickets table (for TICKET_PROVIDER=dynamodb)
+./scripts/create-dynamodb-tables.sh --with-tickets
 ```
 
-This creates two tables:
+This creates:
 - `agentis-workflows` — PK: `workflowId` (S), GSI: `epicId-index`
 - `agentis-events` — PK: `workflowId` (S), SK: `eventId` (S)
+- `agentis-tickets` *(only with `--with-tickets`)* — PK: `ticketId` (S), with DynamoDB Streams enabled for orchestration
 
-**No DynamoDB tickets table is needed.** Jira Cloud is the ticket store. The orchestrator Lambda reads/writes tickets via the Jira REST API.
+**Which mode should I use?**
+- `TICKET_PROVIDER=jira` — Jira Cloud is the ticket store. No tickets table needed.
+- `TICKET_PROVIDER=dynamodb` — DynamoDB is the ticket store. Pass `--with-tickets` to create the table.
 
 ### Deployment Options
 
@@ -498,18 +609,20 @@ Without this, Next.js cannot write its ISR/fetch cache at runtime, which causes 
 - `AgentisAppRunnerInstanceRole` — runtime permissions (DynamoDB, Bedrock, Lambda invoke, S3, CloudWatch Logs, BedrockAgentCore)
 
 Set environment variables on the App Runner service (via Console or `update-service`):
-- `ORCHESTRATION_MODE=lambda`
-- `TICKET_PROVIDER=jira`
+- `TICKET_PROVIDER=jira` (or `dynamodb`)
 - `WORKFLOWS_TABLE=agentis-workflows`
 - `EVENTS_TABLE=agentis-events`
 - `ARTIFACT_BUCKET=agentis-artifacts-<ACCOUNT_ID>-<REGION>` (e.g. `agentis-artifacts-123456789012-us-east-1`)
+- `GITHUB_PAT=ghp_xxx` (for MCP tools)
+- `TICKET_TOOLS_LAMBDA=agentis-jira` (or `agentis-tickets` for DynamoDB mode)
+
+For Jira mode, also set:
 - `JIRA_SITE_URL=your-site.atlassian.net`
 - `JIRA_EMAIL=you@company.com`
 - `JIRA_API_TOKEN=your-api-token`
 - `JIRA_PROJECT_KEY=TEAM`
-- `GITHUB_PAT=ghp_xxx` (for MCP tools)
 
-**Note:** No DynamoDB tickets table is needed when using Jira. The `agentis-jira-real` Lambda writes to Jira as the sole ticket store. DynamoDB writes in the Lambda will silently fail if no table exists — this is expected and harmless.
+**Note:** When using `TICKET_PROVIDER=jira`, deploy the `agentis-jira` Lambda. When using `TICKET_PROVIDER=dynamodb`, deploy the `agentis-tickets` Lambda. Set `TICKET_TOOLS_LAMBDA` on your agents to match whichever you deploy.
 
 #### Option B: AWS Amplify Hosting
 
@@ -712,3 +825,34 @@ npx playwright test tests/e2e-workflow-full.spec.ts --timeout 600000
 | `e2e-workflow-full` | Real workflow submission + phase progression |
 
 Screenshots are saved to `test-results/` on failure for debugging.
+
+### Agent Fleet Integration Test (Full Tool Validation)
+
+After deploying the fleet (Stage 6), run the comprehensive integration test that exercises **every tool** each agent has — 40 tests across 9 groups per agent:
+
+```bash
+# One-time setup: uploads S3 fixtures, validates Jira/GitHub access
+cd deploy/runtime-agent
+./setup-healthcheck.sh
+
+# Run full integration test (14 agents × 40 tests, ~10 minutes)
+python3 verify-fleet-invoke.py \
+  --fleet-file fleet-runtime-ids.json \
+  --timeout 540 \
+  --parallel 3
+
+# Test a single agent (faster iteration)
+python3 verify-fleet-invoke.py \
+  --fleet-file fleet-runtime-ids.json \
+  --agent agentis_requirements_analyst \
+  --timeout 540 --verbose
+```
+
+This validates:
+- Built-in Strands tools (shell, file_read, editor, python_repl, code_interpreter, browser, etc.)
+- Claude Code SDK integration
+- Lambda-backed tools (S3, Jira lifecycle, workflow output, skill loader)
+- GitHub MCP tools (branches, PRs, file commits)
+- Knowledge Base retrieve (if configured)
+
+Expected output: per-agent tool matrix showing pass/fail/missing for every tool, plus role-based validation ensuring each agent type has the tools it needs.

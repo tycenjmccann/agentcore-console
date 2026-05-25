@@ -19,7 +19,7 @@ import { DynamoDBDocumentClient, ScanCommand, UpdateCommand, GetCommand, PutComm
 import { S3Client, HeadObjectCommand } from "@aws-sdk/client-s3";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TICKETS_TABLE = process.env.JIRA_TABLE_NAME || "agentis-tickets";
+const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
 const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
 const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
 const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || "";

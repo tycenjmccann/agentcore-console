@@ -65,12 +65,12 @@ PROMPT_ENV="--env SYSTEM_PROMPT_S3_KEY=${PROMPT_S3_KEY}"
 OUTPUT=$(agentcore deploy \
   --auto-update-on-conflict \
   --env "BYPASS_TOOL_CONSENT=true" \
-  --env "GATEWAY_ARN=${GATEWAY_ARN:?Set GATEWAY_ARN to your AgentCore gateway ARN}" \
+  ${GATEWAY_ARN:+--env "GATEWAY_ARN=${GATEWAY_ARN}"} \
   --env "MODEL_ID=us.anthropic.claude-opus-4-6-v1" \
   --env "READ_TIMEOUT=600" \
   --env "AWS_REGION=us-east-1" \
   --env "EVENTS_TABLE=agentis-events" \
-  --env "JIRA_TOOLS_LAMBDA=agentis-jira-real" \
+  --env "TICKET_TOOLS_LAMBDA=${TICKET_TOOLS_LAMBDA:-agentis-tickets}" \
   --env "AGENTIS_ARTIFACT_BUCKET=${ARTIFACT_BUCKET}" \
   --env "CLAUDE_CODE_USE_BEDROCK=1" \
   --env "CLAUDE_MODEL=us.anthropic.claude-opus-4-6-v1" \

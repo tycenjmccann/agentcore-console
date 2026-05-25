@@ -65,7 +65,7 @@ These are passed via `--env` in deploy-one.sh and available inside the runtime a
 | `MODEL_ID` | `us.anthropic.claude-opus-4-6-v1` | Default model for agents |
 | `READ_TIMEOUT` | `600` | Bedrock invoke timeout (seconds) |
 | `EVENTS_TABLE` | `agentis-events` | DynamoDB table for streaming events |
-| `JIRA_TOOLS_LAMBDA` | `agentis-jira-real` | Lambda for Jira tool backend |
+| `TICKET_TOOLS_LAMBDA` | `agentis-tickets` or `agentis-jira` | Lambda for ticket operations (matches your TICKET_PROVIDER) |
 | `SYSTEM_PROMPT_S3_KEY` | `prompts/{agent_name}.txt` | S3 key for agent system prompt |
 | `BYPASS_TOOL_CONSENT` | `true` | Non-interactive tool execution |
 | `CLAUDE_CODE_USE_BEDROCK` | `1` | Claude Code uses Bedrock |

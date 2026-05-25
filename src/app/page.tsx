@@ -177,7 +177,7 @@ export default function DashboardPage() {
       {/* Jira Section */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">Jira</h3>
+          <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wide">Tickets · {process.env.NEXT_PUBLIC_TICKET_PROVIDER === "jira" ? "Jira" : "DynamoDB"}</h3>
           <select
             value={jira.timeframe}
             onChange={(e) => jira.setTimeframe(e.target.value as Timeframe)}

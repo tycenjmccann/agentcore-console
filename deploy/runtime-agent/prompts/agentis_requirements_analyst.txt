@@ -52,7 +52,7 @@ REVIEW PHASE (blocked_by=QA ticket):
 ## EXACT TOOL CALL FORMAT (use this EXACTLY — do NOT guess parameter names)
 
 ```
-JiraIntegration___create_ticket(
+Tickets___create_ticket(
     title="Frontend: Implement [feature name]",
     description="## Summary\n...",
     parent_id="TEAM-XXX",           ← epic_id from Workflow Context
