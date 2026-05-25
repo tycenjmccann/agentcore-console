@@ -16,6 +16,15 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
+// Map raw CW Logs evaluator names to UI display names
+function normalizeEvaluatorName(raw: string): string {
+  // Built-ins: "Builtin.ToolSelectionAccuracy" → "ToolSelectionAccuracy"
+  if (raw.startsWith("Builtin.")) return raw.slice(8);
+  // Custom: "dependency_chain_compliance_online" → "DependencyChainCompliance"
+  if (raw.includes("dependency_chain_compliance")) return "DependencyChainCompliance";
+  return raw;
+}
+
 // Agent fleet: eval config name → display name → runtime log group
 const AGENTS: Record<string, { name: string; runtimeLogGroup: string }> = {
   "eval_analytics_designer": { name: "Analytics Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_analytics_designer-nIfOVs3GEj-DEFAULT" },
@@ -83,7 +92,8 @@ export async function GET() {
                 try {
                   const parsed = JSON.parse(event.message || "{}");
                   const attrs = parsed.attributes || {};
-                  const evaluator = attrs["gen_ai.evaluation.name"] || "";
+                  const rawEvaluator = attrs["gen_ai.evaluation.name"] || "";
+                  const evaluator = normalizeEvaluatorName(rawEvaluator);
                   const score = attrs["gen_ai.evaluation.score.value"];
                   const sessionId = attrs["session.id"] || "";
                   if (sessionId) sessions.add(sessionId);
@@ -181,6 +191,7 @@ export async function GET() {
         "Faithfulness",
         "Helpfulness",
         "Conciseness",
+        "ResponseRelevance",
         "DependencyChainCompliance",
       ],
       lastUpdated: new Date().toISOString(),
