@@ -123,7 +123,7 @@ async function startWithDynamoDB(body: WorkflowInput) {
     throw new Error(`Failed to create epic in Jira: ${epicResult.error}`);
   }
 
-  const epicId = epicResult.ticketId;
+  const epicId = (epicResult.key || epicResult.ticketId) as string;
 
   // 2. Transition epic to in_progress in both systems
   await invokeTicketLambda("Tickets___transition_ticket", {
@@ -163,7 +163,7 @@ async function startWithDynamoDB(body: WorkflowInput) {
     throw new Error(`Failed to create requirements ticket: ${reqResult.error}`);
   }
 
-  const reqTicketId = reqResult.ticketId;
+  const reqTicketId = (reqResult.key || reqResult.ticketId) as string;
 
   console.log(`[start] Workflow ${workflowId} created. Epic: ${epicId}. Requirements ticket ${reqTicketId} will trigger first.`);
 
