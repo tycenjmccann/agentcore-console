@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, UpdateCommand, PutCommand, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
@@ -149,30 +149,6 @@ async function retryDynamoDB(workflowId: string, agentId: string) {
   return ticketId;
 }
 
-// ─── Retry via workflow record only (fallback when Jira creds unavailable) ───
-
-async function retryWorkflowOnly(workflowId: string, agentId: string, agentTasks: Record<string, Record<string, unknown>>) {
-  const ticketId = Object.keys(agentTasks).find((key) => {
-    const t = agentTasks[key];
-    return (t.agentId === agentId || t.assignee === agentId) &&
-      (t.status === "running" || t.status === "in_progress");
-  });
-
-  if (!ticketId) {
-    throw new Error(`No active ticket found for agent ${agentId}`);
-  }
-
-  await ddb.send(new UpdateCommand({
-    TableName: WORKFLOWS_TABLE,
-    Key: { workflowId },
-    UpdateExpression: "SET #at.#tid.#s = :s",
-    ExpressionAttributeNames: { "#at": "agentTasks", "#tid": ticketId, "#s": "status" },
-    ExpressionAttributeValues: { ":s": "ready" },
-  }));
-
-  return ticketId;
-}
-
 // ─── Route Handler ──────────────────────────────────────────────────────────
 
 export async function POST(
@@ -197,37 +173,13 @@ export async function POST(
     }
 
     const workflow = wfResult.Item;
-    const ticketProvider = workflow.ticketProvider || process.env.TICKET_PROVIDER || "dynamodb";
+    const ticketProvider = process.env.TICKET_PROVIDER || "dynamodb";
     const agentTasks = workflow.agentTasks || {};
 
-    // 2. Get last tool events for context
-    let toolSummary = "none recorded";
-    let lastEventTime = "unknown";
-    try {
-      const eventsResult = await ddb.send(new QueryCommand({
-        TableName: EVENTS_TABLE,
-        KeyConditionExpression: "workflowId = :wid",
-        ExpressionAttributeValues: { ":wid": workflowId },
-        ScanIndexForward: false,
-        Limit: 50,
-      }));
-      const agentEvents = (eventsResult.Items || [])
-        .filter(e => e.detail?.agentId === agentId && e.type === "agent.streaming" && e.detail?.type === "trace");
-      if (agentEvents.length > 0) {
-        toolSummary = agentEvents.slice(0, 10).map(e => e.detail?.toolName || "unknown").join(", ");
-        lastEventTime = agentEvents[0]?.timestamp || "unknown";
-      }
-    } catch {
-      // Non-critical
-    }
-
-    // 3. Execute retry based on provider (fall back to DDB if Jira not configured)
+    // 2. Execute retry based on TICKET_PROVIDER env var (set at deploy time)
     let ticketId: string;
-    if (ticketProvider === "jira" && getJiraAuth()) {
+    if (ticketProvider === "jira") {
       ticketId = await retryJira(workflowId, agentId, agentTasks);
-    } else if (ticketProvider === "jira" && !getJiraAuth()) {
-      // Jira workflow but no creds (local dev) — just reset in workflow record
-      ticketId = await retryWorkflowOnly(workflowId, agentId, agentTasks);
     } else {
       ticketId = await retryDynamoDB(workflowId, agentId);
     }
@@ -243,8 +195,6 @@ export async function POST(
           agentId,
           ticketId,
           reason: "manual_restart",
-          toolsUsedBefore: toolSummary,
-          lastEventTime,
         },
       },
     }));

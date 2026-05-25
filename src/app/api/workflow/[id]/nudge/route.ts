@@ -222,7 +222,7 @@ export async function POST(
     }
 
     const workflow = wfResult.Item;
-    const ticketProvider = workflow.ticketProvider || process.env.TICKET_PROVIDER || "dynamodb";
+    const ticketProvider = process.env.TICKET_PROVIDER || "dynamodb";
     const epicId = workflow.epicId;
 
     let result: { ticketsScanned: number; nudged: string[] };
