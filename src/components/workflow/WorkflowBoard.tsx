@@ -305,24 +305,37 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         }
         return;
       }
-      let delay: number;
       if (catchingUp) {
-        // Catch-up: uniform spacing, always finishes in 3 seconds total
-        delay = 3000 / replayEvents.length;
-        if (currentIdx === 0) console.log(`[catch-up] ${replayEvents.length} events, ${delay.toFixed(1)}ms each, ~3s total`);
+        // Catch-up: always finish in 3 seconds.
+        // Few events → slow ticks (one event per tick, spread over 3s)
+        // Many events → fast ticks (batch events per 16ms frame)
+        const TARGET_MS = 3000;
+        const MIN_TICK = 16; // browser frame budget
+        const tickDelay = Math.max(MIN_TICK, TARGET_MS / replayEvents.length);
+        const eventsPerTick = tickDelay <= MIN_TICK
+          ? Math.max(1, Math.round(replayEvents.length / (TARGET_MS / MIN_TICK)))
+          : 1;
+        if (currentIdx === 0) console.log(`[catch-up] ${replayEvents.length} events, ${eventsPerTick}/tick @ ${tickDelay.toFixed(0)}ms, ~3s total`);
+
+        replayTimerRef.current = setTimeout(() => {
+          if (stopped) return;
+          const nextIdx = Math.min(replayIndexRef.current + eventsPerTick, replayEvents.length - 1);
+          setReplayIndex(nextIdx);
+          scheduleNext();
+        }, tickDelay);
       } else {
         // Normal replay: timestamp-based with playback speed
         const currentTs = new Date(replayEvents[currentIdx].timestamp || 0).getTime();
         const nextTs = new Date(replayEvents[currentIdx + 1].timestamp || 0).getTime();
         const realDelay = Math.max(0, nextTs - currentTs);
-        delay = Math.min(2000, Math.max(50, realDelay / playbackSpeed));
-      }
+        const delay = Math.min(2000, Math.max(50, realDelay / playbackSpeed));
 
-      replayTimerRef.current = setTimeout(() => {
-        if (stopped) return;
-        setReplayIndex(replayIndexRef.current + 1);
-        scheduleNext();
-      }, delay);
+        replayTimerRef.current = setTimeout(() => {
+          if (stopped) return;
+          setReplayIndex(replayIndexRef.current + 1);
+          scheduleNext();
+        }, delay);
+      }
     };
 
     scheduleNext();
