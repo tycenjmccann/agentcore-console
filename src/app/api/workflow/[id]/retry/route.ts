@@ -183,6 +183,7 @@ export async function POST(
       TableName: EVENTS_TABLE,
       Item: {
         workflowId,
+        eventId: `${Date.now()}-retry-${Math.random().toString(36).slice(2, 6)}`,
         timestamp: new Date().toISOString(),
         type: "agent.retry",
         detail: {
