@@ -101,6 +101,8 @@ interface PhaseDisplayMeta {
   tools: PipelineDisplayItem[];
   skills: string[];
   outputs: PipelineDisplayItem[];
+  models: string[];
+  evaluationsEnabled: boolean;
 }
 
 export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
@@ -121,6 +123,8 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
     ],
     skills: [],
     outputs: [{ icon: "eventbridge", label: "Jira Epic Created (EventBridge)" }],
+    models: [],
+    evaluationsEnabled: false,
   },
   requirements: {
     name: "Requirements",
@@ -150,6 +154,8 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { icon: "s3", label: "S3 Artifacts" },
       { icon: "agentcore", label: "report_completion" },
     ],
+    models: ["Claude Opus 4"],
+    evaluationsEnabled: true,
   },
   design: {
     name: "Design",
@@ -183,6 +189,8 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { icon: "s3", label: "S3 Artifacts" },
       { icon: "agentcore", label: "save_design_doc" },
     ],
+    models: ["Claude Opus 4", "Claude Sonnet 4"],
+    evaluationsEnabled: true,
   },
   development: {
     name: "Development",
@@ -214,6 +222,8 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { icon: "github", label: "Git Commits / PRs" },
       { icon: "agentcore", label: "report_completion" },
     ],
+    models: ["Claude Opus 4", "Claude Sonnet 4"],
+    evaluationsEnabled: true,
   },
   qa: {
     name: "QA & Ship",
@@ -243,6 +253,8 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { icon: "s3", label: "S3 Artifacts" },
       { icon: "agentcore", label: "report_completion" },
     ],
+    models: ["Claude Opus 4", "Claude Sonnet 4"],
+    evaluationsEnabled: true,
   },
 };
 
@@ -274,6 +286,8 @@ export interface PipelinePhaseConfig {
   agents: PipelineAgentConfig[];
   skills: string[];
   outputs: PipelineDisplayItem[];
+  runtimeAgentCount: number;
+  harnessAgentCount: number;
 }
 
 // ─── Phase-to-agentPhase mapping ────────────────────────────────────────────
@@ -287,6 +301,47 @@ const AGENT_PHASE_TO_PIPELINE_PHASE: Record<string, PipelinePhaseId> = {
   verification: "qa",
   review: "qa",
 };
+
+// ─── Helper: Phase-level counts ─────────────────────────────────────────────
+
+const EXCLUDED_TOOLS = new Set(["gateway", "browser", "invoke_team_agent"]);
+
+/** Count unique tools for a phase, excluding "gateway", "browser", "invoke_team_agent" */
+export function getPhaseToolCount(phaseId: PipelinePhaseId): number {
+  const tools = new Set<string>();
+  for (const agent of agentsConfig.agents) {
+    const mappedPhase = AGENT_PHASE_TO_PIPELINE_PHASE[agent.phase];
+    if (mappedPhase === phaseId) {
+      for (const tool of agent.tools) {
+        if (!EXCLUDED_TOOLS.has(tool)) {
+          tools.add(tool);
+        }
+      }
+    }
+  }
+  return tools.size;
+}
+
+/** Count skills for a phase */
+export function getPhaseSkillCount(phaseId: PipelinePhaseId): number {
+  return PHASE_DISPLAY_META[phaseId].skills.length;
+}
+
+/** Count runtime agents (total agents in this phase) */
+export function getPhaseRuntimeAgentCount(phaseId: PipelinePhaseId): number {
+  return agentsConfig.agents.filter((a) => {
+    const mappedPhase = AGENT_PHASE_TO_PIPELINE_PHASE[a.phase];
+    return mappedPhase === phaseId;
+  }).length;
+}
+
+/** Count harness agents (agents with a non-empty harnessName) */
+export function getPhaseHarnessAgentCount(phaseId: PipelinePhaseId): number {
+  return agentsConfig.agents.filter((a) => {
+    const mappedPhase = AGENT_PHASE_TO_PIPELINE_PHASE[a.phase];
+    return mappedPhase === phaseId && a.harnessName;
+  }).length;
+}
 
 // ─── Derive PIPELINE_PHASES from agents.json + display metadata ─────────────
 
@@ -329,6 +384,8 @@ function buildPipelinePhases(): PipelinePhaseConfig[] {
       agents,
       skills: meta.skills,
       outputs: meta.outputs,
+      runtimeAgentCount: agents.length,
+      harnessAgentCount: agents.filter((a) => a.harnessName).length,
     };
   });
 }
