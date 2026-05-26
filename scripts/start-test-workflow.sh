@@ -22,8 +22,8 @@
 set -e
 
 BASE_URL="${BASE_URL:-http://localhost:3000}"
-REPO_URL="${REPO_URL:-https://github.com/your-org/your-repo}"
-DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
+REPO_URL="${REPO_URL:-https://github.com/tycenjmccann/agentcore-console}"
+DEFAULT_BRANCH="${DEFAULT_BRANCH:-clean-main}"
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
 
@@ -117,6 +117,33 @@ Files to modify: src/app/agents/page.tsx}"
     fi
     ;;
 esac
+
+# ─── Validate repo URL ───────────────────────────────────────────────────────
+
+if [[ "$REPO_URL" == *"your-org"* || "$REPO_URL" == *"your-repo"* ]]; then
+  echo "  ✗ ERROR: REPO_URL is still set to placeholder ($REPO_URL)"
+  echo "  Set REPO_URL env var or use --repo <url>"
+  exit 1
+fi
+
+OWNER_REPO=$(echo "$REPO_URL" | sed -E 's|https?://github\.com/||; s|\.git$||; s|/$||')
+GITHUB_PAT="${GITHUB_PAT:-}"
+AUTH_HEADER=""
+[ -n "$GITHUB_PAT" ] && AUTH_HEADER="Authorization: token $GITHUB_PAT"
+
+REPO_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+  ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+  "https://api.github.com/repos/$OWNER_REPO" 2>/dev/null)
+
+if [ "$REPO_STATUS" = "404" ]; then
+  echo "  ✗ ERROR: Repository not found: $REPO_URL (HTTP 404)"
+  echo "  Verify the URL exists and is accessible."
+  exit 1
+elif [ "$REPO_STATUS" = "200" ] || [ "$REPO_STATUS" = "401" ] || [ "$REPO_STATUS" = "403" ]; then
+  echo "  ✓ Repo validated: $OWNER_REPO"
+else
+  echo "  ⚠ Repo check returned HTTP $REPO_STATUS — proceeding anyway"
+fi
 
 # ─── Build request body ──────────────────────────────────────────────────────
 
