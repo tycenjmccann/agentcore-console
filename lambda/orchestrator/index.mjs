@@ -140,6 +140,19 @@ async function processStatusChange(ticketId, newStatus, oldStatus) {
         // DynamoDB mode — todo with no blockers means ready to go
         const blockers = todoTicket.blockedBy || [];
         if (blockers.length === 0) {
+          // ─── CANCEL GUARD (todo with no blockers) ───
+          let guardWorkflow;
+          try {
+            guardWorkflow = await resolveWorkflow(todoTicket.workflowId, todoTicket.parentId);
+          } catch (err) {
+            console.error(`[orchestrator] GUARD: Failed to resolve workflow for ticket ${ticketId}:`, err);
+            return; // Fail closed
+          }
+          if (!guardWorkflow || guardWorkflow.phase === "cancelled") {
+            console.log(`[orchestrator] GUARD: ${ticketId} unblocked but workflow ${guardWorkflow?.id || "unknown"} is cancelled — skipping`);
+            return;
+          }
+          // ─── END CANCEL GUARD ───
           await handleTicketReadyUnified(ticketId, todoTicket);
         }
       }
@@ -149,6 +162,19 @@ async function processStatusChange(ticketId, newStatus, oldStatus) {
       // Ticket is ready — invoke the agent
       const ticket = await getTicket(ticketId);
       if (!ticket) return;
+      // ─── CANCEL GUARD (Jira webhook path) ───
+      let guardWorkflow;
+      try {
+        guardWorkflow = await resolveWorkflow(ticket.workflowId, ticket.parentId);
+      } catch (err) {
+        console.error(`[orchestrator] GUARD: Failed to resolve workflow for ticket ${ticketId}:`, err);
+        return; // Fail closed
+      }
+      if (!guardWorkflow || guardWorkflow.phase === "cancelled") {
+        console.log(`[orchestrator] GUARD: Jira webhook for ${ticketId} ignored — workflow ${guardWorkflow?.id || "unknown"} is cancelled`);
+        return;
+      }
+      // ─── END CANCEL GUARD ───
       await handleTicketReadyUnified(ticketId, ticket);
       break;
     }
@@ -281,6 +307,13 @@ async function handleTicketReadyUnified(ticketId, ticket) {
     console.warn(`[orchestrator] No workflow for ticket ${ticketId}`);
     return;
   }
+
+  // ─── CANCEL GUARD (defense-in-depth) ───
+  if (workflow.phase === "cancelled") {
+    console.log(`[orchestrator] GUARD (handleTicketReadyUnified): workflow ${workflow.id} is cancelled — not invoking ${assignee}`);
+    return;
+  }
+  // ─── END CANCEL GUARD ───
 
   // Idempotency guard: atomic claim via conditional write (DynamoDB path).
   // For Jira path, Jira's own transition logic prevents double-transitions.
@@ -434,6 +467,22 @@ async function processRecord(record) {
       // "todo" with no blockers = ready to invoke
       const blockedBy = unwrapDdbValue(newImage.blockedBy) || [];
       if (blockedBy.length === 0) {
+        // ─── CANCEL GUARD (DDB Stream path) ───
+        const guardTicket = await getTicket(ticketId);
+        if (guardTicket) {
+          let guardWorkflow;
+          try {
+            guardWorkflow = await resolveWorkflow(guardTicket.workflowId, guardTicket.parentId);
+          } catch (err) {
+            console.error(`[orchestrator] GUARD: Failed to resolve workflow for ticket ${ticketId}:`, err);
+            return; // Fail closed — do not invoke if we can't verify state
+          }
+          if (!guardWorkflow || guardWorkflow.phase === "cancelled") {
+            console.log(`[orchestrator] GUARD: Skipping invocation for ${ticketId} — workflow ${guardWorkflow?.id || "unknown"} is cancelled or not found`);
+            return;
+          }
+        }
+        // ─── END CANCEL GUARD ───
         await handleTicketReady(ticketId, newImage);
       }
       break;
@@ -1014,7 +1063,7 @@ async function buildAgentContext(ticket, workflow) {
 
 async function getWorkflow(id) {
   if (!id || typeof id !== "string") return null;
-  const result = await ddb.send(new GetCommand({ TableName: WORKFLOWS_TABLE, Key: { workflowId: id } }));
+  const result = await ddb.send(new GetCommand({ TableName: WORKFLOWS_TABLE, Key: { workflowId: id }, ConsistentRead: true }));
   return result.Item || null;
 }
 
