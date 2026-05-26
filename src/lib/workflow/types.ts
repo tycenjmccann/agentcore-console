@@ -16,7 +16,8 @@ export type TicketStatus =
   | "in_progress"
   | "in_review"
   | "done"
-  | "blocked";
+  | "blocked"
+  | "cancelled";
 
 export interface JiraTicket {
   id: string;                    // e.g., "TEAM-1"
@@ -75,7 +76,8 @@ export type WorkflowPhase =
   | "verification"
   | "review"
   | "complete"
-  | "error";
+  | "error"
+  | "cancelled";
 
 export type AgentTaskStatus =
   | "pending"
