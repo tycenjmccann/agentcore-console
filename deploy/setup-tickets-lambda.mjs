@@ -40,6 +40,10 @@ const PROJECT_KEY = getArg("project-key") || "TEAM";
 const LAMBDA_NAME = "agentis-tickets";
 const ROLE_NAME = "AgentisTicketsLambdaRole";
 
+// Derive artifact bucket (same convention as deploy/config.sh)
+const ACCOUNT_ID = process.env.AWS_ACCOUNT_ID || "";
+const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || (ACCOUNT_ID ? `agentis-artifacts-${ACCOUNT_ID}-${REGION}` : "");
+
 // gateway-id is optional — if not provided, skip gateway target registration
 
 // --- Dynamic imports ---
@@ -228,6 +232,7 @@ try {
             TICKETS_TABLE: TABLE_NAME,
             PROJECT_KEY: PROJECT_KEY,
             AWS_REGION_OVERRIDE: REGION,
+            ...(ARTIFACT_BUCKET && { ARTIFACT_BUCKET }),
           },
         },
         Description: "Mock Jira MCP server — DynamoDB-backed ticket management for Agentis pipeline",

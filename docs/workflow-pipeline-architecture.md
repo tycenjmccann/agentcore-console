@@ -1494,6 +1494,90 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 
 ---
 
+### DL-023: Config-Driven Agent Roster (S3-Loaded, Single Source of Truth)
+
+**Date**: 2026-05-25
+**Decision**: All Lambdas load the agent roster from `s3://{ARTIFACT_BUCKET}/config/agents.json` at cold start instead of maintaining hardcoded copies
+**Status**: ACTIVE (deployed 2026-05-25)
+
+**Context**: The agent roster was hardcoded in 3 separate Lambda files:
+- `lambda/orchestrator/index.mjs` → `AGENT_ROSTER` array (id, phase, harnessName)
+- `lambda/agentis-tickets/index.mjs` → `VALID_AGENTS` Set (id only)
+- `lambda/agentis-jira/index.mjs` → `VALID_ASSIGNEES` Set (id only)
+
+These drifted independently and didn't match the canonical source (`src/config/agents.json`). When a new agent was added to the frontend config, the Lambdas silently rejected it. Root cause of TEAM-73 stuck workflow: requirements agent assigned to `team-ios-dev` which existed in no roster.
+
+**Problem**:
+1. **Triple maintenance** — add an agent = edit 4 files (config + 3 Lambdas)
+2. **Silent drift** — no mechanism to detect roster mismatch between Lambdas
+3. **Multi-fleet blocker** — hardcoded rosters prevent running multiple fleets with different agent compositions
+
+**Solution — S3 config loading on cold start**:
+
+```
+Deploy pipeline syncs agents.json to S3
+    ↓
+Lambda cold starts → loadRoster() reads s3://{BUCKET}/config/agents.json
+    ↓
+Roster cached in module scope (warm invocations skip S3 read)
+    ↓
+If S3 read fails → falls back to hardcoded FALLBACK_ROSTER (no outage)
+```
+
+**Implementation per Lambda**:
+
+| Lambda | Loader function | Cache variable | What it extracts |
+|--------|----------------|---------------|-----------------|
+| `agentis-orchestrator` | `loadAgentRoster()` | `_agentRoster` | `{id, phase, harnessName}` per agent |
+| `agentis-tickets` | `loadValidAgents()` | `VALID_AGENTS` | `Set` of agent IDs |
+| `agentis-jira-real` | `loadValidAssignees()` | `VALID_ASSIGNEES` | `Set` of agent IDs |
+
+**S3 path**: `config/agents.json` (synced by `deploy-all.sh` alongside prompts)
+
+**Bucket**: `agentcore-artifacts-023392223961-us-east-1` (same bucket used for prompts, eval packages, agent output)
+
+**IAM**: All three Lambdas need `s3:GetObject` on `arn:aws:s3:::{BUCKET}/config/*`. The orchestrator's role already had this. The ticket Lambdas' shared role (`agentis-jira-JiraFunctionRole-*`) got an inline policy `s3-config-read` added.
+
+**Env var**: `ARTIFACT_BUCKET` added to `agentis-tickets` and `agentis-jira-real` Lambda configurations.
+
+**Multi-fleet path**: When running multiple fleets, use different S3 keys per fleet (e.g., `config/fleet-a/agents.json`) and pass `FLEET_ID` env var to select the right config path.
+
+**Updating the roster**:
+```bash
+# Edit src/config/agents.json (add/remove agents)
+# Then sync to S3:
+aws s3 cp src/config/agents.json s3://agentcore-artifacts-023392223961-us-east-1/config/agents.json
+
+# Lambdas pick up changes on next cold start (no redeployment needed)
+# To force immediate pickup: update any env var on the Lambda to trigger a new cold start
+```
+
+**Verified**:
+- Orchestrator logs: `[orchestrator] Loaded 14 agents from S3 config`
+- agentis-tickets logs: `[agentis-tickets] Loaded 14 agents from S3 config`
+- Invalid assignee correctly rejected from S3-loaded roster
+- Fallback works when S3 is unreachable (tested before IAM fix)
+
+**Files modified**:
+- `lambda/orchestrator/index.mjs` — `AGENT_ROSTER` → `FALLBACK_ROSTER` + `loadAgentRoster()`
+- `lambda/agentis-tickets/index.mjs` — Added S3Client, `loadValidAgents()`, `ARTIFACT_BUCKET` env var
+- `lambda/agentis-jira/index.mjs` — Added S3Client, `loadValidAssignees()`, `ARTIFACT_BUCKET` env var
+- `deploy/continuous-improvement/deploy-all.sh` — Step 7 now syncs `agents.json` to S3
+- `deploy/setup-tickets-lambda.mjs` — Adds `ARTIFACT_BUCKET` env var on Lambda creation
+
+**Single source of truth chain**:
+```
+src/config/agents.json (repo)
+    ↓ deploy-all.sh / manual s3 cp
+s3://{BUCKET}/config/agents.json
+    ↓ cold start read
+orchestrator._agentRoster / tickets.VALID_AGENTS / jira.VALID_ASSIGNEES
+```
+
+Frontend (`src/lib/pipeline-config.ts`) imports `agents.json` directly at build time. Lambdas read from S3 at runtime. Same source file, two consumption paths.
+
+---
+
 ## Session Change Log (2026-05-21)
 
 ### Changes Made This Session

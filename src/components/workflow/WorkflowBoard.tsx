@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import type {
   WorkflowState,
   WorkflowEvent,
+  TicketStatus,
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, PHASE_DISPLAY_META, resolveToolIcon, getPhaseToolCount, getPhaseSkillCount } from "@/lib/pipeline-config";
@@ -11,6 +12,8 @@ import { Square } from "lucide-react";
 import AgentOutputPanel from "./AgentOutputPanel";
 import S3ArtifactsModal from "./S3ArtifactsModal";
 import CancelConfirmationModal from "./CancelConfirmationModal";
+import TicketStatusBadge from "./TicketStatusBadge";
+import TicketDetailModal from "./TicketDetailModal";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -69,6 +72,8 @@ function applyEventToState(s: WorkflowState, event: WorkflowEvent): WorkflowStat
     }
     case "workflow_complete":
       return { ...s, phase: "complete" };
+    case "ticket_update":
+      return s;
     default:
       return s;
   }
@@ -111,6 +116,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   // Preserve original DDB agent outputs (replay reconstructs state from events which lack full output)
   const originalOutputsRef = useRef<Record<string, string>>({});
+  const agentTicketMapRef = useRef<Record<string, string>>({}); // agentId → ticketId, never cleared
   // Track whether the workflow was loaded as complete (from API) — survives replay reconstruction
   const wasLoadedCompleteRef = useRef(false);
 
@@ -118,6 +124,16 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+
+  // Ticket status map — seeded from fetch, updated via SSE
+  const [ticketStatusMap, setTicketStatusMap] = useState<Record<string, { status: TicketStatus; title: string; updatedAt: string }>>({});
+
+  // Modal open state for future TicketDetailModal
+  const [openTicketModal, setOpenTicketModal] = useState<{ ticketId: string; workflowId: string } | null>(null);
+
+  const handleOpenTicketModal = useCallback((ticketId: string) => {
+    setOpenTicketModal({ ticketId, workflowId });
+  }, [workflowId]);
 
   // S3 Artifacts Modal state
   const [artifactsModal, setArtifactsModal] = useState<{ phaseId: string; phaseName: string } | null>(null);
@@ -173,9 +189,12 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
               // Capture original DDB agent outputs before replay overwrites state
               if (data.agentTasks) {
                 const outputs: Record<string, string> = {};
-                for (const task of Object.values(data.agentTasks) as Array<{ agentId?: string; output?: string }>) {
+                for (const task of Object.values(data.agentTasks) as Array<{ agentId?: string; output?: string; ticketId?: string }>) {
                   if (task.agentId && task.output) {
                     outputs[task.agentId] = task.output;
+                  }
+                  if (task.agentId && task.ticketId) {
+                    agentTicketMapRef.current[task.agentId] = task.ticketId;
                   }
                 }
                 originalOutputsRef.current = outputs;
@@ -220,6 +239,46 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                       // Catch-up uses uniform spacing (3s / eventCount) — no speed calc needed
                       setPlaybackSpeed(1);
                       setIsPlaying(true);
+
+                      // Seed last activity timestamp and last event per agent from historical events.
+                      // This ensures stuck detection works immediately on page load for stale agents.
+                      const lastPerAgent: Record<string, { event: string; timestamp: number; tool?: string }> = {};
+                      for (const ev of evData.events) {
+                        if (!ev.agentId) continue;
+                        const ts = ev.timestamp ? new Date(ev.timestamp).getTime() : 0;
+                        if (ev.type === "tool_use") {
+                          const displayName = (ev.toolName || "").replace(/___/g, " → ").replace(/_/g, " ");
+                          lastPerAgent[ev.agentId] = { event: `Tool: ${displayName}`, timestamp: ts, tool: ev.toolName };
+                        } else if (ev.type === "agent_output") {
+                          lastPerAgent[ev.agentId] = { event: "Streaming text...", timestamp: ts, tool: lastPerAgent[ev.agentId]?.tool };
+                        } else if (ev.type === "agent_status" || ev.type === "agent_complete") {
+                          lastPerAgent[ev.agentId] = { event: `Agent ${ev.status || "complete"}`, timestamp: ts, tool: lastPerAgent[ev.agentId]?.tool };
+                        }
+                      }
+                      // Find the most recent event across all running agents
+                      const runningAgents = Object.entries(data.agentTasks || {})
+                        .filter(([, t]: [string, { status?: string }]) => t.status === "running")
+                        .map(([, t]: [string, { agentId?: string }]) => t.agentId || "");
+                      let latestTs = 0;
+                      const eventMap: Record<string, string> = {};
+                      for (const agentId of runningAgents) {
+                        if (lastPerAgent[agentId]) {
+                          eventMap[agentId] = lastPerAgent[agentId].event;
+                          if (lastPerAgent[agentId].tool) {
+                            lastToolPerAgentRef.current[agentId] = lastPerAgent[agentId].tool!;
+                          }
+                          if (lastPerAgent[agentId].timestamp > latestTs) {
+                            latestTs = lastPerAgent[agentId].timestamp;
+                          }
+                        }
+                      }
+                      if (Object.keys(eventMap).length > 0) {
+                        setLastEventPerAgent((prev) => ({ ...prev, ...eventMap }));
+                      }
+                      // Seed lastActivityRef from actual event timestamps (not page load time)
+                      if (latestTs > 0) {
+                        lastActivityRef.current = latestTs;
+                      }
                     } else {
                       // No historical events — go straight to live
                       setCatchingUp(false);
@@ -239,6 +298,36 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     interval = setInterval(fetchState, 3000);
     return () => { if (interval) clearInterval(interval); };
   }, [workflowId]);
+
+  // Fetch ticket statuses — re-fetches when agentTasks change (new tickets appear)
+  const agentTaskKeys = state?.agentTasks ? Object.keys(state.agentTasks).sort().join(",") : "";
+  useEffect(() => {
+    const fetchTickets = () => {
+      fetch(`/api/workflow/${workflowId}/tickets`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.tickets && Array.isArray(data.tickets)) {
+            const map: Record<string, { status: TicketStatus; title: string; updatedAt: string }> = {};
+            for (const ticket of data.tickets) {
+              const id = ticket.ticketId || ticket.id;
+              map[id] = {
+                status: ticket.status,
+                title: ticket.title || ticket.summary || id,
+                updatedAt: ticket.updatedAt || new Date().toISOString(),
+              };
+            }
+            setTicketStatusMap(map);
+          }
+        })
+        .catch(() => {});
+    };
+    fetchTickets();
+    // Poll every 15s while workflow is active (no SSE ticket_update events yet)
+    const isActive = state?.phase && state.phase !== "complete";
+    if (!isActive) return;
+    const interval = setInterval(fetchTickets, 15_000);
+    return () => clearInterval(interval);
+  }, [workflowId, agentTaskKeys, state?.phase]);
 
   // SSE connection — only for LIVE workflows (starts after catch-up completes or immediately if no catch-up)
   useEffect(() => {
@@ -528,6 +617,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             });
           }
         }
+        if (event.ticketId) {
+          agentTicketMapRef.current[event.agentId] = event.ticketId;
+        }
         setState((s) => {
           if (!s) return s;
           const tasks = { ...s.agentTasks };
@@ -614,6 +706,26 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         setState((s) => s ? { ...s, phase: "complete" } : s);
         setCelebrating(true);
         setTimeout(() => setCelebrating(false), 1300);
+        break;
+      case "ticket_update":
+        setTicketStatusMap((prev) => ({
+          ...prev,
+          [event.ticketId]: {
+            status: event.status,
+            title: prev[event.ticketId]?.title || event.ticketId,
+            updatedAt: event.timestamp || new Date().toISOString(),
+          },
+        }));
+        break;
+      case "ticket_created":
+        setTicketStatusMap((prev) => ({
+          ...prev,
+          [event.ticket.id]: {
+            status: event.ticket.status,
+            title: event.ticket.title,
+            updatedAt: event.ticket.updatedAt || event.timestamp || new Date().toISOString(),
+          },
+        }));
         break;
       default:
         break;
@@ -1077,6 +1189,25 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                             >
                               <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
                               <span className="item-label">{agent.displayName}</span>
+                              <span className="ml-auto mr-auto">
+                                {(() => {
+                                  const tid = agentTicketMapRef.current[agent.id];
+                                  if (!tid) return null;
+                                  const ticketInfo = ticketStatusMap[tid];
+                                  if (ticketInfo) {
+                                    return (
+                                      <span onClick={(e) => { e.stopPropagation(); handleOpenTicketModal(tid); }}>
+                                        <TicketStatusBadge
+                                          status={ticketInfo.status}
+                                          ticketId={tid}
+                                          ticketTitle={ticketInfo.title}
+                                        />
+                                      </span>
+                                    );
+                                  }
+                                  return <span className="text-[9px] text-zinc-500">{tid}</span>;
+                                })()}
+                              </span>
                               <span
                                 className="item-status cursor-pointer"
                                 title="Click to mark agent as stuck"
@@ -1240,6 +1371,14 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           isLoading={cancelLoading}
           error={cancelError}
         />
+        {openTicketModal && (
+          <TicketDetailModal
+            ticketId={openTicketModal.ticketId}
+            workflowId={openTicketModal.workflowId}
+            isOpen={true}
+            onClose={() => setOpenTicketModal(null)}
+          />
+        )}
       </div>
     </div>
   );

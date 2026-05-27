@@ -19,6 +19,7 @@ interface AgentOutputPanelProps {
   lastEvent?: string; // Human-readable last event from the SSE stream (from DDB)
   lastActivityTime?: number; // Date.now() timestamp of last streaming activity
   staleThreshold?: number; // ms — threshold for stale detection (720_000 or 180_000)
+  onRestart?: () => void;
 }
 
 /** Format agent ID to display name */
@@ -46,6 +47,7 @@ export default function AgentOutputPanel({
   lastEvent,
   lastActivityTime,
   staleThreshold,
+  onRestart,
 }: AgentOutputPanelProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -454,6 +456,7 @@ export default function AgentOutputPanel({
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ agentId: task.agentId }),
                         });
+                        onRestart?.();
                       } catch { setIsRestarting(false); }
                     }}
                     disabled={isRestarting}

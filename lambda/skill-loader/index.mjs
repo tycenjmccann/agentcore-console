@@ -338,6 +338,8 @@ Why: New APIs, PCI compliance, legal requirements, full-stack implementation.
 - DO NOT assign analytics for features that don't add new user interactions
 - DO NOT assign backend agents for pure frontend work
 - DO NOT create generic tickets with titles like "Design: {agent name} — {feature title}" — be SPECIFIC about what you need from each agent
+- DO NOT invent agent IDs that don't exist. There is NO "team-ios-dev" agent. ALL frontend/UI/iOS/SwiftUI development goes to team-frontend-dev. The ONLY valid dev agents are: team-frontend-dev, team-backend-dev, team-api-dev
+- For iOS projects: use team-ios-designer for design, team-frontend-dev for implementation
 
 ## Process
 

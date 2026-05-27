@@ -52,7 +52,7 @@ This script:
 4. Deploys the eval-packager and prd-submitter Lambdas
 5. Sets up CW Logs subscription filters (eval results → packager)
 6. Creates EventBridge rule (S3 PRD → submitter)
-7. Syncs agent prompts to S3
+7. Syncs `agents.json` config + agent prompts to S3
 
 ### Environment Variables
 
@@ -331,7 +331,17 @@ deploy/
 │   └── dependency_chain_evaluator.json  ← custom evaluator definition
 └── config.sh               ← central env config (sourced by all scripts)
 
+src/config/
+└── agents.json             ← single source of truth for agent roster
+                              (synced to s3://{BUCKET}/config/agents.json by deploy-all.sh)
+
 lambda/
+├── orchestrator/
+│   └── index.mjs           ← loads roster from S3, routes tickets to agents
+├── agentis-tickets/
+│   └── index.mjs           ← loads roster from S3, validates assignees
+├── agentis-jira/
+│   └── index.mjs           ← loads roster from S3, validates assignees
 ├── eval-packager/
 │   └── index.mjs           ← parses eval results, invokes fleet improver
 └── prd-submitter/

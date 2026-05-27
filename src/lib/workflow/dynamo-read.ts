@@ -4,7 +4,7 @@
  */
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, QueryCommand, ScanCommand, BatchGetCommand } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
@@ -48,4 +48,25 @@ export async function getTicketsForWorkflowFromDynamo(workflowId: string) {
     ExpressionAttributeValues: { ":wid": workflowId },
   }));
   return (result.Items || []).filter(t => t.ticketId !== "__COUNTER__");
+}
+
+export async function getTicketsByIds(ticketIds: string[]) {
+  if (ticketIds.length === 0) return [];
+  // BatchGet supports max 100 keys at a time
+  const chunks = [];
+  for (let i = 0; i < ticketIds.length; i += 100) {
+    chunks.push(ticketIds.slice(i, i + 100));
+  }
+  const items: Record<string, unknown>[] = [];
+  for (const chunk of chunks) {
+    const result = await ddb.send(new BatchGetCommand({
+      RequestItems: {
+        [TICKETS_TABLE]: {
+          Keys: chunk.map(id => ({ ticketId: id })),
+        },
+      },
+    }));
+    items.push(...(result.Responses?.[TICKETS_TABLE] || []));
+  }
+  return items.filter(t => t.ticketId !== "__COUNTER__");
 }

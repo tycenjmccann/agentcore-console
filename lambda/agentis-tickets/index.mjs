@@ -31,34 +31,81 @@ import {
   QueryCommand,
   ScanCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TABLE_NAME = process.env.TICKETS_TABLE || "agentis-tickets";
 const PROJECT_KEY = process.env.PROJECT_KEY || "TEAM";
+const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || "";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },
 });
+const s3 = new S3Client({ region: REGION });
 
 const COUNTER_KEY = { ticketId: "__COUNTER__" };
 
+// ─── Agent Roster (config-driven from S3, falls back to hardcoded) ────────────
+
+const FALLBACK_AGENTS = new Set([
+  "team-requirements-analyst",
+  "team-ios-designer",
+  "team-frontend-designer",
+  "team-backend-designer",
+  "team-android-designer",
+  "team-security-reviewer",
+  "team-legal-compliance",
+  "team-localization",
+  "team-analytics-designer",
+  "team-backend-dev",
+  "team-api-dev",
+  "team-frontend-dev",
+  "team-qa-verifier",
+  "team-ci-agent",
+]);
+
+let VALID_AGENTS = null;
+
+async function loadValidAgents() {
+  if (VALID_AGENTS) return VALID_AGENTS;
+  if (!ARTIFACT_BUCKET) {
+    console.warn("[agentis-tickets] No ARTIFACT_BUCKET — using fallback roster");
+    VALID_AGENTS = FALLBACK_AGENTS;
+    return VALID_AGENTS;
+  }
+  try {
+    const res = await s3.send(new GetObjectCommand({
+      Bucket: ARTIFACT_BUCKET,
+      Key: "config/agents.json",
+    }));
+    const config = JSON.parse(await res.Body.transformToString());
+    VALID_AGENTS = new Set(config.agents.map((a) => a.id));
+    console.log(`[agentis-tickets] Loaded ${VALID_AGENTS.size} agents from S3 config`);
+  } catch (err) {
+    console.warn(`[agentis-tickets] Failed to load roster from S3: ${err.message} — using fallback`);
+    VALID_AGENTS = FALLBACK_AGENTS;
+  }
+  return VALID_AGENTS;
+}
+
 // Valid status transitions
+// Simplified flow: todo → ready → in_progress → done  (+blocked as escape hatch)
 const TRANSITIONS = {
   todo: [
+    { id: "ready", name: "Mark Ready", to: "ready" },
+    { id: "block", name: "Block", to: "blocked" },
+  ],
+  ready: [
     { id: "start", name: "Start Progress", to: "in_progress" },
     { id: "block", name: "Block", to: "blocked" },
   ],
   in_progress: [
-    { id: "review", name: "Submit for Review", to: "in_review" },
     { id: "done", name: "Done", to: "done" },
     { id: "block", name: "Block", to: "blocked" },
   ],
-  in_review: [
-    { id: "done", name: "Done", to: "done" },
-    { id: "reopen", name: "Reopen", to: "in_progress" },
-  ],
   blocked: [
     { id: "unblock", name: "Unblock", to: "todo" },
+    { id: "ready", name: "Mark Ready", to: "ready" },
     { id: "start", name: "Start Progress", to: "in_progress" },
     { id: "skip", name: "Skip", to: "done" },
   ],
@@ -69,6 +116,9 @@ const TRANSITIONS = {
 
 export const handler = async (event) => {
   console.log("Jira MCP invoked:", JSON.stringify(event));
+
+  // Load roster from S3 on first invocation (cached for warm starts)
+  await loadValidAgents();
 
   // Gateway sends tool name via different field patterns
   let toolName = event._tool_name || event.tool_name || event.name || detectTool(event);
@@ -119,6 +169,14 @@ export const handler = async (event) => {
 async function createTicket(args) {
   const { summary, project_key, issue_type, description, assignee, priority, parent_key, blocked_by, workflow_id } = args;
   if (!summary) return textResult("Error: 'summary' is required");
+
+  // Validate assignee against known agent roster
+  if (assignee && !VALID_AGENTS.has(assignee)) {
+    return textResult(
+      `Error: Invalid assignee "${assignee}". Valid agents are: ${[...VALID_AGENTS].join(", ")}. ` +
+      `Note: There is NO "team-ios-dev" agent. iOS/SwiftUI development goes to "team-frontend-dev".`
+    );
+  }
 
   const ticketId = await nextTicketId(project_key);
   const now = new Date().toISOString();

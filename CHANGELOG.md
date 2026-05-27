@@ -4,6 +4,47 @@ All notable changes to the agent fleet, orchestrator, and deployment system.
 
 ## [Unreleased]
 
+### 2026-05-25 — Config-Driven Roster, Assignee Validation, SI Loop Fixes
+
+**Config-Driven Agent Roster (DL-023):**
+- All 3 Lambdas (orchestrator, agentis-tickets, agentis-jira-real) now load roster from `s3://{BUCKET}/config/agents.json` on cold start
+- Hardcoded roster lists retained as fallback only (if S3 unreachable)
+- `deploy-all.sh` syncs `src/config/agents.json` to S3 alongside prompts
+- Adding/removing agents no longer requires Lambda redeployment — just sync the JSON to S3
+- IAM: added `s3-config-read` inline policy to ticket Lambda role
+- Env var `ARTIFACT_BUCKET` added to `agentis-tickets` and `agentis-jira-real`
+
+**Assignee Validation (agentis-tickets):**
+- Added `VALID_AGENTS` validation to `agentis-tickets` Lambda (was already in `agentis-jira`)
+- Rejects tickets with unknown assignee IDs with a clear error listing valid agents
+- Root cause of TEAM-73 stuck workflow: requirements analyst assigned to non-existent `team-ios-dev`
+
+**Skill Loader Update:**
+- Added "COMMON MISTAKES TO AVOID" to requirements analyst blueprint
+- Explicitly documents: no `team-ios-dev` agent; iOS dev → `team-frontend-dev`
+
+**Continuous Improvement Loop Fixes:**
+- Fixed `eval-packager` CONFIG_TO_AGENT keys: `eval_*` → `eval_agentis_*` (matching actual log group names)
+- Added XRay sampling rule creation (`AgentCore100Percent`, priority 1, 100% rate) to `deploy-all.sh`
+- Documented both XRay sampling + indexing requirements in CI README
+
+**Deployments:**
+| Lambda | What Changed |
+|--------|-------------|
+| `agentis-orchestrator` | Config-driven roster from S3 |
+| `agentis-tickets` | S3 roster + assignee validation |
+| `agentis-jira-real` | S3 roster loading |
+| `agentis-eval-packager` | Fixed CONFIG_TO_AGENT key names |
+| `agentis-skill-loader` | iOS dev guidance in requirements blueprint |
+
+**Documentation:**
+- Added DL-023 to workflow-pipeline-architecture.md
+- Added "Agent Roster (Config-Driven)" section to agent-fleet-documentation.md
+- Added roster section to README.md
+- Updated continuous-improvement README file structure
+
+---
+
 ### 2026-05-21 — Fleet Validation, S3 Artifacts Fix, GitHub MCP Confirmed
 
 **Fleet Health Check (40 tests × 14 agents):**

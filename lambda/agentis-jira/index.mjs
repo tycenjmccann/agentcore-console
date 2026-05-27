@@ -11,6 +11,7 @@
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 
 // ─── Jira Config ─────────────────────────────────────────────────────────────
 
@@ -26,14 +27,16 @@ const AUTH = `Basic ${Buffer.from(`${EMAIL}:${TOKEN}`).toString("base64")}`;
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TABLE_NAME = process.env.TICKETS_TABLE || "agentis-tickets";
+const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || "";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },
 });
+const s3 = new S3Client({ region: REGION });
 
-// ─── Valid Agent Roster (must match orchestrator's AGENT_ROSTER) ─────────────
+// ─── Agent Roster (config-driven from S3, falls back to hardcoded) ────────────
 
-const VALID_ASSIGNEES = new Set([
+const FALLBACK_ASSIGNEES = new Set([
   "team-requirements-analyst",
   "team-frontend-designer",
   "team-ios-designer",
@@ -49,6 +52,30 @@ const VALID_ASSIGNEES = new Set([
   "team-qa-verifier",
   "team-ci-agent",
 ]);
+
+let VALID_ASSIGNEES = null;
+
+async function loadValidAssignees() {
+  if (VALID_ASSIGNEES) return VALID_ASSIGNEES;
+  if (!ARTIFACT_BUCKET) {
+    console.warn("[agentis-jira] No ARTIFACT_BUCKET — using fallback roster");
+    VALID_ASSIGNEES = FALLBACK_ASSIGNEES;
+    return VALID_ASSIGNEES;
+  }
+  try {
+    const res = await s3.send(new GetObjectCommand({
+      Bucket: ARTIFACT_BUCKET,
+      Key: "config/agents.json",
+    }));
+    const config = JSON.parse(await res.Body.transformToString());
+    VALID_ASSIGNEES = new Set(config.agents.map((a) => a.id));
+    console.log(`[agentis-jira] Loaded ${VALID_ASSIGNEES.size} agents from S3 config`);
+  } catch (err) {
+    console.warn(`[agentis-jira] Failed to load roster from S3: ${err.message} — using fallback`);
+    VALID_ASSIGNEES = FALLBACK_ASSIGNEES;
+  }
+  return VALID_ASSIGNEES;
+}
 
 // ─── Status Mapping ──────────────────────────────────────────────────────────
 
@@ -111,7 +138,10 @@ async function createTicket(params) {
   // Validate assignee against known roster — reject hallucinated agent names
   if (assignee && !VALID_ASSIGNEES.has(assignee)) {
     const valid = [...VALID_ASSIGNEES].join(", ");
-    throw new Error(`Invalid assignee "${assignee}". Valid agents: ${valid}`);
+    throw new Error(
+      `Invalid assignee "${assignee}". Valid agents: ${valid}. ` +
+      `Note: There is NO "team-ios-dev" agent. ALL iOS/SwiftUI/Android/Web development goes to "team-frontend-dev".`
+    );
   }
 
   const labels = [];
@@ -512,6 +542,9 @@ const TOOLS = {
 };
 
 export const handler = async (event) => {
+  // Load roster from S3 on first invocation (cached for warm starts)
+  await loadValidAssignees();
+
   const toolName = event.tool_name;
   const params = event.parameters || {};
 

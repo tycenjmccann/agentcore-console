@@ -467,6 +467,10 @@ export async function validateIntakeSources(
         await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
         return null; // OK
       } else if (value.startsWith("http://") || value.startsWith("https://")) {
+        // GitHub URLs from our own repos — trust them (SI loop references)
+        if (value.includes("github.com/tycenjmccann/")) {
+          return null;
+        }
         // HTTP URL — HEAD check
         const res = await fetch(value, {
           method: "HEAD",

@@ -56,32 +56,65 @@ const s3 = new S3Client({ region: REGION });
 const events = new EventBridgeClient({ region: REGION });
 const bedrockAgent = new BedrockAgentRuntimeClient({ region: REGION });
 
-// ─── Agent Roster (mirrors src/config/agents.json) ─────────────────────────────
+// ─── Agent Roster (config-driven from S3, falls back to hardcoded) ────────────
 
-const AGENT_ROSTER = [
-  { id: "team-requirements-analyst", phase: "requirements", harnessName: "team_requirements_analyst" },
-  { id: "team-frontend-designer", phase: "design", harnessName: "team_frontend_designer" },
-  { id: "team-ios-designer", phase: "design", harnessName: "team_ios_designer" },
-  { id: "team-backend-designer", phase: "design", harnessName: "team_backend_designer" },
-  { id: "team-android-designer", phase: "design", harnessName: "team_android_designer" },
-  { id: "team-security-reviewer", phase: "design", harnessName: "team_security_reviewer" },
-  { id: "team-legal-compliance", phase: "design", harnessName: "team_legal_compliance" },
-  { id: "team-localization", phase: "design", harnessName: "team_localization" },
-  { id: "team-analytics-designer", phase: "design", harnessName: "team_analytics_designer" },
-  { id: "team-backend-dev", phase: "development", harnessName: "team_backend_dev" },
-  { id: "team-api-dev", phase: "development", harnessName: "team_api_dev" },
-  { id: "team-frontend-dev", phase: "development", harnessName: "team_frontend_dev" },
-  { id: "team-qa-verifier", phase: "verification", harnessName: "team_qa_verifier" },
-  { id: "team-ci-agent", phase: "review", harnessName: "team_ci_agent" },
+const FALLBACK_ROSTER = [
+  { id: "team-requirements-analyst", phase: "requirements", harnessName: "agentis_requirements_analyst" },
+  { id: "team-frontend-designer", phase: "design", harnessName: "agentis_frontend_designer" },
+  { id: "team-ios-designer", phase: "design", harnessName: "agentis_ios_designer" },
+  { id: "team-backend-designer", phase: "design", harnessName: "agentis_backend_designer" },
+  { id: "team-android-designer", phase: "design", harnessName: "agentis_android_designer" },
+  { id: "team-security-reviewer", phase: "design", harnessName: "agentis_security_reviewer" },
+  { id: "team-legal-compliance", phase: "design", harnessName: "agentis_legal_compliance" },
+  { id: "team-localization", phase: "design", harnessName: "agentis_localization" },
+  { id: "team-analytics-designer", phase: "design", harnessName: "agentis_analytics_designer" },
+  { id: "team-backend-dev", phase: "development", harnessName: "agentis_backend_dev" },
+  { id: "team-api-dev", phase: "development", harnessName: "agentis_api_dev" },
+  { id: "team-frontend-dev", phase: "development", harnessName: "agentis_frontend_dev" },
+  { id: "team-qa-verifier", phase: "verification", harnessName: "agentis_qa_verifier" },
+  { id: "team-ci-agent", phase: "review", harnessName: "agentis_ci_agent" },
 ];
 
+let _agentRoster = null;
+
+async function loadAgentRoster() {
+  if (_agentRoster) return _agentRoster;
+  if (!ARTIFACT_BUCKET) {
+    console.warn("[orchestrator] No ARTIFACT_BUCKET — using fallback roster");
+    _agentRoster = FALLBACK_ROSTER;
+    return _agentRoster;
+  }
+  try {
+    const res = await s3.send(new GetObjectCommand({
+      Bucket: ARTIFACT_BUCKET,
+      Key: "config/agents.json",
+    }));
+    const config = JSON.parse(await res.Body.transformToString());
+    _agentRoster = config.agents.map((a) => ({
+      id: a.id,
+      phase: a.phase,
+      harnessName: a.harnessName,
+      runtimeArn: a.runtimeArn || null,
+    }));
+    console.log(`[orchestrator] Loaded ${_agentRoster.length} agents from S3 config`);
+  } catch (err) {
+    console.warn(`[orchestrator] Failed to load roster from S3: ${err.message} — using fallback`);
+    _agentRoster = FALLBACK_ROSTER;
+  }
+  return _agentRoster;
+}
+
 function getAgentDef(id) {
-  return AGENT_ROSTER.find((a) => a.id === id);
+  const roster = _agentRoster || FALLBACK_ROSTER;
+  return roster.find((a) => a.id === id);
 }
 
 // ─── Handler (DDB Stream OR direct webhook invocation) ───────────────────────
 
 export const handler = async (event) => {
+  // Load roster from S3 on first invocation (cached for warm starts)
+  await loadAgentRoster();
+
   // Direct invocation from Jira webhook (TICKET_PROVIDER=jira ONLY)
   if (event.source === "jira-webhook") {
     if (TICKET_PROVIDER !== "jira") {
@@ -137,9 +170,10 @@ async function processStatusChange(ticketId, newStatus, oldStatus) {
         // The "ready" webhook will arrive when the Lambda transitions the ticket.
         console.log(`[orchestrator] ${ticketId} → todo (Jira mode: waiting for Lambda to route)`);
       } else {
-        // DynamoDB mode — todo with no blockers means ready to go
+        // DynamoDB mode — todo with all blockers resolved means ready to go
         const blockers = todoTicket.blockedBy || [];
-        if (blockers.length === 0) {
+        const allBlockersResolved = blockers.length === 0 || await checkAllBlockersResolved(blockers);
+        if (allBlockersResolved) {
           // ─── CANCEL GUARD (todo with no blockers) ───
           let guardWorkflow;
           try {
@@ -239,31 +273,28 @@ async function handleTicketDoneUnified(ticketId) {
     if (sibling.ticketId === ticketId) continue;
     const blockers = sibling.blockedBy || [];
     if (blockers.includes(ticketId)) {
-      const remaining = blockers.filter(id => id !== ticketId);
-      if (remaining.length === 0 && (sibling.status === "blocked" || sibling.status === "todo")) {
-        // All blockers resolved — transition to ready
+      // Check if all blockers are now resolved (done) — keep blockedBy intact like Jira does
+      const allResolved = blockers.every(bid => {
+        if (bid === ticketId) return true; // this one is done
+        const blocker = siblings.find(s => s.ticketId === bid);
+        return blocker && (blocker.status === "done" || blocker.status === "cancelled");
+      });
+      if (allResolved && (sibling.status === "blocked" || sibling.status === "todo")) {
+        // All blockers resolved — transition to ready (keep blockedBy as historical record)
         if (TICKET_PROVIDER === "jira") {
           await jiraTransition(sibling.ticketId, "Ready");
         } else {
           await ddb.send(new UpdateCommand({
             TableName: TICKETS_TABLE,
             Key: { ticketId: sibling.ticketId },
-            UpdateExpression: "SET #s = :s, #bb = :bb, #u = :u",
-            ExpressionAttributeNames: { "#s": "status", "#bb": "blockedBy", "#u": "updatedAt" },
-            ExpressionAttributeValues: { ":s": "todo", ":bb": [], ":u": new Date().toISOString() },
+            UpdateExpression: "SET #s = :s, #u = :u",
+            ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+            ExpressionAttributeValues: { ":s": "todo", ":u": new Date().toISOString() },
           }));
         }
         unblocked.push(sibling.ticketId);
-      } else if (remaining.length > 0 && TICKET_PROVIDER !== "jira") {
-        // Still blocked — update blockedBy list (DynamoDB only, Jira handles via links)
-        await ddb.send(new UpdateCommand({
-          TableName: TICKETS_TABLE,
-          Key: { ticketId: sibling.ticketId },
-          UpdateExpression: "SET #bb = :bb, #u = :u",
-          ExpressionAttributeNames: { "#bb": "blockedBy", "#u": "updatedAt" },
-          ExpressionAttributeValues: { ":bb": remaining, ":u": new Date().toISOString() },
-        }));
       }
+      // blockedBy array is never modified — it's a permanent record of dependencies
     }
   }
 
@@ -464,9 +495,10 @@ async function processRecord(record) {
       break;
     case "ready":
     case "todo":
-      // "todo" with no blockers = ready to invoke
+      // "todo" with all blockers resolved = ready to invoke
       const blockedBy = unwrapDdbValue(newImage.blockedBy) || [];
-      if (blockedBy.length === 0) {
+      const streamBlockersResolved = blockedBy.length === 0 || await checkAllBlockersResolved(blockedBy);
+      if (streamBlockersResolved) {
         // ─── CANCEL GUARD (DDB Stream path) ───
         const guardTicket = await getTicket(ticketId);
         if (guardTicket) {
@@ -571,38 +603,24 @@ async function handleTicketDone(ticketId, image) {
     if (sibling.ticketId === ticketId) continue;
     const blockers = sibling.blockedBy || [];
     if (blockers.includes(ticketId)) {
-      const remaining = blockers.filter((id) => id !== ticketId);
-      if (remaining.length === 0) {
-        // All blockers resolved — only unblock if still "blocked" (not already done/skipped)
-        if (sibling.status === "blocked") {
-          await ddb.send(new UpdateCommand({
-            TableName: TICKETS_TABLE,
-            Key: { ticketId: sibling.ticketId },
-            UpdateExpression: "SET #s = :s, #bb = :bb, #u = :u",
-            ExpressionAttributeNames: { "#s": "status", "#bb": "blockedBy", "#u": "updatedAt" },
-            ExpressionAttributeValues: { ":s": "todo", ":bb": [], ":u": new Date().toISOString() },
-          }));
-          unblocked.push(sibling.ticketId);
-        } else {
-          // Ticket already done/in_progress — just clear the blockedBy array
-          await ddb.send(new UpdateCommand({
-            TableName: TICKETS_TABLE,
-            Key: { ticketId: sibling.ticketId },
-            UpdateExpression: "SET #bb = :bb, #u = :u",
-            ExpressionAttributeNames: { "#bb": "blockedBy", "#u": "updatedAt" },
-            ExpressionAttributeValues: { ":bb": [], ":u": new Date().toISOString() },
-          }));
-        }
-      } else {
-        // Still blocked by others — just remove this blocker
+      // Check if all blockers are now resolved — keep blockedBy intact (like Jira issue links)
+      const allResolved = blockers.every(bid => {
+        if (bid === ticketId) return true; // this one is done
+        const blocker = siblings.find(s => s.ticketId === bid);
+        return blocker && (blocker.status === "done" || blocker.status === "cancelled");
+      });
+      if (allResolved && sibling.status === "blocked") {
+        // All blockers resolved — transition to todo (keep blockedBy as historical record)
         await ddb.send(new UpdateCommand({
           TableName: TICKETS_TABLE,
           Key: { ticketId: sibling.ticketId },
-          UpdateExpression: "SET #bb = :bb, #u = :u",
-          ExpressionAttributeNames: { "#bb": "blockedBy", "#u": "updatedAt" },
-          ExpressionAttributeValues: { ":bb": remaining, ":u": new Date().toISOString() },
+          UpdateExpression: "SET #s = :s, #u = :u",
+          ExpressionAttributeNames: { "#s": "status", "#u": "updatedAt" },
+          ExpressionAttributeValues: { ":s": "todo", ":u": new Date().toISOString() },
         }));
+        unblocked.push(sibling.ticketId);
       }
+      // blockedBy array is never modified — it's a permanent record of dependencies
     }
   }
 
@@ -855,10 +873,10 @@ async function completeWorkflow(workflow) {
  * which writes "done" to DynamoDB, triggering this Lambda again via the stream.
  */
 async function invokeAgent(agentDef, context, workflow) {
-  // Discover agent ARN — prefer Runtime (no timeout ceiling) over Harness (legacy)
-  const runtimeEnvKey = `RUNTIME_ARN_AGENTIS_${agentDef.harnessName.replace(/^team_/, "").toUpperCase()}`;
+  // Discover agent ARN — prefer runtimeArn from roster, then env var lookup
+  const runtimeEnvKey = `RUNTIME_ARN_${agentDef.harnessName.toUpperCase()}`;
   const harnessEnvKey = `HARNESS_ARN_${agentDef.harnessName.toUpperCase()}`;
-  const harnessArn = process.env[runtimeEnvKey] || process.env[harnessEnvKey];
+  const harnessArn = agentDef.runtimeArn || process.env[runtimeEnvKey] || process.env[harnessEnvKey];
   if (!harnessArn) {
     console.error(`[orchestrator] No ARN for agent: ${agentDef.harnessName}. Tried ${runtimeEnvKey} and ${harnessEnvKey}. Marking ticket blocked.`);
     // Mark ticket blocked instead of silently returning — prevents stuck workflows
@@ -978,7 +996,7 @@ async function buildAgentContext(ticket, workflow) {
 
   // For requirements agent: inject ticket creation context with EXACT tool format + valid roster
   if (ticket.assignee === "team-requirements-analyst") {
-    const validAgents = AGENT_ROSTER.filter(a => a.id !== "team-requirements-analyst")
+    const validAgents = (_agentRoster || FALLBACK_ROSTER).filter(a => a.id !== "team-requirements-analyst")
       .map(a => `  - "${a.id}" (${a.phase})`)
       .join("\n");
     context += `## Ticket Creation Instructions\nYou are responsible for creating tickets for all agents that need to work on this feature.\n\n**VALID AGENT ROSTER (you MUST only assign to these exact IDs):**\n${validAgents}\n\n⚠️ DO NOT invent agent IDs. If an agent is not in the list above, it does not exist. Ticket creation will FAIL if you use an invalid assignee.\n\n**EXACT tool call format (use these parameter names EXACTLY):**\n\`\`\`\nTickets___create_ticket(\n    title="Frontend: Implement [feature]",\n    description="## Summary\\n...",\n    parent_id="${workflow.epicId}",\n    assignee="team-frontend-dev",\n    ticket_type="task",\n    blocked_by="",\n    workflow_id="${workflow.id}"\n)\n\`\`\`\n\nParameter names: title, description, parent_id, assignee, ticket_type, blocked_by, workflow_id.\nDo NOT use "summary", "parent_key", or any other names.\n\nYour own ticket_id: "${ticket.ticketId}" — transition it to "done" when finished.\n\n`;
@@ -1114,6 +1132,17 @@ async function resolveWorkflow(workflowId, parentId) {
 
 async function saveWorkflow(workflow) {
   await ddb.send(new PutCommand({ TableName: WORKFLOWS_TABLE, Item: { ...workflow, workflowId: workflow.id } }));
+}
+
+async function checkAllBlockersResolved(blockerIds) {
+  // Check if all tickets in the blockedBy list are done/cancelled
+  for (const bid of blockerIds) {
+    const blocker = await getTicket(bid);
+    if (!blocker || (blocker.status !== "done" && blocker.status !== "cancelled")) {
+      return false;
+    }
+  }
+  return true;
 }
 
 async function getTicket(ticketId) {

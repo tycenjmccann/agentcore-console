@@ -221,8 +221,12 @@ aws lambda add-permission \
 
 echo "  ✓ EventBridge: s3://${BUCKET}/fleet-imp-agent/prd/ → prd-submitter"
 
-# ─── Step 7: Sync Prompts ────────────────────────────────────────────────────
-echo "├─ Step 7/7: Sync Prompts to S3 ────────────────────────────────────────┤"
+# ─── Step 7: Sync Config + Prompts ───────────────────────────────────────────
+echo "├─ Step 7/7: Sync Config + Prompts to S3 ───────────────────────────────┤"
+
+# Sync agents.json (single source of truth for agent roster)
+aws s3 cp "${REPO_ROOT}/src/config/agents.json" "s3://${BUCKET}/config/agents.json" --quiet --region "$AWS_REGION"
+echo "  ✓ agents.json synced to s3://${BUCKET}/config/agents.json"
 
 PROMPT_COUNT=0
 for f in "${REPO_ROOT}/deploy/runtime-agent/prompts/agentis_"*.txt; do

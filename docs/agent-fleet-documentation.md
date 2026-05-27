@@ -166,6 +166,70 @@ Plugins live in the **repo**, not the agent. When you add/update plugins in `.cl
 
 ---
 
+## Agent Roster (Config-Driven)
+
+The agent roster is defined in a single source of truth: `src/config/agents.json`. This file controls:
+- Which agents exist (IDs, names, phases, harness names)
+- Which agents are valid assignees for tickets
+- The orchestrator's agent-to-runtime mapping
+
+### How It Works
+
+```
+src/config/agents.json (repo)
+    ↓ synced by deploy-all.sh
+s3://{ARTIFACT_BUCKET}/config/agents.json
+    ↓ loaded on Lambda cold start
+orchestrator / agentis-tickets / agentis-jira-real
+```
+
+All 3 Lambdas load the roster from S3 at cold start and cache it in memory. If S3 is unreachable, they fall back to a hardcoded copy (last known good).
+
+### Adding/Removing Agents
+
+1. Edit `src/config/agents.json` — add or remove the agent entry
+2. Sync to S3:
+   ```bash
+   aws s3 cp src/config/agents.json s3://agentcore-artifacts-023392223961-us-east-1/config/agents.json
+   ```
+3. Lambdas pick up changes on next cold start (no code redeployment needed)
+4. To force immediate pickup, touch any env var on the Lambda to trigger a new execution environment
+
+### Config Schema
+
+```json
+{
+  "agents": [
+    {
+      "id": "team-frontend-dev",       // Used in ticket assignee, orchestrator routing
+      "name": "Frontend Developer",     // Display name
+      "role": "Implement UI from...",   // Role description
+      "phase": "development",           // Pipeline phase
+      "harnessName": "agentis_frontend_dev", // AgentCore Runtime name (deploy-fleet.sh writes this)
+      "tools": [...],                   // Tool list (used by frontend only)
+      "canQueryAgents": [...],          // A2A query permissions
+      "keywords": [...]                 // Search/routing keywords
+    }
+  ],
+  "defaults": {
+    "intakeAgentId": "team-requirements-analyst",
+    "defaultAssigneeId": "team-backend-designer"
+  }
+}
+```
+
+### Consumers
+
+| Consumer | How it reads | What it uses |
+|----------|-------------|-------------|
+| Frontend (`pipeline-config.ts`) | Direct import at build time | All fields (renders UI) |
+| Orchestrator Lambda | S3 read at cold start | `id`, `phase`, `harnessName` |
+| agentis-tickets Lambda | S3 read at cold start | `id` only (validation Set) |
+| agentis-jira-real Lambda | S3 read at cold start | `id` only (validation Set) |
+| `deploy/setup-team-agents.mjs` | Direct file read | All fields (deploys agents) |
+
+---
+
 ## Configuration
 
 ### Environment Variables (baked at deploy time)

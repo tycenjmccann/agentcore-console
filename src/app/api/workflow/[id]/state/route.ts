@@ -15,7 +15,19 @@ function normalizeAgentTasks(
   const normalized: Record<string, Record<string, unknown>> = {};
   for (const [key, task] of Object.entries(agentTasks)) {
     const agentId = (task.agentId as string) || key;
-    normalized[agentId] = { ...task, agentId };
+    const existing = normalized[agentId];
+    if (existing) {
+      // Same agent has multiple tickets — prefer the active/running one
+      const existingStatus = existing.status as string;
+      const newStatus = task.status as string;
+      const activeStatuses = ["running", "pending", "waiting_response"];
+      if (activeStatuses.includes(newStatus) && !activeStatuses.includes(existingStatus)) {
+        normalized[agentId] = { ...task, agentId };
+      }
+      // Otherwise keep the existing (first active wins, or first complete)
+    } else {
+      normalized[agentId] = { ...task, agentId };
+    }
   }
   return normalized;
 }

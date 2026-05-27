@@ -370,11 +370,22 @@ To configure:
 - Only invocable by `bedrock-agentcore.amazonaws.com`
 - Deploy: see `lambda/agentis-jira/` for Jira mode or `lambda/agentis-tickets/` for DynamoDB mode
 
+### Agent Roster (Config-Driven)
+
+The roster of valid agents is defined in `src/config/agents.json` — the single source of truth. This file is synced to S3 during deployment, and all Lambdas (orchestrator, agentis-tickets, agentis-jira-real) load it on cold start.
+
+**To add/remove agents:**
+1. Edit `src/config/agents.json`
+2. Sync to S3: `aws s3 cp src/config/agents.json s3://{ARTIFACT_BUCKET}/config/agents.json`
+3. Lambdas pick up changes on next cold start — no redeployment needed
+
+The orchestrator uses this to resolve agent ID → Runtime ARN mapping. The ticket Lambdas use it to validate assignees before accepting a ticket (rejects unknown agent IDs with a helpful error). See `docs/agent-fleet-documentation.md` § "Agent Roster" for full details.
+
 ### Deploying the Agent Fleet
 
 **Prerequisites:**
 - Install the AgentCore CLI: `pip install "bedrock-agentcore-starter-toolkit>=0.1.21"`
-- `ARTIFACT_BUCKET` set in `.env.local` (prompts are uploaded to S3 for each agent)
+- `ARTIFACT_BUCKET` set in `.env.local` (prompts and config are uploaded to S3 for each agent)
 - `GITHUB_PAT` set in `.env.local` — agents need this for GitHub MCP tools (PRs, code push, file reads). Without it, agents can still run but cannot interact with GitHub.
 
 The script automatically creates the IAM execution role (`agentis-agentcore-role`) if it doesn't exist. It also configures:
