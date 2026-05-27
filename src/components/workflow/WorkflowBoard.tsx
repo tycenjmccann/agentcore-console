@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import type {
   WorkflowState,
   WorkflowEvent,
+  TicketStatus,
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
@@ -64,6 +65,8 @@ function applyEventToState(s: WorkflowState, event: WorkflowEvent): WorkflowStat
     }
     case "workflow_complete":
       return { ...s, phase: "complete" };
+    case "ticket_update":
+      return s;
     default:
       return s;
   }
@@ -104,6 +107,16 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   // Preserve original DDB agent outputs (replay reconstructs state from events which lack full output)
   const originalOutputsRef = useRef<Record<string, string>>({});
+
+  // Ticket status map — seeded from fetch, updated via SSE
+  const [ticketStatusMap, setTicketStatusMap] = useState<Record<string, { status: TicketStatus; title: string; updatedAt: string }>>({});
+
+  // Modal open state for future TicketDetailModal
+  const [openTicketModal, setOpenTicketModal] = useState<{ ticketId: string; workflowId: string } | null>(null);
+
+  const handleOpenTicketModal = useCallback((ticketId: string) => {
+    setOpenTicketModal({ ticketId, workflowId });
+  }, [workflowId]);
 
   // S3 Artifacts Modal state
   const [artifactsModal, setArtifactsModal] = useState<{ phaseId: string; phaseName: string } | null>(null);
@@ -197,6 +210,26 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     // Only poll for live workflows (will be stopped if replay/catch-up kicks in)
     interval = setInterval(fetchState, 3000);
     return () => { if (interval) clearInterval(interval); };
+  }, [workflowId]);
+
+  // Fetch initial ticket statuses to seed ticketStatusMap
+  useEffect(() => {
+    fetch(`/api/workflow/${workflowId}/tickets`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.tickets && Array.isArray(data.tickets)) {
+          const map: Record<string, { status: TicketStatus; title: string; updatedAt: string }> = {};
+          for (const ticket of data.tickets) {
+            map[ticket.id] = {
+              status: ticket.status,
+              title: ticket.title || ticket.id,
+              updatedAt: ticket.updatedAt || new Date().toISOString(),
+            };
+          }
+          setTicketStatusMap(map);
+        }
+      })
+      .catch(() => {});
   }, [workflowId]);
 
   // SSE connection — only for LIVE workflows (starts after catch-up completes or immediately if no catch-up)
@@ -492,6 +525,26 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         setState((s) => s ? { ...s, phase: "complete" } : s);
         setCelebrating(true);
         setTimeout(() => setCelebrating(false), 1300);
+        break;
+      case "ticket_update":
+        setTicketStatusMap((prev) => ({
+          ...prev,
+          [event.ticketId]: {
+            status: event.status,
+            title: prev[event.ticketId]?.title || event.ticketId,
+            updatedAt: event.timestamp || new Date().toISOString(),
+          },
+        }));
+        break;
+      case "ticket_created":
+        setTicketStatusMap((prev) => ({
+          ...prev,
+          [event.ticket.id]: {
+            status: event.ticket.status,
+            title: event.ticket.title,
+            updatedAt: event.ticket.updatedAt || event.timestamp || new Date().toISOString(),
+          },
+        }));
         break;
       default:
         break;

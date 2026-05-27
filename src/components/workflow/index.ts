@@ -5,6 +5,5 @@ export { default as SVGConnector } from "./SVGConnector";
 export { default as AgentOutputPanel } from "./AgentOutputPanel";
 export { default as S3ArtifactsModal } from "./S3ArtifactsModal";
 export { default as StatusBar } from "./StatusBar";
-export { usePipelineSSE } from "./usePipelineSSE";
 export { MarkdownRenderer } from "./MarkdownRenderer";
 export { CodeBlock } from "./CodeBlock";
