@@ -655,3 +655,28 @@
 @media (prefers-reduced-motion: reduce) {
   .s3-artifacts-modal { animation-duration: 0ms !important; }
 }
+
+/* ─── Ticket Detail Modal ─── */
+@keyframes ticketPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+@keyframes ticketTransitionSuccess {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  40% { transform: scale(1.06); box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2); }
+  100% { transform: scale(1); box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+}
+
+.animate-ticket-pulse {
+  animation: ticketPulse 1.5s ease-in-out infinite;
+}
+
+.animate-ticket-transition-success {
+  animation: ticketTransitionSuccess 1.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticket-pulse { animation: none; opacity: 0.8; }
+  .animate-ticket-transition-success { animation: none; }
+}
