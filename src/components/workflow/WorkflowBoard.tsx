@@ -846,7 +846,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       const anyInClaudeCode = runningAgents.some(
         (id) => lastToolPerAgentRef.current[id] === "claude_code"
       );
-      const staleThreshold = anyInClaudeCode ? 720_000 : 180_000; // 12 min vs 3 min
+      const staleThreshold = anyInClaudeCode ? 1_020_000 : 180_000; // 17 min (15 min timeout + 2 min buffer) vs 3 min
 
       if (hasRunning && idle > staleThreshold && !isStale) {
         setIsStale(true);
@@ -1331,7 +1331,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           lastToolName={expandedAgent ? lastToolPerAgentRef.current[expandedAgent] : undefined}
           lastEvent={expandedAgent ? lastEventPerAgent[expandedAgent] : undefined}
           lastActivityTime={lastActivityRef.current}
-          staleThreshold={expandedAgent && lastToolPerAgentRef.current[expandedAgent] === "claude_code" ? 720_000 : 180_000}
+          staleThreshold={expandedAgent && lastToolPerAgentRef.current[expandedAgent] === "claude_code" ? 1_020_000 : 180_000}
           onRestart={() => {
             setIsStale(false);
             if (expandedAgent) {
