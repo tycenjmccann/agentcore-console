@@ -776,34 +776,49 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     return () => clearTimeout(timer);
   }, [state?.phase, celebrating]);
 
-  // Check if a pipeline phase still has running agents (for parallel execution across phases)
-  const phaseHasRunningAgents = (phaseIndex: number): boolean => {
-    if (!state) return false;
+  // Derive phase status from ticket data (agent task statuses)
+  const getPhaseStatus = (phaseIndex: number): "inactive" | "active" | "done" => {
+    if (!state) return "inactive";
     const phase = PIPELINE_PHASES[phaseIndex];
-    if (!phase) return false;
-    return phase.agents.some((a) => {
-      const task = state.agentTasks[a.id];
-      return task && (task.status === "running" || task.status === "waiting_response");
-    });
+    if (!phase) return "inactive";
+
+    // Intake phase (no agents) — done once any agent task exists
+    if (phase.agents.length === 0) {
+      return Object.keys(state.agentTasks).length > 0 ? "done" : "inactive";
+    }
+
+    const tasks = phase.agents.map((a) => state.agentTasks[a.id]).filter(Boolean);
+    if (tasks.length === 0) return "inactive";
+
+    // Active = at least one agent is running/waiting
+    const hasRunning = tasks.some(
+      (t) => t.status === "running" || t.status === "waiting_response"
+    );
+    if (hasRunning) return "active";
+
+    // Done = all agents that have tasks are complete
+    const allComplete = tasks.every((t) => t.status === "complete");
+    if (allComplete) return "done";
+
+    // Has tasks but none running and not all complete = inactive (pending)
+    return "inactive";
   };
 
   const getPhaseClass = (phaseIndex: number) => {
-    if (currentPhaseIndex === -1) return "";
     if (isSettled) return "active done settled";
     if (isComplete) return "active done";
-    if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "active";
-    if (phaseIndex < currentPhaseIndex) return "active done";
-    if (phaseIndex === currentPhaseIndex) return "active";
+    const status = getPhaseStatus(phaseIndex);
+    if (status === "active") return "active";
+    if (status === "done") return "active done";
     return "";
   };
 
   const getBoxClass = (phaseIndex: number) => {
-    if (currentPhaseIndex === -1) return "";
     if (isSettled) return "done settled";
     if (isComplete) return "done";
-    if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "awake";
-    if (phaseIndex < currentPhaseIndex) return "done";
-    if (phaseIndex === currentPhaseIndex) return "awake";
+    const status = getPhaseStatus(phaseIndex);
+    if (status === "active") return "awake";
+    if (status === "done") return "done";
     return "";
   };
 
@@ -811,16 +826,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     if (!state) return "";
     if (isSettled) return "done settled";
     if (isComplete) return "done";
-    // Phase still has running agents — steady glow (not pulsating)
-    if (phaseIndex < currentPhaseIndex && phaseHasRunningAgents(phaseIndex)) return "active-glow";
-    if (phaseIndex < currentPhaseIndex) return "done";
-    if (phaseIndex === currentPhaseIndex) {
-      const hasRunning = Object.values(state.agentTasks).some(
-        (t) => t.status === "running" || t.status === "waiting_response"
-      );
-      if (hasRunning) return "active-glow";
-      return "active";
-    }
+    const status = getPhaseStatus(phaseIndex);
+    if (status === "active") return "active-glow";
+    if (status === "done") return "done";
     return "";
   };
 
@@ -1153,6 +1161,17 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           lastEvent={expandedAgent ? lastEventPerAgent[expandedAgent] : undefined}
           lastActivityTime={lastActivityRef.current}
           staleThreshold={expandedAgent && lastToolPerAgentRef.current[expandedAgent] === "claude_code" ? 720_000 : 180_000}
+          onRestart={() => {
+            setIsStale(false);
+            if (expandedAgent) {
+              setManualStaleAgents((prev) => {
+                const next = new Set(prev);
+                next.delete(expandedAgent);
+                return next;
+              });
+            }
+            lastActivityRef.current = Date.now();
+          }}
           task={expandedAgent ? {
             id: `task_${expandedAgent}`,
             agentId: expandedAgent,

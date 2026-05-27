@@ -123,7 +123,13 @@ async function processStatusChange(ticketId, newStatus, oldStatus) {
       await handleTicketDoneUnified(ticketId);
       break;
     case "todo": {
-      // Ticket created — check blockers and route accordingly
+      // Ticket created — track it immediately, then route accordingly
+      const todoTicket = await getTicket(ticketId);
+      if (!todoTicket) return;
+
+      // Track in agentTasks at creation time (both paths)
+      await trackTicketCreation(ticketId, todoTicket.assignee, todoTicket.workflowId, todoTicket.parentId);
+
       if (TICKET_PROVIDER === "jira") {
         // Jira mode: the agentis-jira Lambda handles initial routing by transitioning
         // to "Ready" (no blockers) or "Blocked" (has blockers) AFTER creating links.
@@ -132,11 +138,9 @@ async function processStatusChange(ticketId, newStatus, oldStatus) {
         console.log(`[orchestrator] ${ticketId} → todo (Jira mode: waiting for Lambda to route)`);
       } else {
         // DynamoDB mode — todo with no blockers means ready to go
-        const ticket = await getTicket(ticketId);
-        if (!ticket) return;
-        const blockers = ticket.blockedBy || [];
+        const blockers = todoTicket.blockedBy || [];
         if (blockers.length === 0) {
-          await handleTicketReadyUnified(ticketId, ticket);
+          await handleTicketReadyUnified(ticketId, todoTicket);
         }
       }
       break;
@@ -187,12 +191,19 @@ async function handleTicketDoneUnified(ticketId) {
     return;
   }
 
-  // Update agent task status
-  if (ticketId && workflow.agentTasks?.[ticketId]) {
-    workflow.agentTasks[ticketId].status = "complete";
-    workflow.agentTasks[ticketId].completedAt = new Date().toISOString();
-    await saveWorkflow(workflow);
+  // Update agent task status (create entry if missing — belt & suspenders)
+  if (!workflow.agentTasks) workflow.agentTasks = {};
+  if (!workflow.agentTasks[ticketId]) {
+    workflow.agentTasks[ticketId] = {
+      id: `task_${Date.now()}_${assignee}`,
+      agentId: assignee,
+      ticketId,
+      createdAt: new Date().toISOString(),
+    };
   }
+  workflow.agentTasks[ticketId].status = "complete";
+  workflow.agentTasks[ticketId].completedAt = new Date().toISOString();
+  await saveWorkflow(workflow);
 
   // Unblock dependents
   const siblings = await getChildTickets(parentId);
@@ -325,16 +336,17 @@ async function handleTicketReadyUnified(ticketId, ticket) {
     }
   }
 
-  // Record agent task in workflow
-  const task = {
-    id: `task_${Date.now()}_${assignee}`,
+  // Update agent task status to "running" (may already exist from trackTicketCreation)
+  if (!workflow.agentTasks) workflow.agentTasks = {};
+  const existingTask = workflow.agentTasks[ticketId];
+  workflow.agentTasks[ticketId] = {
+    ...(existingTask || {}),
+    id: existingTask?.id || `task_${Date.now()}_${assignee}`,
     agentId: assignee,
     ticketId,
     status: "running",
     startedAt: new Date().toISOString(),
   };
-  if (!workflow.agentTasks) workflow.agentTasks = {};
-  workflow.agentTasks[ticketId] = task;
   await saveWorkflow(workflow);
 
   // Build context and invoke — SAME buildAgentContext for both paths
@@ -405,6 +417,14 @@ async function processRecord(record) {
 
   console.log(`[orchestrator] ${ticketId}: ${oldStatus || "NEW"} → ${newStatus}`);
 
+  // Track ticket in workflow.agentTasks at creation time (INSERT = new ticket)
+  if (eventName === "INSERT") {
+    const insertAssignee = unwrapDdbValue(newImage.assignee);
+    const insertWorkflowId = unwrapDdbValue(newImage.workflowId);
+    const insertParentId = unwrapDdbValue(newImage.parentId);
+    await trackTicketCreation(ticketId, insertAssignee, insertWorkflowId, insertParentId);
+  }
+
   switch (newStatus) {
     case "done":
       await handleTicketDone(ticketId, newImage);
@@ -422,6 +442,40 @@ async function processRecord(record) {
       await publishEvent(ticketId, "agent.started", { ticketId, assignee: startedAssignee, agentId: startedAssignee });
       break;
   }
+}
+
+// ─── Ticket Tracking at Creation ────────────────────────────────────────────────
+
+/**
+ * Track a ticket in workflow.agentTasks as soon as it's created.
+ * This ensures the orchestrator knows about ALL tickets in a workflow from the start,
+ * not just when they're invoked. Prevents invisible tickets blocking completion.
+ *
+ * Called from both Jira and DynamoDB paths when a ticket first appears.
+ */
+async function trackTicketCreation(ticketId, assignee, workflowId, parentId) {
+  if (!assignee || !parentId) return;
+
+  // Skip epics — they're containers, not agent tasks
+  const agentDef = getAgentDef(assignee);
+  if (!agentDef) return;
+
+  const workflow = await resolveWorkflow(workflowId, parentId);
+  if (!workflow) return;
+
+  // Already tracked (e.g., from a retry/re-delivery) — don't overwrite
+  if (workflow.agentTasks?.[ticketId]) return;
+
+  if (!workflow.agentTasks) workflow.agentTasks = {};
+  workflow.agentTasks[ticketId] = {
+    id: `task_${Date.now()}_${assignee}`,
+    agentId: assignee,
+    ticketId,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  };
+  await saveWorkflow(workflow);
+  console.log(`[orchestrator] Tracked new ticket ${ticketId} (${assignee}) in workflow ${workflow.id}`);
 }
 
 // ─── Core Handlers ─────────────────────────────────────────────────────────────
@@ -446,12 +500,19 @@ async function handleTicketDone(ticketId, image) {
     return;
   }
 
-  // Update agent task status in workflow metadata (keyed by ticketId)
-  if (ticketId && workflow.agentTasks?.[ticketId]) {
-    workflow.agentTasks[ticketId].status = "complete";
-    workflow.agentTasks[ticketId].completedAt = new Date().toISOString();
-    await saveWorkflow(workflow);
+  // Update agent task status in workflow metadata (create entry if missing — belt & suspenders)
+  if (!workflow.agentTasks) workflow.agentTasks = {};
+  if (!workflow.agentTasks[ticketId]) {
+    workflow.agentTasks[ticketId] = {
+      id: `task_${Date.now()}_${assignee}`,
+      agentId: assignee,
+      ticketId,
+      createdAt: new Date().toISOString(),
+    };
   }
+  workflow.agentTasks[ticketId].status = "complete";
+  workflow.agentTasks[ticketId].completedAt = new Date().toISOString();
+  await saveWorkflow(workflow);
 
   // Unblock dependents: find tickets blocked by this one
   const siblings = await getChildTickets(parentId);
@@ -583,16 +644,17 @@ async function handleTicketReady(ticketId, image) {
     }
   }
 
-  // Record agent task in workflow (keyed by ticketId to support multiple tickets per agent)
-  const task = {
-    id: `task_${Date.now()}_${assignee}`,
+  // Update agent task status to "running" (may already exist from trackTicketCreation)
+  if (!workflow.agentTasks) workflow.agentTasks = {};
+  const existingTask = workflow.agentTasks[ticketId];
+  workflow.agentTasks[ticketId] = {
+    ...(existingTask || {}),
+    id: existingTask?.id || `task_${Date.now()}_${assignee}`,
     agentId: assignee,
     ticketId,
     status: "running",
     startedAt: new Date().toISOString(),
   };
-  if (!workflow.agentTasks) workflow.agentTasks = {};
-  workflow.agentTasks[ticketId] = task;
   await saveWorkflow(workflow);
 
   // Build context and invoke agent
