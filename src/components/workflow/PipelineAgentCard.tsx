@@ -1,7 +1,8 @@
 "use client";
 
 import { FolderOpen } from "lucide-react";
-import type { AgentTaskStatus } from "@/lib/workflow/types";
+import type { AgentTaskStatus, TicketStatus } from "@/lib/workflow/types";
+import TicketStatusBadge from "./TicketStatusBadge";
 
 interface PipelineAgentCardProps {
   agentId: string;
@@ -9,6 +10,8 @@ interface PipelineAgentCardProps {
   role: string;
   status: AgentTaskStatus | "idle";
   ticketId?: string;
+  ticketStatus?: TicketStatus;
+  ticketTitle?: string;
   outputPreview?: string;
   branch?: string;
   error?: string;
@@ -16,6 +19,7 @@ interface PipelineAgentCardProps {
   suppressAnimation: boolean;
   onExpand?: () => void;
   onViewArtifacts?: () => void;
+  onOpenTicketModal?: (ticketId: string) => void;
 }
 
 const STATUS_CONFIG: Record<string, {
@@ -60,6 +64,8 @@ export default function PipelineAgentCard({
   role,
   status,
   ticketId,
+  ticketStatus,
+  ticketTitle,
   outputPreview,
   branch,
   error,
@@ -67,6 +73,7 @@ export default function PipelineAgentCard({
   suppressAnimation,
   onExpand,
   onViewArtifacts,
+  onOpenTicketModal,
 }: PipelineAgentCardProps) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.idle;
 
@@ -132,8 +139,18 @@ export default function PipelineAgentCard({
 
       {/* Ticket reference */}
       {ticketId && (
-        <div className="text-[10px] text-zinc-600 mt-1.5 font-mono">
-          {ticketId}
+        <div className="mt-1.5 flex items-center gap-1">
+          {ticketStatus ? (
+            <TicketStatusBadge
+              status={ticketStatus}
+              ticketId={ticketId}
+              ticketTitle={ticketTitle}
+              size="sm"
+              onClick={onOpenTicketModal ? () => onOpenTicketModal(ticketId) : undefined}
+            />
+          ) : (
+            <span className="text-[10px] text-zinc-600 font-mono">{ticketId}</span>
+          )}
         </div>
       )}
 

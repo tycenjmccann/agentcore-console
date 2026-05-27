@@ -1,6 +1,7 @@
 "use client";
 
-import type { AgentTaskStatus } from "@/lib/workflow/types";
+import type { AgentTaskStatus, TicketStatus } from "@/lib/workflow/types";
+import TicketStatusBadge from "./TicketStatusBadge";
 
 interface AgentCardProps {
   agentId: string;
@@ -8,11 +9,14 @@ interface AgentCardProps {
   role: string;
   status: AgentTaskStatus | "idle";
   ticketId?: string;
+  ticketStatus?: TicketStatus;
+  ticketTitle?: string;
   outputPreview?: string;
   branch?: string;
   error?: string;
   workflowId?: string;
   onExpand?: () => void;
+  onOpenTicketModal?: (ticketId: string) => void;
 }
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
@@ -30,11 +34,14 @@ export default function AgentCard({
   role,
   status,
   ticketId,
+  ticketStatus,
+  ticketTitle,
   outputPreview,
   branch,
   error,
   workflowId,
   onExpand,
+  onOpenTicketModal,
 }: AgentCardProps) {
   const style = STATUS_STYLES[status] || STATUS_STYLES.idle;
 
@@ -67,8 +74,19 @@ export default function AgentCard({
       <p className="text-xs text-zinc-400 mb-2">{role}</p>
 
       {ticketId && (
-        <div className="text-xs text-zinc-500 mb-1">
-          Ticket: <span className="text-zinc-300 font-mono">{ticketId}</span>
+        <div className="text-xs text-zinc-500 mb-1 flex items-center gap-1.5">
+          <span>Ticket:</span>
+          {ticketStatus ? (
+            <TicketStatusBadge
+              status={ticketStatus}
+              ticketId={ticketId}
+              ticketTitle={ticketTitle}
+              size="sm"
+              onClick={onOpenTicketModal ? () => onOpenTicketModal(ticketId) : undefined}
+            />
+          ) : (
+            <span className="text-zinc-300 font-mono">{ticketId}</span>
+          )}
         </div>
       )}
 
