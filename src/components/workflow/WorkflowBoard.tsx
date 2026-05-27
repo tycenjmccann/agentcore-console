@@ -45,6 +45,8 @@ function applyEventToState(s: WorkflowState, event: WorkflowEvent): WorkflowStat
     case "agent_status": {
       const tasks = { ...s.agentTasks };
       if (tasks[event.agentId]) {
+        // Never regress a completed agent back to running
+        if (tasks[event.agentId].status === "complete") return s;
         tasks[event.agentId] = { ...tasks[event.agentId], status: event.status };
       } else {
         tasks[event.agentId] = { id: `task_${Date.now()}`, agentId: event.agentId, ticketId: event.ticketId || "", status: event.status, input: "" };
@@ -530,6 +532,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           if (!s) return s;
           const tasks = { ...s.agentTasks };
           if (tasks[event.agentId]) {
+            // Never regress a completed agent back to running (late/duplicate events)
+            if (tasks[event.agentId].status === "complete") return s;
             tasks[event.agentId] = { ...tasks[event.agentId], status: event.status };
           } else {
             tasks[event.agentId] = {
@@ -1006,13 +1010,12 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                   <div className="phase-name">{phase.name}</div>
 
                   <div className="card-meta">
-                    <div className="meta-row">{phase.runtimeAgentCount > 0 ? `${phase.runtimeAgentCount} AgentCore Runtime Agents` : "Web Application"}</div>
-                    <div className="meta-row">{phase.harnessAgentCount} AgentCore Harness Agents</div>
+                    <div className="meta-row">{phase.typeLabel}</div>
                   </div>
 
-                  {PHASE_DISPLAY_META[phase.id].models.length > 0 && (
+                  {phase.models.length > 0 && (
                     <div className="card-models">
-                      {PHASE_DISPLAY_META[phase.id].models.map((model, i) => (
+                      {phase.models.map((model, i) => (
                         <div key={i} className="model-row">{model}</div>
                       ))}
                     </div>
