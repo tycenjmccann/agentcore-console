@@ -1027,7 +1027,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                   </div>
 
                   <div className="card-eval">
-                    Evaluations: {PHASE_DISPLAY_META[phase.id].evaluationsEnabled ? (
+                    Evaluations: {phase.evaluationsEnabled ? (
                       <span className="eval-active">Active <span className="eval-dot active">●</span></span>
                     ) : (
                       <span className="eval-inactive">Inactive <span className="eval-dot inactive">○</span></span>

@@ -269,6 +269,8 @@ export interface PipelineAgentConfig {
   type: "runtime" | "harness";
   /** Model used by this agent (e.g. "Claude Opus 4.6") */
   model: string;
+  /** Whether evaluations are enabled for this agent */
+  evaluationsEnabled: boolean;
   /** AgentCore harness name (used for discovery) */
   harnessName: string;
   /** Tools this agent has access to (used to determine which icons to flash) */
@@ -291,6 +293,7 @@ export interface PipelinePhaseConfig {
   skills: string[];
   outputs: PipelineDisplayItem[];
   models: string[];
+  evaluationsEnabled: boolean;
   runtimeAgentCount: number;
   harnessAgentCount: number;
 }
@@ -365,6 +368,7 @@ function buildPipelinePhases(): PipelinePhaseConfig[] {
         displayName: a.name,
         type: (a.type || "runtime") as "runtime" | "harness",
         model: a.model || "",
+        evaluationsEnabled: a.evaluationsEnabled ?? false,
         harnessName: a.harnessName,
         tools: a.tools.filter((t) => t !== "gateway" && t !== "invoke_team_agent" && t !== "browser"),
       }));
@@ -396,6 +400,7 @@ function buildPipelinePhases(): PipelinePhaseConfig[] {
       skills: meta.skills,
       outputs: meta.outputs,
       models: [...new Set(agents.map((a) => a.model).filter(Boolean))],
+      evaluationsEnabled: agents.some((a) => a.evaluationsEnabled),
       runtimeAgentCount: agents.filter((a) => a.type === "runtime").length,
       harnessAgentCount: agents.filter((a) => a.type === "harness").length,
     };
