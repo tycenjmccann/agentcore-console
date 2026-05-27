@@ -6,7 +6,7 @@ import type {
   WorkflowEvent,
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
-import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
+import { PIPELINE_PHASES, PHASE_DISPLAY_META, resolveToolIcon, getPhaseToolCount, getPhaseSkillCount } from "@/lib/pipeline-config";
 import AgentOutputPanel from "./AgentOutputPanel";
 import S3ArtifactsModal from "./S3ArtifactsModal";
 
@@ -958,40 +958,33 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                 className={`phase ${getPhaseClass(idx)}`}
               >
                 <div className={`agent-box ${getBoxClass(idx)}`}>
-                  <div className="phase-num">Phase {phase.num}</div>
+                  <div className="phase-num">PHASE {phase.num}</div>
                   <div className="phase-name">{phase.name}</div>
-                  <div className={`phase-type ${phase.type}`}>{phase.typeLabel}</div>
 
-                  {/* Identity */}
-                  <div className="identity">
-                    {phase.identity.length === 1 && !phase.identity[0].icon ? (
-                      <div className="id-label" style={{ textAlign: "center", height: "auto", lineHeight: 1.4 }}>
-                        {phase.identity[0].label}
-                      </div>
-                    ) : (
-                      <div className="id-row">
-                        <div className="id-icon-col">
-                          {phase.identity.map((id, i) => (
-                            id.icon && <img key={i} className="id-icon" src={(awsIcons as Record<string, string>)[id.icon]} alt={id.icon} />
-                          ))}
-                        </div>
-                        <div className="id-labels">
-                          {phase.identity.map((id, i) => (
-                            <div key={i} className="id-label">{id.label}</div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                  <div className="card-meta">
+                    <div className="meta-row">{phase.runtimeAgentCount > 0 ? `${phase.runtimeAgentCount} AgentCore Runtime Agents` : "Web Application"}</div>
+                    <div className="meta-row">{phase.harnessAgentCount} AgentCore Harness Agents</div>
                   </div>
 
-                  {/* Config */}
-                  <div className="config-detail">
-                    {phase.config.map((c, i) => (
-                      <div key={i} className="cfg-row">
-                        <span className="cfg-key">{c.key}</span>
-                        <span className="cfg-val">{c.val}</span>
-                      </div>
-                    ))}
+                  {PHASE_DISPLAY_META[phase.id].models.length > 0 && (
+                    <div className="card-models">
+                      {PHASE_DISPLAY_META[phase.id].models.map((model, i) => (
+                        <div key={i} className="model-row">{model}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="card-stats">
+                    <div className="stat-row">{getPhaseToolCount(phase.id)} Tools</div>
+                    <div className="stat-row">{getPhaseSkillCount(phase.id)} Skills</div>
+                  </div>
+
+                  <div className="card-eval">
+                    Evaluations: {PHASE_DISPLAY_META[phase.id].evaluationsEnabled ? (
+                      <span className="eval-active">Active <span className="eval-dot active">●</span></span>
+                    ) : (
+                      <span className="eval-inactive">Inactive <span className="eval-dot inactive">○</span></span>
+                    )}
                   </div>
                 </div>
 
@@ -1225,23 +1218,20 @@ const PIPELINE_STYLES = `
 .agent-box{width:100%;border-radius:11px;padding:12px 14px;text-align:center;transition:all .4s;background:#1a2332;border:2px solid #1e293b}
 .agent-box.awake{border-color:#0ea5e9;box-shadow:0 0 20px rgba(14,165,233,.3)}
 .agent-box.done{border-color:#22c55e50;box-shadow:0 0 8px rgba(34,197,94,.1)}
-.agent-box .phase-num{font-size:8px;color:#64748b;letter-spacing:2px;text-transform:uppercase}
-.agent-box .phase-name{font-size:15px;font-weight:700;color:#e2e8f0;margin-top:2px}
-.agent-box .phase-type{display:inline-flex;align-items:center;gap:4px;margin-top:5px;padding:3px 8px;border-radius:5px;font-size:9px;font-weight:600;letter-spacing:0.5px}
-.agent-box .phase-type.app{background:#0ea5e910;color:#38bdf8;border:1px solid #0ea5e925}
-.agent-box .phase-type.agent{background:#a855f710;color:#c084fc;border:1px solid #a855f725}
-
-.identity{display:flex;flex-direction:column;gap:0;margin-top:8px;align-items:center}
-.id-row{display:flex;align-items:center;gap:8px}
-.id-icon-col{display:flex;flex-direction:column;align-items:center;gap:4px}
-.id-labels{display:flex;flex-direction:column;gap:4px;text-align:left}
-.id-icon{width:20px;height:20px;border-radius:3px;object-fit:contain}
-.id-label{font-size:8.5px;color:#94a3b8;line-height:20px;height:20px;display:flex;align-items:center}
-
-.config-detail{margin-top:6px;padding:5px 8px;background:#0f141980;border-radius:5px;border:1px solid #1e293b;text-align:left}
-.config-detail .cfg-row{display:flex;align-items:center;gap:4px;font-size:8px;color:#64748b;line-height:1.6}
-.config-detail .cfg-key{color:#475569;font-weight:600;min-width:52px}
-.config-detail .cfg-val{color:#94a3b8}
+.agent-box .phase-num{font-size:12px;color:#94a3b8;letter-spacing:2px;text-transform:uppercase;font-weight:600}
+.agent-box .phase-name{font-size:24px;font-weight:700;color:#ffffff;margin-top:2px;margin-bottom:10px}
+.card-meta{margin-bottom:8px}
+.card-meta .meta-row{font-size:11px;color:#94a3b8;line-height:1.6}
+.card-models{margin-bottom:8px;padding:6px 0;border-top:1px solid #1e293b}
+.card-models .model-row{font-size:11px;color:#c084fc;line-height:1.6;font-weight:500}
+.card-stats{margin-bottom:8px}
+.card-stats .stat-row{font-size:11px;color:#94a3b8;line-height:1.6}
+.card-eval{font-size:11px;color:#64748b;padding-top:6px;border-top:1px solid #1e293b}
+.eval-active{color:#22c55e;font-weight:500}
+.eval-inactive{color:#64748b}
+.eval-dot{margin-left:4px}
+.eval-dot.active{color:#22c55e}
+.eval-dot.inactive{color:#475569}
 
 .work-area{width:100%;margin-top:8px;display:flex;flex-direction:column;gap:3px}
 .sec-label{font-size:7px;color:#475569;letter-spacing:1.5px;text-transform:uppercase;margin-top:6px;margin-bottom:2px;padding-left:3px}
