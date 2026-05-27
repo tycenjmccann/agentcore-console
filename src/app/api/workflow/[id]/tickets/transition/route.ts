@@ -55,7 +55,7 @@ export async function POST(
 
   // Look up ticket and its current status
   const tickets = await getTicketsForWorkflowFromDynamo(params.id);
-  const ticket = tickets.find((t: { ticketId: string }) => t.ticketId === ticketId);
+  const ticket = tickets.find((t) => (t as Record<string, unknown>).ticketId === ticketId);
   if (!ticket) {
     return NextResponse.json({ error: "Ticket not found" }, { status: 404 });
   }
