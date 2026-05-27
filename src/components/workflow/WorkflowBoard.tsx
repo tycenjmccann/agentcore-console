@@ -7,8 +7,10 @@ import type {
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, PHASE_DISPLAY_META, resolveToolIcon, getPhaseToolCount, getPhaseSkillCount } from "@/lib/pipeline-config";
+import { Square } from "lucide-react";
 import AgentOutputPanel from "./AgentOutputPanel";
 import S3ArtifactsModal from "./S3ArtifactsModal";
+import CancelConfirmationModal from "./CancelConfirmationModal";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -30,6 +32,7 @@ const PHASE_ORDER: Record<string, number> = (() => {
   order["review"] = PIPELINE_PHASES.length - 1;
   order["complete"] = PIPELINE_PHASES.length;
   order["error"] = -1;
+  order["cancelled"] = -1;
   return order;
 })();
 
@@ -109,8 +112,35 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   // Track whether the workflow was loaded as complete (from API) — survives replay reconstruction
   const wasLoadedCompleteRef = useRef(false);
 
+  // Cancel workflow state
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
   // S3 Artifacts Modal state
   const [artifactsModal, setArtifactsModal] = useState<{ phaseId: string; phaseName: string } | null>(null);
+
+  const handleCancelWorkflow = useCallback(async () => {
+    setCancelLoading(true);
+    setCancelError(null);
+    try {
+      const res = await fetch(`/api/workflow/${workflowId}/cancel`, { method: "POST" });
+      if (res.ok) {
+        setShowCancelModal(false);
+        setState((s) => s ? { ...s, phase: "cancelled" } : s);
+      } else if (res.status === 409) {
+        setCancelError("Workflow is already in a terminal state.");
+        setTimeout(() => setShowCancelModal(false), 2000);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setCancelError(data.error || "Failed to cancel workflow. Please try again.");
+      }
+    } catch {
+      setCancelError("Network error. Please check your connection and try again.");
+    } finally {
+      setCancelLoading(false);
+    }
+  }, [workflowId]);
 
   // Fetch initial state (once for replay, poll for live)
   useEffect(() => {
@@ -901,9 +931,23 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             </div>
           )}
 
-          <div className={`pipeline-status-header ${isComplete ? "settled" : ""}`}>
-            {isComplete ? "Complete" : state.phase === "error" ? "Error" : `In Progress: ${PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase}`}
+          <div className={`pipeline-status-header ${isComplete ? "settled" : ""} ${state.phase === "cancelled" ? "cancelled" : ""}`}>
+            {isComplete ? "Complete" : state.phase === "cancelled" ? "Cancelled" : state.phase === "error" ? "Error" : `In Progress: ${PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase}`}
           </div>
+
+          {/* Cancel button — only show for active (non-terminal) workflows */}
+          {state && state.phase !== "complete" && state.phase !== "error" && state.phase !== "cancelled" && (
+            <button
+              onClick={() => { setCancelError(null); setShowCancelModal(true); }}
+              disabled={cancelLoading}
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium border border-red-500/40 text-red-400 hover:border-red-500/60 hover:bg-red-500/10 hover:text-red-300 active:border-red-500/80 active:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
+              aria-label="Cancel workflow"
+              title="Cancel workflow"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+              <span className="hidden md:inline">Cancel</span>
+            </button>
+          )}
         </div>
 
         {/* Canvas */}
@@ -1184,6 +1228,15 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           agentName="Workflow"
           workflowId={workflowId}
         />
+
+        {/* Cancel Confirmation Modal */}
+        <CancelConfirmationModal
+          isOpen={showCancelModal}
+          onClose={() => setShowCancelModal(false)}
+          onConfirm={handleCancelWorkflow}
+          isLoading={cancelLoading}
+          error={cancelError}
+        />
       </div>
     </div>
   );
@@ -1200,6 +1253,7 @@ const PIPELINE_STYLES = `
 .pipeline-top-bar{display:flex;align-items:center;width:1720px;margin-bottom:10px;position:relative}
 .pipeline-status-header{position:absolute;left:50%;transform:translateX(-50%);font-size:16px;font-weight:700;color:#e2e8f0;letter-spacing:0.5px;text-transform:capitalize;transition:color .4s;white-space:nowrap}
 .pipeline-status-header.settled{color:#f97316;animation:settledHeaderGlow 6s ease-in-out infinite}
+.pipeline-status-header.cancelled{color:#f59e0b}
 
 .pipeline-canvas{position:relative;width:1720px;min-height:840px}
 .pipeline-connectors{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
