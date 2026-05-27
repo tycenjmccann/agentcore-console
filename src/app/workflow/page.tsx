@@ -58,8 +58,8 @@ export default function WorkflowPage() {
       }));
       // Sort: active first, then by date descending
       list.sort((a, b) => {
-        const aActive = a.phase !== "complete" && a.phase !== "error";
-        const bActive = b.phase !== "complete" && b.phase !== "error";
+        const aActive = a.phase !== "complete" && a.phase !== "error" && a.phase !== "cancelled";
+        const bActive = b.phase !== "complete" && b.phase !== "error" && b.phase !== "cancelled";
         if (aActive && !bActive) return -1;
         if (!aActive && bActive) return 1;
         return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
@@ -122,8 +122,8 @@ export default function WorkflowPage() {
     );
   });
 
-  const activeWorkflows = filtered.filter((w) => w.phase !== "complete" && w.phase !== "error");
-  const pastWorkflows = filtered.filter((w) => w.phase === "complete" || w.phase === "error");
+  const activeWorkflows = filtered.filter((w) => w.phase !== "complete" && w.phase !== "error" && w.phase !== "cancelled");
+  const pastWorkflows = filtered.filter((w) => w.phase === "complete" || w.phase === "error" || w.phase === "cancelled");
 
   const handleSelectWorkflow = (id: string) => {
     setSelectedId(id);
@@ -305,7 +305,7 @@ function WorkflowListItem({
   onClick: () => void;
   onNudge?: (id: string) => void;
 }) {
-  const isRunning = workflow.phase !== "complete" && workflow.phase !== "error";
+  const isRunning = workflow.phase !== "complete" && workflow.phase !== "error" && workflow.phase !== "cancelled";
   const timeStr = formatRelativeTime(workflow.startedAt);
 
   return (
@@ -329,6 +329,8 @@ function WorkflowListItem({
             </div>
           ) : workflow.phase === "error" ? (
             <div className="w-2 h-2 rounded-full bg-red-500 mt-0.5" />
+          ) : workflow.phase === "cancelled" ? (
+            <div className="w-2 h-2 rounded-full bg-amber-500/60 mt-0.5" />
           ) : (
             <div className="w-2 h-2 rounded-full bg-green-500/60 mt-0.5" />
           )}
@@ -356,6 +358,13 @@ function WorkflowListItem({
                   <Zap className="w-3 h-3" />
                 </button>
               )}
+            </div>
+          )}
+          {!isRunning && workflow.phase === "cancelled" && (
+            <div className="mt-1">
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium uppercase tracking-wider">
+                Cancelled
+              </span>
             </div>
           )}
         </div>

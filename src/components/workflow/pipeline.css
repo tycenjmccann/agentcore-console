@@ -236,6 +236,7 @@
 
 .status-phase-name.complete { color: var(--pipeline-done); }
 .status-phase-name.error { color: var(--pipeline-error); }
+.status-phase-name.cancelled { color: #f59e0b; }
 .status-description { font-size: 11px; color: var(--pipeline-text-muted); }
 
 /* ─── Agent Output Modal ──────────────────────────────────────────────────── */
