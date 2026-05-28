@@ -17,8 +17,13 @@ Key advantages over Harness:
 
 import os
 import subprocess
+import signal
 os.environ["BYPASS_TOOL_CONSENT"] = "true"  # Required for non-interactive strands_tools (shell, editor, etc.)
 os.environ["HOME"] = "/tmp"  # Runtime /var/task is read-only; tools need writable HOME
+os.environ["SHELL_DEFAULT_TIMEOUT"] = "300"  # 5 min — safety net for hung commands
+os.environ["GIT_TERMINAL_PROMPT"] = "0"  # Never prompt for credentials — fail immediately instead of hanging
+os.environ["GIT_PAGER"] = "cat"  # Never use less/pager — prevents hang on git log/diff output
+os.environ["PAGER"] = "cat"  # Same for any tool that uses $PAGER
 os.chdir("/tmp")  # python_repl, editor, shell all use cwd() for state — must be writable
 
 # --- Fix Playwright driver permissions ---
@@ -210,6 +215,7 @@ SKILL_LOADER_LAMBDA = os.getenv("SKILL_LOADER_LAMBDA", "agentis-skill-loader")
 
 # Set per-invocation by agent_invocation() — used by tools to pass context to Lambdas
 _CURRENT_WORKFLOW_ID = "unknown"
+_CURRENT_AGENT_ID = "unknown"
 
 # ARTIFACT_BUCKET is set near the top of this file (line ~135) via AGENTIS_ARTIFACT_BUCKET env var.
 
@@ -228,6 +234,15 @@ MCP_SERVERS_JSON = os.getenv("MCP_SERVERS", "")
 # Legacy shorthand: GITHUB_PAT auto-creates a GitHub MCP entry
 GITHUB_PAT = os.getenv("GITHUB_PAT", "")
 GITHUB_MCP_URL = os.getenv("GITHUB_MCP_URL", "https://api.githubcopilot.com/mcp/")
+
+# Configure git to use GITHUB_PAT for HTTPS auth — enables git push/clone via shell & claude_code
+if GITHUB_PAT:
+    subprocess.run(
+        ["git", "config", "--global", "url.https://x-access-token:" + GITHUB_PAT + "@github.com/.insteadOf", "https://github.com/"],
+        capture_output=True,
+    )
+    subprocess.run(["git", "config", "--global", "user.email", "agent@agentis.dev"], capture_output=True)
+    subprocess.run(["git", "config", "--global", "user.name", "Agentis Agent"], capture_output=True)
 
 def _parse_mcp_servers():
     """Parse MCP server config from env. Returns list of {url, headers} dicts."""
@@ -448,11 +463,12 @@ def WorkflowOutput___report_completion(ticket_id: str, summary: str, artifacts: 
         commit_sha: Git commit SHA (for dev agents)
         pr_url: Pull request URL (for dev agents)
     """
-    # Include workflow_id from invocation context for journey logging (not exposed to agent)
+    # Include workflow_id and agent_id from invocation context for journey logging (not exposed to agent)
     return _invoke_lambda(WORKFLOW_OUTPUT_LAMBDA, "WorkflowOutput___report_completion", {
         "ticket_id": ticket_id, "summary": summary,
         "artifacts": artifacts, "branch": branch, "commit_sha": commit_sha, "pr_url": pr_url,
         "workflow_id": _CURRENT_WORKFLOW_ID,
+        "agent_id": _CURRENT_AGENT_ID,
     })
 
 
@@ -598,7 +614,11 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
     cc_model = os.environ.get("ANTHROPIC_MODEL") or os.environ.get("CLAUDE_MODEL") or "us.anthropic.claude-opus-4-6-v1"
 
     try:
-        result = subprocess.run(
+        # Use Popen + start_new_session to create a new process group.
+        # This ensures we can kill claude AND all its grandchildren (Node, git, LSP)
+        # on timeout. Without this, grandchildren inherit pipe FDs and keep them open,
+        # causing communicate() to block forever even after timeout fires.
+        proc = subprocess.Popen(
             [
                 claude_bin,
                 "--print",
@@ -609,9 +629,10 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
                 task,
             ],
             cwd=working_directory,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=600,  # 10 min — forces scoped work; agents told this limit in blueprints
+            start_new_session=True,  # New process group — enables killpg
             env={
                 **os.environ,
                 "CLAUDE_CODE_ENTRYPOINT": "agentis-pipeline",
@@ -619,18 +640,30 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
             },
         )
 
-        output = result.stdout.strip()
-        if result.returncode != 0 and result.stderr:
-            output += f"\n\nSTDERR: {result.stderr[-500:]}"
+        try:
+            stdout, stderr = proc.communicate(timeout=900)  # 15 min — agents target ~10 min per session
+        except subprocess.TimeoutExpired:
+            # Kill the ENTIRE process group (claude + all children/grandchildren)
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                proc.kill()  # Fallback if process group already gone
+            # Drain remaining pipe data to avoid zombie FDs
+            try:
+                proc.communicate(timeout=5)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+            return "ERROR: Claude Code timed out after 900 seconds (15 min limit). Break this into smaller, focused claude_code calls — each should do ONE thing (implement, test, or fix)."
 
-        logger.info(f"[claude_code] Complete. {len(output)} chars, exit code: {result.returncode}")
-        if result.returncode != 0:
-            logger.warning(f"[claude_code] FAILED — stdout: {result.stdout[:200]!r}")
-            logger.warning(f"[claude_code] FAILED — stderr: {result.stderr[:200]!r}")
-        return output if output else f"Claude Code exited with code {result.returncode}. Stderr: {result.stderr[-300:]}"
+        output = stdout.strip()
+        if proc.returncode != 0 and stderr:
+            output += f"\n\nSTDERR: {stderr[-500:]}"
 
-    except subprocess.TimeoutExpired:
-        return "ERROR: Claude Code timed out after 600 seconds (10 min limit). Break this into smaller, focused claude_code calls — each should do ONE thing (implement, test, or fix)."
+        logger.info(f"[claude_code] Complete. {len(output)} chars, exit code: {proc.returncode}")
+        if proc.returncode != 0:
+            logger.warning(f"[claude_code] FAILED — stdout: {stdout[:200]!r}")
+            logger.warning(f"[claude_code] FAILED — stderr: {stderr[:200]!r}")
+        return output if output else f"Claude Code exited with code {proc.returncode}. Stderr: {stderr[-300:]}"
     except FileNotFoundError:
         return "ERROR: 'claude' CLI not found in this environment. Falling back — use shell, editor, and file_write tools directly."
     except Exception as e:
@@ -713,12 +746,13 @@ async def agent_invocation(payload, context):
     The system prompt is NOT in the payload — it's baked into the agent at deploy time
     via the SYSTEM_PROMPT env var. The orchestrator is dumb and only passes task context.
     """
-    global _CURRENT_WORKFLOW_ID
+    global _CURRENT_WORKFLOW_ID, _CURRENT_AGENT_ID
     prompt = payload.get("prompt", "")
     workflow_id = payload.get("workflow_id", "unknown")
     agent_id = payload.get("agent_id", "unknown")
     model_override = payload.get("model_override")
     _CURRENT_WORKFLOW_ID = workflow_id
+    _CURRENT_AGENT_ID = agent_id
 
     logger.info(f"[{agent_id}] Starting invocation for workflow {workflow_id}")
     logger.info(f"[{agent_id}] Model: {model_override or MODEL_ID}, read_timeout: {READ_TIMEOUT}s")
