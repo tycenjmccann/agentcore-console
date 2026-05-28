@@ -49,12 +49,31 @@ async function getCredentials(): Promise<Credentials> {
       sessionToken: creds.Token,
     };
   }
-  // Fallback to env vars
-  return {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-    sessionToken: process.env.AWS_SESSION_TOKEN,
-  };
+  // Try env vars
+  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    return {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      sessionToken: process.env.AWS_SESSION_TOKEN,
+    };
+  }
+  // Fallback: resolve via AWS CLI credential_process / shared credentials
+  try {
+    const { execSync } = require("child_process");
+    const profile = process.env.AWS_PROFILE || "default";
+    const output = execSync(
+      `aws configure export-credentials --profile ${profile} --format process 2>/dev/null`,
+      { timeout: 5000, encoding: "utf-8" }
+    );
+    const creds = JSON.parse(output);
+    return {
+      accessKeyId: creds.AccessKeyId,
+      secretAccessKey: creds.SecretAccessKey,
+      sessionToken: creds.SessionToken,
+    };
+  } catch {
+    return { accessKeyId: "", secretAccessKey: "", sessionToken: undefined };
+  }
 }
 
 export async function cwLogsRequest(action: string, payload: object): Promise<any> {

@@ -27,20 +27,20 @@ function normalizeEvaluatorName(raw: string): string {
 
 // Agent fleet: eval config name → display name → runtime log group
 const AGENTS: Record<string, { name: string; runtimeLogGroup: string }> = {
-  "eval_analytics_designer": { name: "Analytics Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_analytics_designer-nIfOVs3GEj-DEFAULT" },
-  "eval_android_designer": { name: "Android Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_android_designer-99sWXeFskP-DEFAULT" },
-  "eval_api_dev": { name: "API Developer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_api_dev-6V6nFpBL3L-DEFAULT" },
-  "eval_backend_designer": { name: "Backend Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_backend_designer-WcCbzyBZ4i-DEFAULT" },
-  "eval_backend_dev": { name: "Backend Developer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_backend_dev-UKXih09TYL-DEFAULT" },
-  "eval_ci_agent": { name: "CI Agent", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_ci_agent-tSCbVuA5eb-DEFAULT" },
-  "eval_frontend_designer": { name: "Frontend Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_frontend_designer-0F6gH873ZO-DEFAULT" },
-  "eval_frontend_dev": { name: "Frontend Developer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_frontend_dev-1YoJPW6ASF-DEFAULT" },
-  "eval_ios_designer": { name: "iOS Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_ios_designer-GOLOXGG3h7-DEFAULT" },
-  "eval_legal_compliance": { name: "Legal & Compliance", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_legal_compliance-R3RnglAnOm-DEFAULT" },
-  "eval_localization": { name: "Localization", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_localization-EI5eUWGmDJ-DEFAULT" },
-  "eval_qa_verifier": { name: "QA Verifier", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_qa_verifier-RZfbvN5e64-DEFAULT" },
-  "eval_requirements_analyst": { name: "Requirements Analyst", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_requirements_analyst-iUpYwC25KS-DEFAULT" },
-  "eval_security_reviewer": { name: "Security Reviewer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_security_reviewer-tmoEXEHFg9-DEFAULT" },
+  "eval_agentis_analytics_designer": { name: "Analytics Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_analytics_designer-nIfOVs3GEj-DEFAULT" },
+  "eval_agentis_android_designer": { name: "Android Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_android_designer-99sWXeFskP-DEFAULT" },
+  "eval_agentis_api_dev": { name: "API Developer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_api_dev-6V6nFpBL3L-DEFAULT" },
+  "eval_agentis_backend_designer": { name: "Backend Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_backend_designer-WcCbzyBZ4i-DEFAULT" },
+  "eval_agentis_backend_dev": { name: "Backend Developer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_backend_dev-UKXih09TYL-DEFAULT" },
+  "eval_agentis_ci_agent": { name: "CI Agent", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_ci_agent-tSCbVuA5eb-DEFAULT" },
+  "eval_agentis_frontend_designer": { name: "Frontend Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_frontend_designer-0F6gH873ZO-DEFAULT" },
+  "eval_agentis_frontend_dev": { name: "Frontend Developer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_frontend_dev-1YoJPW6ASF-DEFAULT" },
+  "eval_agentis_ios_designer": { name: "iOS Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_ios_designer-GOLOXGG3h7-DEFAULT" },
+  "eval_agentis_legal_compliance": { name: "Legal & Compliance", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_legal_compliance-R3RnglAnOm-DEFAULT" },
+  "eval_agentis_localization": { name: "Localization", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_localization-EI5eUWGmDJ-DEFAULT" },
+  "eval_agentis_qa_verifier": { name: "QA Verifier", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_qa_verifier-RZfbvN5e64-DEFAULT" },
+  "eval_agentis_requirements_analyst": { name: "Requirements Analyst", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_requirements_analyst-iUpYwC25KS-DEFAULT" },
+  "eval_agentis_security_reviewer": { name: "Security Reviewer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_security_reviewer-tmoEXEHFg9-DEFAULT" },
 };
 
 // Per-model pricing (per 1M tokens)
