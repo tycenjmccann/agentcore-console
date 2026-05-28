@@ -17,7 +17,9 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
   marshallOptions: { removeUndefinedValues: true },
 });
 const BUCKET = process.env.ARTIFACT_BUCKET || "";
-const TICKET_TOOLS_LAMBDA = process.env.TICKET_TOOLS_LAMBDA || "agentis-tickets";
+const TICKET_PROVIDER = process.env.TICKET_PROVIDER || "jira";
+const TICKET_TOOLS_LAMBDA = process.env.TICKET_TOOLS_LAMBDA ||
+  (TICKET_PROVIDER === "jira" ? "agentis-jira" : "agentis-tickets");
 const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
 
 async function publishJourneyEvent(workflowId, type, detail) {
@@ -89,7 +91,7 @@ async function saveDesignDoc({ workflow_id, agent_id, title, content, format = "
   };
 }
 
-async function reportCompletion({ ticket_id, summary, artifacts = "", branch, commit_sha, pr_url, workflow_id }) {
+async function reportCompletion({ ticket_id, summary, artifacts = "", branch, commit_sha, pr_url, workflow_id, agent_id }) {
   const key = `completions/${ticket_id}.json`;
   const report = {
     ticket_id,
@@ -108,9 +110,9 @@ async function reportCompletion({ ticket_id, summary, artifacts = "", branch, co
   }));
   console.log(`[report_completion] Saved s3://${BUCKET}/${key}`);
 
-  // Journey log: report_completion received
+  // Journey log: report_completion received — includes agentId so UI can immediately mark agent done
   await publishJourneyEvent(workflow_id || ticket_id, "workflow.report_completion", {
-    ticketId: ticket_id, summary: summary.slice(0, 200), branch: branch || null, pr_url: pr_url || null,
+    ticketId: ticket_id, agentId: agent_id || null, summary: summary.slice(0, 200), branch: branch || null, pr_url: pr_url || null,
   });
 
   // Transition ticket to Done in Jira — this triggers the webhook cascade

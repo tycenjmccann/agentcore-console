@@ -451,12 +451,14 @@ export default function AgentOutputPanel({
                       if (isRestarting) return;
                       setIsRestarting(true);
                       try {
-                        await fetch(`/api/workflow/${workflowId}/retry`, {
+                        const resp = await fetch(`/api/workflow/${workflowId}/retry`, {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ agentId: task.agentId }),
                         });
-                        onRestart?.();
+                        if (resp.ok) {
+                          onRestart?.();
+                        }
                       } catch { setIsRestarting(false); }
                     }}
                     disabled={isRestarting}

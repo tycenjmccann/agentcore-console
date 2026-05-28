@@ -146,5 +146,5 @@ echo ""
 if [ ${#TARGETS[@]} -eq 1 ]; then
   bash "$SCRIPT_DIR/deploy-one.sh" "${TARGETS[0]}"
 else
-  printf '%s\n' "${TARGETS[@]}" | xargs -P 3 -I {} bash "$SCRIPT_DIR/deploy-one.sh" {}
+  printf '%s\n' "${TARGETS[@]}" | xargs -P 14 -I {} bash "$SCRIPT_DIR/deploy-one.sh" {}
 fi

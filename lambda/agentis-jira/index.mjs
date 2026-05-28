@@ -6,11 +6,8 @@
  *
  * Env vars:
  *   JIRA_SITE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY
- *   AWS_REGION, TICKETS_TABLE (optional DynamoDB mirror)
  */
 
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 
 // ─── Jira Config ─────────────────────────────────────────────────────────────
@@ -23,15 +20,10 @@ const PROJECT_KEY = process.env.JIRA_PROJECT_KEY || "TEAM";
 const BASE_URL = `https://${SITE}`;
 const AUTH = `Basic ${Buffer.from(`${EMAIL}:${TOKEN}`).toString("base64")}`;
 
-// ─── DynamoDB Config ─────────────────────────────────────────────────────────
+// ─── S3 Config (for agent roster) ────────────────────────────────────────────
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TABLE_NAME = process.env.TICKETS_TABLE || "agentis-tickets";
 const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || "";
-
-const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
-  marshallOptions: { removeUndefinedValues: true },
-});
 const s3 = new S3Client({ region: REGION });
 
 // ─── Agent Roster (config-driven from S3, falls back to hardcoded) ────────────
@@ -167,7 +159,7 @@ async function createTicket(params) {
     fields.parent = { key: parent_key };
   }
 
-  // 1. Create in Jira → get the authoritative key
+  // 1. Create in Jira
   const created = await jiraFetch("/rest/api/3/issue", {
     method: "POST",
     body: JSON.stringify({ fields }),
@@ -195,8 +187,7 @@ async function createTicket(params) {
   // 3. Transition in Jira to the correct initial status.
   //    - If blockers exist: transition to "Blocked" (prevents premature "Ready" webhooks)
   //    - If no blockers + has assignee: transition to "Ready" (tells orchestrator to invoke)
-  //    Note: orchestrator also checks blockedBy via issue links as a safety net.
-  const ddbStatus = blockers.length > 0 ? "blocked" : "todo";
+  const status = blockers.length > 0 ? "blocked" : "todo";
   if (blockers.length > 0) {
     try {
       const transitions = await jiraFetch(`/rest/api/3/issue/${ticketId}/transitions`);
@@ -231,31 +222,8 @@ async function createTicket(params) {
     }
   }
 
-  // 4. Write to DynamoDB with the SAME key
-  const now = new Date().toISOString();
-
-  await ddb.send(new PutCommand({
-    TableName: TABLE_NAME,
-    Item: {
-      ticketId,
-      type: (issue_type || "Task").toLowerCase(),
-      title: summary,
-      description: description || "",
-      status: ddbStatus,
-      assignee: assignee || undefined,  // GSI key — omit if empty
-      parentId: parent_key || undefined,
-      workflowId: workflow_id || undefined,
-      comments: [],
-      artifacts: [],
-      blockedBy: blockers,
-      createdAt: now,
-      updatedAt: now,
-    },
-  }));
-
-  console.log(`[jira-tools] Created ${ticketId} in Jira + DDB. Status: ${ddbStatus}`);
-
-  return { ticketId, status: ddbStatus, message: `Created ${ticketId}: ${summary}` };
+  console.log(`[jira-tools] Created ${ticketId} in Jira. Status: ${status}`);
+  return { ticketId, status, message: `Created ${ticketId}: ${summary}` };
 }
 
 async function transitionTicket(params) {
@@ -268,7 +236,7 @@ async function transitionTicket(params) {
   const isSkip = targetStatus === "skip";
   const effectiveStatus = isSkip ? "Done" : jiraStatusName;
 
-  // 1. Transition in Jira
+  // Transition in Jira
   const data = await jiraFetch(`/rest/api/3/issue/${ticket_id}/transitions`);
   const match = data.transitions.find(
     (t) => t.name.toLowerCase() === effectiveStatus.toLowerCase() ||
@@ -285,7 +253,7 @@ async function transitionTicket(params) {
     body: JSON.stringify({ transition: { id: match.id } }),
   });
 
-  // Add skip reason as comment in Jira
+  // Add reason as comment in Jira
   if (isSkip && reason) {
     await addComment({ ticket_id, comment: `Skipped: ${reason}` });
   } else if (reason) {
@@ -293,36 +261,13 @@ async function transitionTicket(params) {
   }
 
   const finalStatus = isSkip ? "done" : mapStatusToInternal(match.to.name);
-
-  // 2. Update DynamoDB with same status
-  const now = new Date().toISOString();
-  const updateExpr = reason
-    ? "SET #s = :s, #u = :u, #sr = :sr"
-    : "SET #s = :s, #u = :u";
-  const exprNames = { "#s": "status", "#u": "updatedAt", ...(reason ? { "#sr": "skipReason" } : {}) };
-  const exprValues = { ":s": finalStatus, ":u": now, ...(reason ? { ":sr": reason } : {}) };
-
-  try {
-    await ddb.send(new UpdateCommand({
-      TableName: TABLE_NAME,
-      Key: { ticketId: ticket_id },
-      UpdateExpression: updateExpr,
-      ExpressionAttributeNames: exprNames,
-      ExpressionAttributeValues: exprValues,
-    }));
-  } catch (err) {
-    console.warn(`[jira-tools] DDB update failed for ${ticket_id}: ${err.message}`);
-  }
-
-  console.log(`[jira-tools] Transitioned ${ticket_id} to ${finalStatus} in Jira + DDB`);
-
+  console.log(`[jira-tools] Transitioned ${ticket_id} to ${finalStatus} in Jira`);
   return { ticketId: ticket_id, status: finalStatus, message: `Transitioned to ${finalStatus}` };
 }
 
 async function updateTicket(params) {
   const { ticket_id, description, title } = params;
 
-  // 1. Update in Jira
   const fields = {};
   if (title) fields.summary = title;
   if (description) {
@@ -337,27 +282,6 @@ async function updateTicket(params) {
     method: "PUT",
     body: JSON.stringify({ fields }),
   });
-
-  // 2. Update in DynamoDB
-  const updates = [];
-  const names = {};
-  const values = {};
-
-  if (title) { updates.push("#t = :t"); names["#t"] = "title"; values[":t"] = title; }
-  if (description) { updates.push("#d = :d"); names["#d"] = "description"; values[":d"] = description; }
-  updates.push("#u = :u"); names["#u"] = "updatedAt"; values[":u"] = new Date().toISOString();
-
-  try {
-    await ddb.send(new UpdateCommand({
-      TableName: TABLE_NAME,
-      Key: { ticketId: ticket_id },
-      UpdateExpression: `SET ${updates.join(", ")}`,
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
-    }));
-  } catch (err) {
-    console.warn(`[jira-tools] DDB update failed for ${ticket_id}: ${err.message}`);
-  }
 
   return { ticketId: ticket_id, message: "Updated" };
 }
@@ -374,7 +298,6 @@ async function listTickets(params) {
 async function addComment(params) {
   const { ticket_id, comment } = params;
 
-  // 1. Add to Jira
   await jiraFetch(`/rest/api/3/issue/${ticket_id}/comment`, {
     method: "POST",
     body: JSON.stringify({
@@ -385,30 +308,6 @@ async function addComment(params) {
       },
     }),
   });
-
-  // 2. Add to DynamoDB
-  const commentObj = {
-    id: `comment-${Date.now()}`,
-    author: "agent",
-    content: comment,
-    timestamp: new Date().toISOString(),
-  };
-
-  try {
-    await ddb.send(new UpdateCommand({
-      TableName: TABLE_NAME,
-      Key: { ticketId: ticket_id },
-      UpdateExpression: "SET #c = list_append(if_not_exists(#c, :empty), :comment), #u = :now",
-      ExpressionAttributeNames: { "#c": "comments", "#u": "updatedAt" },
-      ExpressionAttributeValues: {
-        ":comment": [commentObj],
-        ":empty": [],
-        ":now": new Date().toISOString(),
-      },
-    }));
-  } catch (err) {
-    console.warn(`[jira-tools] DDB comment failed for ${ticket_id}: ${err.message}`);
-  }
 
   return { ticketId: ticket_id, message: "Comment added" };
 }

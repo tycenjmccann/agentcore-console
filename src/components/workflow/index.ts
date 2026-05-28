@@ -1,5 +1,4 @@
 export { default as PipelineVisualization } from "./PipelineVisualization";
-export { default as PhaseBox } from "./PhaseBox";
 export { default as AgentItem } from "./AgentItem";
 export { default as SVGConnector } from "./SVGConnector";
 export { default as AgentOutputPanel } from "./AgentOutputPanel";
