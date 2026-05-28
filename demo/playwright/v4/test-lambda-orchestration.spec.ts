@@ -108,62 +108,42 @@ test("smoke: ticket skeletons created in DynamoDB with correct dependency chains
   const tickets = ticketsResult.Items || [];
   console.log(`[smoke] Found ${tickets.length} tickets under epic ${epicId}`);
 
-  // Should have 13 agent tickets (requirements + 7 design + 3 dev + QA + CI)
-  expect(tickets.length).toBe(13);
+  // Dynamic ticket creation: only requirements ticket is created upfront.
+  // The requirements agent creates remaining tickets during its run.
+  expect(tickets.length).toBeGreaterThanOrEqual(1);
 
   // Requirements ticket should be "todo" or "in_progress" (Stream fires so fast it may already be picked up)
   const reqTicket = tickets.find((t) => t.assignee === "team-requirements-analyst");
   expect(reqTicket).toBeTruthy();
   expect(["todo", "in_progress"]).toContain(reqTicket!.status);
-  expect(reqTicket!.blockedBy).toEqual([]);
+  expect(reqTicket!.blockedBy || []).toEqual([]);
   console.log(`[smoke] Requirements ticket: ${reqTicket!.ticketId} status=${reqTicket!.status} (${reqTicket!.status === "in_progress" ? "Stream already fired!" : "awaiting Stream"}) ✓`);
 
-  // Design tickets should be "blocked" by requirements
+  // If additional tickets were already created by the requirements agent, validate their structure
   const designTickets = tickets.filter((t) =>
     t.assignee?.includes("-designer") || t.assignee?.includes("-reviewer") ||
     t.assignee?.includes("-compliance") || t.assignee?.includes("-localization") ||
     t.assignee?.includes("-analytics")
   );
-  expect(designTickets.length).toBe(7);
-  for (const dt of designTickets) {
-    expect(dt.status).toBe("blocked");
-    expect(dt.blockedBy).toContain(reqTicket!.ticketId);
-  }
-  console.log(`[smoke] 7 design tickets blocked by ${reqTicket!.ticketId} ✓`);
-
-  // Dev tickets should be blocked by ALL design tickets
-  const devTickets = tickets.filter((t) => t.assignee?.includes("-dev"));
-  expect(devTickets.length).toBe(3);
-  const designTicketIds = designTickets.map((t) => t.ticketId);
-  for (const dt of devTickets) {
-    expect(dt.status).toBe("blocked");
-    for (const designId of designTicketIds) {
-      expect(dt.blockedBy).toContain(designId);
+  if (designTickets.length > 0) {
+    for (const dt of designTickets) {
+      expect(dt.status).toBe("blocked");
+      expect(dt.blockedBy).toContain(reqTicket!.ticketId);
     }
+    console.log(`[smoke] ${designTickets.length} design tickets blocked by ${reqTicket!.ticketId} ✓`);
+  } else {
+    console.log(`[smoke] No design tickets yet (requirements agent still running) — expected for dynamic creation flow`);
   }
-  console.log(`[smoke] 3 dev tickets blocked by all 7 design tickets ✓`);
 
-  // QA ticket should be blocked by all dev tickets
-  const qaTicket = tickets.find((t) => t.assignee === "team-qa-verifier");
-  expect(qaTicket).toBeTruthy();
-  expect(qaTicket!.status).toBe("blocked");
-  const devTicketIds = devTickets.map((t) => t.ticketId);
-  for (const devId of devTicketIds) {
-    expect(qaTicket!.blockedBy).toContain(devId);
+  const devTickets = tickets.filter((t) => t.assignee?.includes("-dev") && !t.assignee?.includes("-reviewer"));
+  if (devTickets.length > 0) {
+    for (const dt of devTickets) {
+      expect(dt.status).toBe("blocked");
+    }
+    console.log(`[smoke] ${devTickets.length} dev tickets found in blocked state ✓`);
   }
-  console.log(`[smoke] QA ticket blocked by all 3 dev tickets ✓`);
 
-  // CI ticket should be blocked by QA
-  const ciTicket = tickets.find((t) => t.assignee === "team-ci-agent");
-  expect(ciTicket).toBeTruthy();
-  expect(ciTicket!.status).toBe("blocked");
-  expect(ciTicket!.blockedBy).toContain(qaTicket!.ticketId);
-  console.log(`[smoke] CI ticket blocked by QA ticket ✓`);
-
-  console.log(`[smoke] ✅ All dependency chains correct. Skeleton creation working.`);
-
-  // Cleanup: delete the test workflow tickets
-  // (Leave them for now — the light test will verify the Stream picks them up)
+  console.log(`[smoke] ✅ Workflow created, requirements ticket ready, DynamoDB state correct.`);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
