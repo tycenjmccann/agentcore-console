@@ -257,8 +257,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                       }
                       // Find the most recent event across all running agents
                       const runningAgents = Object.entries(data.agentTasks || {})
-                        .filter(([, t]: [string, { status?: string }]) => t.status === "running")
-                        .map(([, t]: [string, { agentId?: string }]) => t.agentId || "");
+                        .filter(([, t]) => (t as { status?: string }).status === "running")
+                        .map(([, t]) => (t as { agentId?: string }).agentId || "");
                       let latestTs = 0;
                       const eventMap: Record<string, string> = {};
                       for (const agentId of runningAgents) {
