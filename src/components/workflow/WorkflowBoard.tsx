@@ -74,6 +74,24 @@ function applyEventToState(s: WorkflowState, event: WorkflowEvent): WorkflowStat
       return { ...s, phase: "complete" };
     case "ticket_update":
       return s;
+    case "ticket_created": {
+      if (!event.ticket?.assignee) return s;
+      if (s.agentTasks[event.ticket.assignee]) return s;
+      const agentPhaseIdx = PIPELINE_PHASES.findIndex(p =>
+        p.agents.some(a => a.id === event.ticket.assignee)
+      );
+      const currentPhaseIdx = PHASE_ORDER[s.phase] ?? -1;
+      if (agentPhaseIdx > currentPhaseIdx) return s;
+      const tasks = { ...s.agentTasks };
+      tasks[event.ticket.assignee] = {
+        id: `task_${Date.now()}`,
+        agentId: event.ticket.assignee,
+        ticketId: event.ticket.id,
+        status: "pending",
+        input: "",
+      };
+      return { ...s, agentTasks: tasks };
+    }
     default:
       return s;
   }
@@ -741,29 +759,10 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             updatedAt: event.ticket.updatedAt || event.timestamp || new Date().toISOString(),
           },
         }));
-        // Wire the agent → ticket mapping so the badge renders on the agent's slot
-        // immediately, before the agent is invoked and emits its own agent_status event.
         if (event.ticket.assignee) {
           agentTicketMapRef.current[event.ticket.assignee] = event.ticket.id;
-          // Seed agentTasks with a "pending" entry so the slot picks up the ticketId
-          // without waiting for invocation. Status will transition via agent_status events.
-          setState((s) => {
-            if (!s) return s;
-            if (s.agentTasks[event.ticket.assignee!]) return s;
-            return {
-              ...s,
-              agentTasks: {
-                ...s.agentTasks,
-                [event.ticket.assignee!]: {
-                  id: `task_${Date.now()}`,
-                  agentId: event.ticket.assignee!,
-                  ticketId: event.ticket.id,
-                  status: "pending",
-                  input: "",
-                },
-              },
-            };
-          });
+          // Force re-render so ref is picked up
+          setState(s => s ? { ...s } : s);
         }
         break;
       default:
