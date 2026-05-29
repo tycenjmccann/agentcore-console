@@ -93,6 +93,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const toolFlashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [activeConnector, setActiveConnector] = useState<number | null>(null);
   const [connectorPaths, setConnectorPaths] = useState<string[]>([]);
+  // Skip-connectors: paths that jump over inactive phases (e.g., requirements → development when design is skipped)
+  const [skipConnectors, setSkipConnectors] = useState<Array<{ d: string; fromIdx: number; toIdx: number }>>([]);
   const eventSourceRef = useRef<EventSource | null>(null);
   const pipelineRef = useRef<HTMLDivElement>(null);
 
@@ -914,6 +916,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   // Measure element positions and compute connector paths:
   // FROM: last output/trigger item (right edge) of phase[i]
   // TO: agent-box (left edge) of phase[i+1]
+  // Also computes skip-connectors for phases that jump over inactive phases.
   useEffect(() => {
     const canvas = pipelineRef.current;
     if (!canvas) return;
@@ -921,43 +924,68 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       const canvasRect = canvas.getBoundingClientRect();
       const phases = canvas.querySelectorAll(".phase");
       const paths: string[] = [];
+
+      // Helper: compute bezier path between two elements
+      const computePath = (fromEl: Element, toEl: Element): string => {
+        const fromRect = fromEl.getBoundingClientRect();
+        const toRect = toEl.getBoundingClientRect();
+        const fromX = fromRect.right - canvasRect.left;
+        const fromY = fromRect.top + fromRect.height / 2 - canvasRect.top;
+        const toX = toRect.left - canvasRect.left;
+        const toY = toRect.top + toRect.height / 2 - canvasRect.top;
+        const dx = toX - fromX;
+        const dy = toY - fromY;
+        if (Math.abs(dx) > Math.abs(dy) * 0.8) {
+          const cpx = dx * 0.4;
+          return `M ${fromX} ${fromY} C ${fromX + cpx} ${fromY}, ${toX - cpx} ${toY}, ${toX} ${toY}`;
+        } else {
+          const cpy = dy * 0.4;
+          return `M ${fromX} ${fromY} C ${fromX} ${fromY + cpy}, ${toX} ${toY - cpy}, ${toX} ${toY}`;
+        }
+      };
+
+      // Standard adjacent connectors
       for (let i = 0; i < phases.length - 1; i++) {
         const fromPhase = phases[i];
         const toPhase = phases[i + 1];
         if (!fromPhase || !toPhase) { paths.push(""); continue; }
-        // FROM: last .item in the phase's work-area (the output/trigger item)
         const fromItems = fromPhase.querySelectorAll(".work-area .item");
         const fromEl = fromItems[fromItems.length - 1];
-        // TO: the agent-box header of the next phase
         const toEl = toPhase.querySelector(".agent-box");
         if (!fromEl || !toEl) { paths.push(""); continue; }
-        const fromRect = fromEl.getBoundingClientRect();
-        const toRect = toEl.getBoundingClientRect();
-        // Start: right-center of last output item
-        const fromX = fromRect.right - canvasRect.left;
-        const fromY = fromRect.top + fromRect.height / 2 - canvasRect.top;
-        // End: left-center of next agent-box
-        const toX = toRect.left - canvasRect.left;
-        const toY = toRect.top + toRect.height / 2 - canvasRect.top;
-        // Bezier curve — control points adapt to whether path goes mostly horizontal or vertical
-        const dx = toX - fromX;
-        const dy = toY - fromY;
-        let d: string;
-        if (Math.abs(dx) > Math.abs(dy) * 0.8) {
-          // Mostly horizontal — horizontal S-curve
-          const cpx = dx * 0.4;
-          d = `M ${fromX} ${fromY} C ${fromX + cpx} ${fromY}, ${toX - cpx} ${toY}, ${toX} ${toY}`;
-        } else {
-          // Mostly vertical — vertical S-curve
-          const cpy = dy * 0.4;
-          d = `M ${fromX} ${fromY} C ${fromX} ${fromY + cpy}, ${toX} ${toY - cpy}, ${toX} ${toY}`;
-        }
-        paths.push(d);
+        paths.push(computePath(fromEl, toEl));
       }
       setConnectorPaths(paths);
+
+      // Skip-connectors: when phase[i] is done/active and phase[i+1] is inactive,
+      // find the next non-inactive phase and draw a direct connector.
+      const skips: Array<{ d: string; fromIdx: number; toIdx: number }> = [];
+      for (let i = 0; i < phases.length - 1; i++) {
+        const fromStatus = getPhaseStatus(i);
+        const nextStatus = getPhaseStatus(i + 1);
+        if (fromStatus !== "inactive" && nextStatus === "inactive") {
+          // Find next non-inactive phase after the gap
+          for (let j = i + 2; j < phases.length; j++) {
+            const jStatus = getPhaseStatus(j);
+            if (jStatus !== "inactive") {
+              const fromPhase = phases[i];
+              const toPhase = phases[j];
+              if (!fromPhase || !toPhase) break;
+              const fromItems = fromPhase.querySelectorAll(".work-area .item");
+              const fromEl = fromItems[fromItems.length - 1];
+              const toEl = toPhase.querySelector(".agent-box");
+              if (!fromEl || !toEl) break;
+              skips.push({ d: computePath(fromEl, toEl), fromIdx: i, toIdx: j });
+              break;
+            }
+          }
+        }
+      }
+      setSkipConnectors(skips);
     }, 150);
     return () => clearTimeout(timer);
-  }, [state?.phase, celebrating]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.phase, celebrating, state?.agentTasks]);
 
   // Derive phase status from ticket data (agent task statuses)
   const getPhaseStatus = (phaseIndex: number): "inactive" | "active" | "done" => {
@@ -988,18 +1016,27 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   };
 
   const getPhaseClass = (phaseIndex: number) => {
-    if (isSettled) return "active done settled";
-    if (isComplete) return "active done";
     const status = getPhaseStatus(phaseIndex);
+    if (isSettled) {
+      // Only show settled state for phases that actually had activity
+      return status !== "inactive" ? "active done settled" : "";
+    }
+    if (isComplete) {
+      return status !== "inactive" ? "active done" : "";
+    }
     if (status === "active") return "active";
     if (status === "done") return "active done";
     return "";
   };
 
   const getBoxClass = (phaseIndex: number) => {
-    if (isSettled) return "done settled";
-    if (isComplete) return "done";
     const status = getPhaseStatus(phaseIndex);
+    if (isSettled) {
+      return status !== "inactive" ? "done settled" : "";
+    }
+    if (isComplete) {
+      return status !== "inactive" ? "done" : "";
+    }
     if (status === "active") return "awake";
     if (status === "done") return "done";
     return "";
@@ -1007,9 +1044,9 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
   const getItemClass = (phaseIndex: number): string => {
     if (!state) return "";
-    if (isSettled) return "done settled";
-    if (isComplete) return "done";
     const status = getPhaseStatus(phaseIndex);
+    if (isSettled) return status !== "inactive" ? "done settled" : "";
+    if (isComplete) return status !== "inactive" ? "done" : "";
     if (status === "active") return "active-glow";
     if (status === "done") return "done";
     return "";
@@ -1131,17 +1168,40 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             </defs>
             {connectorPaths.map((d, i) => {
               if (!d) return null;
-              const showConnector = i < currentPhaseIndex || isComplete;
-              const isActiveConnector = i === currentPhaseIndex - 1 && !isComplete;
+              // Connector i goes from phase[i] to phase[i+1]
+              const fromStatus = getPhaseStatus(i);
+              const toStatus = getPhaseStatus(i + 1);
+              // Show connector only if both source and destination phases had activity
+              const showConnector = (fromStatus !== "inactive" && toStatus !== "inactive");
+              // Active = leads to the currently-active phase (cyan glow)
+              const isActiveConnector = !isComplete && !isSettled && toStatus === "active";
+              // Done = both sides are done, no longer the live edge (green, dimmed)
+              const isDoneConnector = (isComplete || isSettled || (fromStatus === "done" && toStatus === "done")) && !isActiveConnector;
               const pathId = `connector-path-${i}`;
               return (
                 <g key={`connector-${i}`}>
                   <path
                     id={pathId}
-                    className={`flow-path ${showConnector ? "show" : ""} ${isActiveConnector ? "active" : ""} ${isSettled ? "settled" : ""}`}
+                    className={`flow-path ${showConnector ? "show" : ""} ${isActiveConnector ? "active" : ""} ${isDoneConnector ? "done" : ""} ${isSettled ? "settled" : ""}`}
                     d={d}
                   />
                   <circle className="flow-dot" r="5" data-connector={i} style={{ opacity: 0 }} />
+                </g>
+              );
+            })}
+            {/* Skip-connectors: jump over inactive/skipped phases */}
+            {skipConnectors.map((skip, i) => {
+              const fromStatus = getPhaseStatus(skip.fromIdx);
+              const toStatus = getPhaseStatus(skip.toIdx);
+              const showSkip = fromStatus !== "inactive" && toStatus !== "inactive";
+              const isActiveSkip = !isComplete && !isSettled && toStatus === "active";
+              const isDoneSkip = !isComplete && !isSettled && fromStatus === "done" && toStatus === "done";
+              return (
+                <g key={`skip-connector-${i}`}>
+                  <path
+                    className={`flow-path ${showSkip ? "show" : ""} ${isActiveSkip ? "active" : ""} ${isDoneSkip ? "done" : ""} ${isSettled ? "settled" : ""}`}
+                    d={skip.d}
+                  />
                 </g>
               );
             })}
@@ -1445,7 +1505,8 @@ const PIPELINE_STYLES = `
 .pipeline-canvas{position:relative;width:1720px;min-height:840px}
 .pipeline-connectors{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
 .flow-path{fill:none;stroke:#1e293b;stroke-width:2;stroke-linecap:round;opacity:0;transition:opacity .5s,stroke .5s}
-.flow-path.show{opacity:1;stroke:#0ea5e9;stroke-width:2.5;filter:url(#pathGlow)}
+.flow-path.show{opacity:0.6;stroke:#22c55e;stroke-width:2;filter:none}
+.flow-path.show.done{opacity:0.5;stroke:#22c55e80;stroke-width:2;filter:none}
 .flow-path.active{stroke:#0ea5e9;stroke-width:3;filter:url(#pathGlow);opacity:1}
 .flow-path.animating{stroke:#0ea5e9;stroke-width:3;opacity:1;filter:url(#pathGlow)}
 .flow-dot{fill:#0ea5e9;filter:url(#dotGlow)}
@@ -1534,7 +1595,7 @@ const PIPELINE_STYLES = `
 .item.done.settled .item-label{color:#e2e8f0}
 .item.done.settled .item-dot{background:#f97316;animation:settledDotGlow 6s ease-in-out infinite}
 .item.done.settled .svc-icon{filter:drop-shadow(0 0 3px rgba(249,115,22,.3))}
-.flow-path.settled{stroke:#f97316;opacity:.7;stroke-width:2.5;animation:settledPathGlow 6s ease-in-out infinite}
+.flow-path.show.settled{stroke:#f97316;opacity:.7;stroke-width:2.5;animation:settledPathGlow 6s ease-in-out infinite}
 
 .replay-bar{display:flex;align-items:center;gap:10px;padding:6px 12px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;position:relative;z-index:20}
 .replay-btn{background:none;border:1px solid #334155;color:#e2e8f0;font-size:14px;width:32px;height:32px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
