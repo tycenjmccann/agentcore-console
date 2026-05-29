@@ -49,6 +49,9 @@ function transformEvent(item: Record<string, unknown>): Record<string, unknown> 
       return { type: "workflow_complete", timestamp, eventId };
     case "workflow.nudge":
       return { type: "nudge", nudged: detail.nudged, ticketsScanned: detail.ticketsScanned, timestamp, eventId };
+    case "ticket.created":
+      return { type: "ticket_created", ticket: detail, timestamp, eventId };
+
     default:
       return { type: eventType, ...detail, timestamp, eventId };
   }

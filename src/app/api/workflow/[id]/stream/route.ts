@@ -71,6 +71,9 @@ function transformEvent(item: Record<string, unknown>): Record<string, unknown> 
     case "workflow.complete":
       return { type: "workflow_complete", timestamp };
 
+    case "ticket.created":
+      return { type: "ticket_created", ticket: detail, timestamp };
+
     default:
       // Pass through unknown events as-is
       return { type: eventType, ...detail, timestamp };

@@ -469,6 +469,12 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           }
           return { ...s, agentTasks: tasks };
         });
+        if (event.ticketId) {
+          setTicketStatusMap((prev) => {
+            if (prev[event.ticketId!]) return prev;
+            return { ...prev, [event.ticketId!]: { status: "in_progress", title: event.ticketId!, updatedAt: event.timestamp || new Date().toISOString() } };
+          });
+        }
         break;
       case "agent_output":
         setStreamingText((prev) => ({
@@ -545,6 +551,23 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             updatedAt: event.ticket.updatedAt || event.timestamp || new Date().toISOString(),
           },
         }));
+        // Bind ticketId to agent's task if it exists and doesn't already have one
+        if (event.ticket.assignee) {
+          setState((s) => {
+            if (!s) return s;
+            const task = s.agentTasks[event.ticket.assignee!];
+            if (task && !task.ticketId) {
+              return {
+                ...s,
+                agentTasks: {
+                  ...s.agentTasks,
+                  [event.ticket.assignee!]: { ...task, ticketId: event.ticket.id },
+                },
+              };
+            }
+            return s;
+          });
+        }
         break;
       default:
         break;
