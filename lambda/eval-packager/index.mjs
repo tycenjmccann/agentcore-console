@@ -34,47 +34,33 @@ const S3_PREFIX = 'fleet-imp-agent/prd';
 const AGENTS_CONFIG_KEY = 'config/agents.json';
 
 // ─── Agent ID Resolution (loaded from S3, cached for warm starts) ───────────
-let harnessToIdMap = null;
+let agents = null;
 
 /**
- * Load agents.json from S3 and build a harnessName → canonical id lookup map.
- * Cached in module-level variable for Lambda warm starts.
+ * Load agents.json from S3 once per warm start.
  */
-async function loadAgentMap() {
-  if (harnessToIdMap) return harnessToIdMap;
+async function loadAgents() {
+  if (agents) return agents;
 
-  console.log('[eval-packager] Loading agents.json from S3...');
   const response = await s3.send(
-    new GetObjectCommand({
-      Bucket: BUCKET,
-      Key: AGENTS_CONFIG_KEY,
-    })
+    new GetObjectCommand({ Bucket: BUCKET, Key: AGENTS_CONFIG_KEY })
   );
-
   const body = await response.Body.transformToString();
-  const config = JSON.parse(body);
-
-  harnessToIdMap = new Map();
-  for (const agent of config.agents) {
-    if (agent.harnessName && agent.id) {
-      harnessToIdMap.set(agent.harnessName, agent.id);
-    }
-  }
-
-  console.log(`[eval-packager] Loaded ${harnessToIdMap.size} agent mappings from agents.json`);
-  return harnessToIdMap;
+  agents = JSON.parse(body).agents || [];
+  console.log(`[eval-packager] Loaded ${agents.length} agents from agents.json`);
+  return agents;
 }
 
 /**
- * Extract harness name from a CW Logs logGroup.
- * Expected format: /aws/bedrock-agentcore/evaluations/results/eval_<harnessName>
- * Returns the substring after the last 'eval_' prefix.
+ * Resolve canonical agent id by matching the log group against each agent's
+ * evalConfigName (e.g., "eval_requirements_analyst" appears as a substring
+ * of "/aws/bedrock-agentcore/evaluations/results/eval_requirements_analyst-FO0D1sFZfY").
  */
-function extractHarnessName(logGroup) {
-  const prefix = 'eval_';
-  const idx = logGroup.lastIndexOf(prefix);
-  if (idx === -1) return null;
-  return logGroup.substring(idx + prefix.length);
+function resolveAgentId(logGroup, agentList) {
+  const match = agentList.find(
+    (a) => a.evalConfigName && logGroup.includes(a.evalConfigName)
+  );
+  return match?.id || null;
 }
 
 // ─── Handler ────────────────────────────────────────────────────────────────
@@ -84,22 +70,14 @@ export const handler = async (event) => {
   const parsed = JSON.parse(gunzipSync(payload).toString());
   const logGroup = parsed.logGroup || '';
 
-  // 1. Load agent map and resolve agentId from the log group
-  const agentMap = await loadAgentMap();
-  const harnessName = extractHarnessName(logGroup);
-
-  if (!harnessName) {
-    console.log('[eval-packager] Could not extract harness name from log group:', logGroup);
-    return { statusCode: 200, body: 'no-match' };
-  }
-
-  const agentId = agentMap.get(harnessName);
+  // 1. Resolve agentId from the log group via agents.json evalConfigName
+  const agentList = await loadAgents();
+  const agentId = resolveAgentId(logGroup, agentList);
   if (!agentId) {
-    console.log(`[eval-packager] No matching agent for harness name: ${harnessName}`);
+    console.log('[eval-packager] No matching agent for log group:', logGroup);
     return { statusCode: 200, body: 'no-match' };
   }
-
-  console.log(`[eval-packager] Processing event for agent: ${agentId} (harness: ${harnessName})`);
+  console.log(`[eval-packager] Processing event for agent: ${agentId}`);
 
   // 2. Read agent config from DynamoDB
   const config = await getAgentConfig(agentId);
