@@ -1,0 +1,330 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Connector Validator — Async validation engine for connector health checks.
+  SQS-triggered Lambda validates auth, connectivity, permissions, and data-flow.
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 120
+    MemorySize: 512
+    Environment:
+      Variables:
+        AWS_REGION_OVERRIDE: !Ref AWS::Region
+        VALIDATIONS_TABLE: !Ref ValidationsTableName
+        CIRCUIT_BREAKERS_TABLE: !Ref CircuitBreakersTableName
+        IDEMPOTENCY_TABLE: !Ref IdempotencyTableName
+        VALIDATION_QUEUE_URL: !Ref ConnectorValidationQueue
+        EVENT_BUS: !Ref EventBus
+        ALERTS_TOPIC_ARN: !Ref ValidationAlertsTopic
+
+Parameters:
+  ValidationsTableName:
+    Type: String
+    Default: connector-validations
+    Description: DynamoDB table for validation records
+
+  CircuitBreakersTableName:
+    Type: String
+    Default: connector-circuit-breakers
+    Description: DynamoDB table for circuit breaker state
+
+  IdempotencyTableName:
+    Type: String
+    Default: validation-idempotency-keys
+    Description: DynamoDB table for idempotency keys
+
+  EventBus:
+    Type: String
+    Default: default
+    Description: EventBridge bus name for validation events
+
+Resources:
+  # ─── DynamoDB Tables ─────────────────────────────────────────────────────────
+
+  ValidationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref ValidationsTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: validationId
+          AttributeType: S
+        - AttributeName: connectorId
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: workflowId
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: validationId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: connectorId-index
+          KeySchema:
+            - AttributeName: connectorId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: status-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: workflowId-index
+          KeySchema:
+            - AttributeName: workflowId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  CircuitBreakersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref CircuitBreakersTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: connectorId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connectorId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: resetAt
+        Enabled: true
+
+  IdempotencyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref IdempotencyTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: idempotencyKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: idempotencyKey
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  # ─── SQS Queues ─────────────────────────────────────────────────────────────
+
+  ConnectorValidationDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: connector-validation-dlq
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  ConnectorValidationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: connector-validation-queue
+      VisibilityTimeout: 30
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ConnectorValidationDLQ.Arn
+        maxReceiveCount: 3
+
+  # ─── SNS Topics ──────────────────────────────────────────────────────────────
+
+  ValidationAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: connector-validation-alerts
+      DisplayName: Connector Validation Alerts
+
+  # ─── Lambda Functions ────────────────────────────────────────────────────────
+
+  ConnectorValidatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: connector-validator
+      Handler: index.handler
+      CodeUri: .
+      Timeout: 120
+      MemorySize: 512
+      Tracing: Active
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ValidationsTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CircuitBreakersTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IdempotencyTableName
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ConnectorValidationQueue.QueueName
+        - SQSPollerPolicy:
+            QueueName: !GetAtt ConnectorValidationQueue.QueueName
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+        - SNSPublishMessagePolicy:
+            TopicArn: !Ref ValidationAlertsTopic
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: "*"
+      Events:
+        SQSTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ConnectorValidationQueue.Arn
+            BatchSize: 1
+
+  ValidationResultsWriterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: validation-results-writer
+      Handler: validation-results-writer.handler
+      CodeUri: .
+      Timeout: 30
+      MemorySize: 256
+      Tracing: Active
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ValidationsTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CircuitBreakersTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IdempotencyTableName
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+        - SNSPublishMessagePolicy:
+            TopicArn: !Ref ValidationAlertsTopic
+      Events:
+        DynamoDBStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ValidationsTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 1
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["INSERT","MODIFY"]}'
+
+  DlqProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: connector-validation-dlq-processor
+      Handler: dlq-processor.handler
+      CodeUri: .
+      Timeout: 60
+      MemorySize: 256
+      Tracing: Active
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ValidationsTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CircuitBreakersTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IdempotencyTableName
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ConnectorValidationQueue.QueueName
+        - SQSPollerPolicy:
+            QueueName: !GetAtt ConnectorValidationDLQ.QueueName
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+        - SNSPublishMessagePolicy:
+            TopicArn: !Ref ValidationAlertsTopic
+      Events:
+        ScheduledEvent:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+            Description: Process connector validation DLQ every 15 minutes
+            Enabled: true
+
+  # ─── EventBridge Rule ────────────────────────────────────────────────────────
+
+  DlqProcessorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DlqProcessorFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+
+  # ─── CloudWatch Alarms ───────────────────────────────────────────────────────
+
+  DlqMessagesVisibleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: connector-validation-dlq-messages-visible
+      AlarmDescription: Messages visible in connector validation DLQ
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ConnectorValidationDLQ.QueueName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref ValidationAlertsTopic
+
+  HighValidationFailureRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: connector-validation-high-failure-rate
+      AlarmDescription: High connector validation failure rate (>50% in 5 min)
+      Namespace: ConnectorValidator
+      MetricName: ValidationFailureRate
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 50
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref ValidationAlertsTopic
+
+Outputs:
+  ConnectorValidatorFunctionArn:
+    Description: Connector Validator Lambda ARN
+    Value: !GetAtt ConnectorValidatorFunction.Arn
+
+  ValidationResultsWriterFunctionArn:
+    Description: Validation Results Writer Lambda ARN
+    Value: !GetAtt ValidationResultsWriterFunction.Arn
+
+  DlqProcessorFunctionArn:
+    Description: DLQ Processor Lambda ARN
+    Value: !GetAtt DlqProcessorFunction.Arn
+
+  ConnectorValidationQueueUrl:
+    Description: Connector Validation SQS Queue URL
+    Value: !Ref ConnectorValidationQueue
+
+  ConnectorValidationQueueArn:
+    Description: Connector Validation SQS Queue ARN
+    Value: !GetAtt ConnectorValidationQueue.Arn
+
+  ValidationAlertsTopicArn:
+    Description: Validation Alerts SNS Topic ARN
+    Value: !Ref ValidationAlertsTopic
+
+  ValidationsTableArn:
+    Description: Validations DynamoDB Table ARN
+    Value: !GetAtt ValidationsTable.Arn
+
+  ValidationsTableStreamArn:
+    Description: Validations DynamoDB Stream ARN
+    Value: !GetAtt ValidationsTable.StreamArn
