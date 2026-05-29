@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import agentsConfig from "@/config/agents.json";
 
 // --- Types ---
 
@@ -31,13 +32,6 @@ interface AgentEvalConfig extends AgentEvalApiResponse {
   name: string;
 }
 
-interface AgentJsonEntry {
-  id: string;
-  name: string;
-  role: string;
-  phase: string;
-}
-
 interface Toast {
   id: string;
   message: string;
@@ -49,11 +43,20 @@ interface Toast {
 const POLL_INTERVAL = 30000; // 30s
 const DEBOUNCE_DELAY = 500; // 500ms for slider
 
+// Build a lookup map from agents.json for resolving agent names
+const AGENT_NAME_MAP: Record<string, string> = {};
+for (const agent of agentsConfig.agents) {
+  AGENT_NAME_MAP[agent.id] = agent.name;
+}
+
+function resolveAgentName(agentId: string): string {
+  return AGENT_NAME_MAP[agentId] || agentId;
+}
+
 // --- Component ---
 
 export default function EvaluationsPage() {
   const [agents, setAgents] = useState<AgentEvalConfig[]>([]);
-  const [agentNames, setAgentNames] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [bulkEnabled, setBulkEnabled] = useState(false);
@@ -62,7 +65,6 @@ export default function EvaluationsPage() {
   const [mutatingAgents, setMutatingAgents] = useState<Set<string>>(new Set());
   const [flushingAgents, setFlushingAgents] = useState<Set<string>>(new Set());
   const debounceTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
-  const agentNamesRef = useRef<Map<string, string>>(new Map());
 
   // Toast helper
   const addToast = useCallback((message: string, type: "success" | "error") => {
@@ -77,93 +79,42 @@ export default function EvaluationsPage() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Load agent names from config
-  const loadAgentNames = useCallback(async () => {
+  // Fetch agents data
+  const fetchAgents = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
     try {
-      const res = await fetch("/config/agents.json");
-      if (!res.ok) return;
-      const data = await res.json();
-      const names = new Map<string, string>();
-      if (data.agents && Array.isArray(data.agents)) {
-        for (const agent of data.agents as AgentJsonEntry[]) {
-          names.set(agent.id, agent.name);
-        }
-      }
-      agentNamesRef.current = names;
-      setAgentNames(names);
-    } catch {
-      // Fallback: agent IDs will be used as display names
+      const res = await fetch("/api/evaluations/agents");
+      if (!res.ok) throw new Error(`Failed to fetch (${res.status})`);
+      const json = await res.json();
+      const data: AgentEvalApiResponse[] = json.agents || [];
+      // Enrich with name from agents.json
+      const enriched: AgentEvalConfig[] = data.map((a) => ({
+        ...a,
+        name: resolveAgentName(a.agentId),
+      }));
+      setAgents(enriched);
+      // Derive bulk toggle state
+      const allEnabled = enriched.length > 0 && enriched.every((a) => a.enabled);
+      setBulkEnabled(allEnabled);
+      setError(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setError(msg);
+    } finally {
+      setLoading(false);
     }
   }, []);
-
-  // Resolve display name for an agent
-  const resolveName = useCallback(
-    (agentId: string): string => {
-      return agentNamesRef.current.get(agentId) || agentId;
-    },
-    []
-  );
-
-  // Fetch agents data
-  const fetchAgents = useCallback(
-    async (showLoading = false) => {
-      if (showLoading) setLoading(true);
-      try {
-        const res = await fetch("/api/evaluations/agents");
-        if (!res.ok) throw new Error(`Failed to fetch (${res.status})`);
-        const data = await res.json();
-        const agentList: AgentEvalApiResponse[] = data.agents || [];
-        const enriched: AgentEvalConfig[] = agentList.map((a) => ({
-          ...a,
-          name: resolveName(a.agentId),
-        }));
-        setAgents(enriched);
-        // Derive bulk toggle state
-        const allEnabled =
-          enriched.length > 0 && enriched.every((a) => a.enabled);
-        setBulkEnabled(allEnabled);
-        setError(null);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unknown error";
-        setError(msg);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [resolveName]
-  );
 
   // Initial fetch + polling
   useEffect(() => {
-    const init = async () => {
-      await loadAgentNames();
-      await fetchAgents(true);
-    };
-    init();
+    fetchAgents(true);
     const interval = setInterval(() => fetchAgents(false), POLL_INTERVAL);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Re-enrich names when agentNames changes
-  useEffect(() => {
-    if (agentNames.size > 0 && agents.length > 0) {
-      setAgents((prev) =>
-        prev.map((a) => ({
-          ...a,
-          name: agentNames.get(a.agentId) || a.agentId,
-        }))
-      );
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentNames]);
+  }, [fetchAgents]);
 
   // Update a single agent config
   const updateAgent = useCallback(
-    async (
-      agentId: string,
-      updates: Partial<Pick<AgentEvalConfig, "enabled" | "sampleRate" | "batchSize">>
-    ) => {
+    async (agentId: string, updates: Partial<Pick<AgentEvalConfig, "enabled" | "sampleRate" | "batchSize">>) => {
       setMutatingAgents((prev) => new Set(prev).add(agentId));
       try {
         const res = await fetch(`/api/evaluations/agents/${agentId}`, {
@@ -176,13 +127,15 @@ export default function EvaluationsPage() {
         setAgents((prev) =>
           prev.map((a) =>
             a.agentId === agentId
-              ? { ...a, ...updated, name: a.name }
+              ? { ...a, ...updated, name: resolveAgentName(agentId) }
               : a
           )
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         addToast(`Failed to update agent: ${msg}`, "error");
+        // Revert by refetching
+        fetchAgents(false);
       } finally {
         setMutatingAgents((prev) => {
           const next = new Set(prev);
@@ -191,7 +144,7 @@ export default function EvaluationsPage() {
         });
       }
     },
-    [addToast]
+    [addToast, fetchAgents]
   );
 
   // Toggle agent enabled
@@ -199,9 +152,7 @@ export default function EvaluationsPage() {
     (agentId: string, currentEnabled: boolean) => {
       // Optimistic update
       setAgents((prev) =>
-        prev.map((a) =>
-          a.agentId === agentId ? { ...a, enabled: !currentEnabled } : a
-        )
+        prev.map((a) => (a.agentId === agentId ? { ...a, enabled: !currentEnabled } : a))
       );
       updateAgent(agentId, { enabled: !currentEnabled });
     },
@@ -213,9 +164,7 @@ export default function EvaluationsPage() {
     (agentId: string, value: number) => {
       // Immediate UI update
       setAgents((prev) =>
-        prev.map((a) =>
-          a.agentId === agentId ? { ...a, sampleRate: value } : a
-        )
+        prev.map((a) => (a.agentId === agentId ? { ...a, sampleRate: value } : a))
       );
       // Debounced API call
       const existing = debounceTimers.current.get(`rate-${agentId}`);
@@ -234,9 +183,7 @@ export default function EvaluationsPage() {
     (agentId: string, value: number) => {
       const clamped = Math.max(1, Math.min(100, value));
       setAgents((prev) =>
-        prev.map((a) =>
-          a.agentId === agentId ? { ...a, batchSize: clamped } : a
-        )
+        prev.map((a) => (a.agentId === agentId ? { ...a, batchSize: clamped } : a))
       );
       updateAgent(agentId, { batchSize: clamped });
     },
@@ -259,9 +206,7 @@ export default function EvaluationsPage() {
         addToast("Buffer flushed successfully", "success");
         // Refresh buffer count
         setAgents((prev) =>
-          prev.map((a) =>
-            a.agentId === agentId ? { ...a, currentBufferLen: 0 } : a
-          )
+          prev.map((a) => (a.agentId === agentId ? { ...a, currentBufferLen: 0 } : a))
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
@@ -308,13 +253,10 @@ export default function EvaluationsPage() {
 
   // Buffer color helper
   function getBufferColor(currentBufferLen: number, batchSize: number): string {
-    if (currentBufferLen === 0)
-      return "bg-green-400/20 text-green-400 border-green-400/30";
+    if (currentBufferLen === 0) return "bg-green-400/20 text-green-400 border-green-400/30";
     const ratio = currentBufferLen / batchSize;
-    if (ratio >= 0.8)
-      return "bg-amber-400/20 text-amber-400 border-amber-400/30";
-    if (ratio >= 0.5)
-      return "bg-yellow-400/20 text-yellow-400 border-yellow-400/30";
+    if (ratio >= 0.8) return "bg-amber-400/20 text-amber-400 border-amber-400/30";
+    if (ratio >= 0.5) return "bg-yellow-400/20 text-yellow-400 border-yellow-400/30";
     return "bg-green-400/20 text-green-400 border-green-400/30";
   }
 
@@ -323,9 +265,7 @@ export default function EvaluationsPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-6 h-6 text-brand-400 animate-spin" />
-        <span className="ml-2 text-sm text-gray-500">
-          Loading evaluation config...
-        </span>
+        <span className="ml-2 text-sm text-gray-500">Loading evaluation config...</span>
       </div>
     );
   }
@@ -384,9 +324,7 @@ export default function EvaluationsPage() {
       {error && (
         <div className="card border-red-500/20 text-center py-8">
           <AlertCircle className="w-8 h-8 text-red-400/60 mx-auto mb-3" />
-          <p className="text-sm text-red-400">
-            Failed to load evaluation config
-          </p>
+          <p className="text-sm text-red-400">Failed to load evaluation config</p>
           <p className="text-xs text-gray-500 mt-1">{error}</p>
           <button
             onClick={() => fetchAgents(true)}
@@ -402,21 +340,16 @@ export default function EvaluationsPage() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-medium text-white">
-                Evaluation Loop
-              </h3>
+              <h3 className="text-sm font-medium text-white">Evaluation Loop</h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                Master toggle — enable or disable evaluations for all agents at
-                once
+                Master toggle — enable or disable evaluations for all agents at once
               </p>
             </div>
             <button
               onClick={handleBulkToggle}
               disabled={bulkLoading}
               className="flex items-center gap-2 transition-colors"
-              aria-label={
-                bulkEnabled ? "Disable all agents" : "Enable all agents"
-              }
+              aria-label={bulkEnabled ? "Disable all agents" : "Enable all agents"}
             >
               {bulkLoading ? (
                 <Loader2 className="w-5 h-5 text-brand-400 animate-spin" />
@@ -425,12 +358,7 @@ export default function EvaluationsPage() {
               ) : (
                 <ToggleLeft className="w-8 h-8 text-gray-500" />
               )}
-              <span
-                className={cn(
-                  "text-sm font-medium",
-                  bulkEnabled ? "text-brand-400" : "text-gray-500"
-                )}
-              >
+              <span className={cn("text-sm font-medium", bulkEnabled ? "text-brand-400" : "text-gray-500")}>
                 {bulkEnabled ? "All Enabled" : "All Disabled"}
               </span>
             </button>
@@ -489,9 +417,7 @@ export default function EvaluationsPage() {
       {!error && !loading && agents.length === 0 && (
         <div className="card text-center py-12">
           <Activity className="w-10 h-10 text-gray-600 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">
-            No agents configured for evaluation.
-          </p>
+          <p className="text-sm text-gray-400">No agents configured for evaluation.</p>
           <p className="text-xs text-gray-600 mt-1">
             Agents will appear here once the evaluation system is initialized.
           </p>
@@ -524,9 +450,7 @@ function AgentRow({
   onFlush,
   getBufferColor,
 }: AgentRowProps) {
-  const [localBatchSize, setLocalBatchSize] = useState(
-    String(agent.batchSize)
-  );
+  const [localBatchSize, setLocalBatchSize] = useState(String(agent.batchSize));
 
   // Sync local batch size when agent data changes externally
   useEffect(() => {
@@ -553,7 +477,10 @@ function AgentRow({
 
   return (
     <tr
-      className={cn("transition-colors", !agent.enabled && "opacity-50")}
+      className={cn(
+        "transition-colors",
+        !agent.enabled && "opacity-50"
+      )}
     >
       {/* Agent Name */}
       <td className="px-6 py-4">
@@ -563,9 +490,7 @@ function AgentRow({
           </div>
           <div>
             <p className="font-medium text-white text-sm">{agent.name}</p>
-            <p className="text-xs text-gray-500 font-mono">
-              {agent.agentId}
-            </p>
+            <p className="text-xs text-gray-500 font-mono">{agent.agentId}</p>
           </div>
         </div>
       </td>
@@ -576,11 +501,7 @@ function AgentRow({
           onClick={() => onToggle(agent.agentId, agent.enabled)}
           disabled={isMutating}
           className="inline-flex items-center justify-center"
-          aria-label={
-            agent.enabled
-              ? `Disable ${agent.name}`
-              : `Enable ${agent.name}`
-          }
+          aria-label={agent.enabled ? `Disable ${agent.name}` : `Enable ${agent.name}`}
         >
           {isMutating ? (
             <Loader2 className="w-5 h-5 text-brand-400 animate-spin" />
@@ -600,12 +521,7 @@ function AgentRow({
             min="0"
             max="100"
             value={agent.sampleRate}
-            onChange={(e) =>
-              onSampleRateChange(
-                agent.agentId,
-                parseInt(e.target.value, 10)
-              )
-            }
+            onChange={(e) => onSampleRateChange(agent.agentId, parseInt(e.target.value, 10))}
             disabled={!agent.enabled}
             className="flex-1 h-1.5 bg-surface-4 rounded-lg appearance-none cursor-pointer accent-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
           />
@@ -646,9 +562,7 @@ function AgentRow({
       <td className="px-4 py-4 text-center">
         <button
           onClick={() => onFlush(agent.agentId)}
-          disabled={
-            agent.currentBufferLen === 0 || isFlushing || !agent.enabled
-          }
+          disabled={agent.currentBufferLen === 0 || isFlushing || !agent.enabled}
           className={cn(
             "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
             agent.currentBufferLen === 0 || !agent.enabled
