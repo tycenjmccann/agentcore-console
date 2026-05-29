@@ -86,6 +86,7 @@ async function startWithJira(body: WorkflowInput) {
       humanNotifications: [],
       startedAt: new Date().toISOString(),
       ticketProvider: "jira",
+      workflowType: body.workflowType || "feature",
     },
   }));
 
@@ -145,6 +146,7 @@ async function startWithDynamoDB(body: WorkflowInput) {
       messages: [],
       humanNotifications: [],
       startedAt: new Date().toISOString(),
+      workflowType: body.workflowType || "feature",
     },
   }));
 

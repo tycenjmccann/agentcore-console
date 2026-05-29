@@ -42,7 +42,7 @@ function transformEvent(item: Record<string, unknown>): Record<string, unknown> 
       return { type: "error", agentId, error: detail.error, timestamp, eventId };
     case "agent.started":
     case "agent.invoked":
-      return { type: "agent_status", agentId: agentId || detail.assignee as string, status: "running", timestamp, eventId };
+      return { type: "agent_status", agentId: agentId || detail.assignee as string, status: "running", ticketId: detail.ticketId as string, timestamp, eventId };
     case "workflow.phase_change":
       return { type: "phase_change", phase: detail.phase, timestamp, eventId };
     case "workflow.complete":
