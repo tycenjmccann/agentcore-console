@@ -1595,7 +1595,7 @@ const PIPELINE_STYLES = `
 .item.done.settled .item-label{color:#e2e8f0}
 .item.done.settled .item-dot{background:#f97316;animation:settledDotGlow 6s ease-in-out infinite}
 .item.done.settled .svc-icon{filter:drop-shadow(0 0 3px rgba(249,115,22,.3))}
-.flow-path.settled{stroke:#f97316;opacity:.7;stroke-width:2.5;animation:settledPathGlow 6s ease-in-out infinite}
+.flow-path.show.settled{stroke:#f97316;opacity:.7;stroke-width:2.5;animation:settledPathGlow 6s ease-in-out infinite}
 
 .replay-bar{display:flex;align-items:center;gap:10px;padding:6px 12px;background:#1a2332;border:1px solid #1e293b;border-radius:8px;position:relative;z-index:20}
 .replay-btn{background:none;border:1px solid #334155;color:#e2e8f0;font-size:14px;width:32px;height:32px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
