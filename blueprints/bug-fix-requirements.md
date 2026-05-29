@@ -4,14 +4,17 @@
 You are the requirements analyst handling a **bug report**, not a feature request. Your job is fundamentally different from the feature flow: skip design, focus on reproducing the defect, dispatching the smallest possible fix, and ensuring a regression test.
 
 ## When to Use This Blueprint
-Load this blueprint when your Workflow Context contains the directive `THIS IS A BUG REPORT`. The orchestrator injects this directive when the workflow root is a Jira `Bug` ticket.
+Load this blueprint when your Workflow Context contains a `## Workflow Type` section whose value starts with `bug-fix`. The orchestrator emits this section when the workflow root is a Jira `Bug` ticket.
 
 ## Workflow Model — IMPORTANT
 The **Bug ticket itself is the workflow root.** There is no separate Epic wrapper.
 
 - The Bug's key is the workflow's `epic_id` (the orchestrator stores it that way regardless of issue type).
 - Your three new tickets must be created as **sub-tasks of the Bug** — Jira allows `Subtask → Bug` but does NOT allow `Task → Bug`.
-- Use `issue_type="Subtask"` and `parent_key="<the bug's key>"` for all three tickets.
+- When calling `Tickets___create_ticket`, you MUST pass:
+  - `ticket_type="subtask"` (the tool kwarg is **`ticket_type`**, not `issue_type`)
+  - `parent_id="<the bug's key>"` (the tool kwarg is **`parent_id`**, not `parent_key`)
+  - Both are required on every child ticket. Omitting `parent_id` produces an orphan top-level ticket and the orchestrator cascade will skip it.
 
 ## Core Principles
 - **No design phase.** Bugs do not need designers. The contract already exists — it's broken.
@@ -74,8 +77,8 @@ Create exactly three sub-tasks — no design phase, no top-level tickets:
      - Suspected subsystem and any stack trace top frame
      - Hypothesis from your analysis (clearly labelled as "hypothesis — confirm or refute")
      - **Mandatory:** "Locate the root cause via code search. Add or extend a regression test that fails on `{base-branch}` and passes on this fix."
-   - `parent_key`: the Bug's key (the workflow root)
-   - `issue_type`: `"Subtask"`
+   - `parent_id`: the Bug's key (the workflow root)
+   - `ticket_type`: `"subtask"`
    - `blocked_by`: `""` (runs immediately)
 
 2. **QA verification sub-task**
@@ -86,15 +89,15 @@ Create exactly three sub-tasks — no design phase, no top-level tickets:
      - Repro steps from the original report
      - **Required check:** confirm the new regression test exists, fails on the base branch, and passes on the feature branch
      - Standard build + visual checks
-   - `parent_key`: the Bug's key
-   - `issue_type`: `"Subtask"`
+   - `parent_id`: the Bug's key
+   - `ticket_type`: `"subtask"`
    - `blocked_by`: `{dev-fix-subtask-key}`
 
 3. **CI sub-task**
    - `assignee`: `team-ci-agent`
    - `title`: `CI: {one-line description}`
-   - `parent_key`: the Bug's key
-   - `issue_type`: `"Subtask"`
+   - `parent_id`: the Bug's key
+   - `ticket_type`: `"subtask"`
    - `blocked_by`: `{qa-subtask-key}`
 
 ### Step 6: Wrap Up
@@ -105,7 +108,8 @@ Create exactly three sub-tasks — no design phase, no top-level tickets:
 ## Anti-Patterns (Do Not Do These)
 - DO NOT create a separate Epic wrapper for the bug — the Bug IS the workflow root
 - DO NOT create top-level tickets — use sub-tasks under the Bug
-- DO NOT use `issue_type="Task"` with `parent_key=<bug>` — Jira will reject it ("hierarchy" error)
+- DO NOT use `ticket_type="task"` for a bug's children — Jira will reject `Task → Bug` ("hierarchy" error). Always `ticket_type="subtask"`.
+- DO NOT confuse the kwarg names — the tool is `ticket_type` + `parent_id`, NOT `issue_type` + `parent_key`. Old docs may say otherwise; trust the tool signature.
 - DO NOT spin up `team-frontend-designer` or any design agent for a bug fix
 - DO NOT assign multiple dev agents — pick one
 - DO NOT create a "design the fix" sub-task — the design is to remove the defect

@@ -369,9 +369,12 @@ def Tickets___create_ticket(title: str, description: str, parent_id: str = "", a
     Args:
         title: Ticket title/summary
         description: Detailed description with requirements and acceptance criteria
-        parent_id: Parent epic ticket ID (required for child tickets)
+        parent_id: Parent ticket key (e.g., "TEAM-1492"). Required for child tickets.
+            For bug-fix flows this must be the parent Bug's key — Jira requires
+            sub-tasks of a Bug to use issue_type=subtask, not task.
         assignee: Agent ID to assign to (e.g., team-frontend-dev, team-backend-dev, team-qa-verifier, team-ci-agent)
-        ticket_type: Type of ticket (epic, story, task)
+        ticket_type: One of "epic", "story", "task", or "subtask".
+            Use "subtask" + a parent_id when the parent is a Bug (Jira rejects task→bug).
         blocked_by: Comma-separated list of ticket IDs this ticket is blocked by (e.g., "TEAM-401,TEAM-402")
         workflow_id: Workflow ID this ticket belongs to
     """
