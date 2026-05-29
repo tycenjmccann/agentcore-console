@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bot, Hammer, Workflow, History, GitPullRequest, ChevronLeft, ChevronRight } from "lucide-react";
+import { LayoutDashboard, Bot, Hammer, Workflow, History, GitPullRequest, Activity, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/components/layout/sidebar/SidebarContext";
 
@@ -12,6 +12,7 @@ const navItems = [
   { href: "/build", label: "Build", icon: Hammer },
   { href: "/workflow", label: "Workflow", icon: GitPullRequest },
   { href: "/routing", label: "Routing", icon: Workflow },
+  { href: "/evaluations", label: "Evaluations", icon: Activity },
   { href: "/tickets", label: "Ticket History", icon: History },
 ];
 
