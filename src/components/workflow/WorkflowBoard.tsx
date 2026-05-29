@@ -10,6 +10,8 @@ import awsIcons from "@/lib/aws-icons.json";
 import { PIPELINE_PHASES, resolveToolIcon } from "@/lib/pipeline-config";
 import AgentOutputPanel from "./AgentOutputPanel";
 import S3ArtifactsModal from "./S3ArtifactsModal";
+import TicketStatusBadge from "./TicketStatusBadge";
+import TicketDetailModal from "./TicketDetailModal";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -963,6 +965,22 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                             >
                               <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
                               <span className="item-label">{agent.displayName}</span>
+                              {(() => {
+                                const ticketId = state?.agentTasks[agent.id]?.ticketId;
+                                const ticketInfo = ticketId ? ticketStatusMap[ticketId] : null;
+                                if (!ticketInfo) return null;
+                                return (
+                                  <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
+                                    <TicketStatusBadge
+                                      status={ticketInfo.status}
+                                      ticketId={ticketId}
+                                      ticketTitle={ticketInfo.title}
+                                      size="sm"
+                                      onClick={() => handleOpenTicketModal(ticketId!)}
+                                    />
+                                  </span>
+                                );
+                              })()}
                               <span className="item-status" />
                             </div>
                           );
@@ -1108,6 +1126,16 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           agentName="Workflow"
           workflowId={workflowId}
         />
+
+        {/* Ticket Detail Modal */}
+        {openTicketModal && (
+          <TicketDetailModal
+            ticketId={openTicketModal.ticketId}
+            workflowId={openTicketModal.workflowId}
+            isOpen={true}
+            onClose={() => setOpenTicketModal(null)}
+          />
+        )}
       </div>
     </div>
   );
