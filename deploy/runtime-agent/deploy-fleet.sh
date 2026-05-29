@@ -138,36 +138,11 @@ for name, arn in data.items():
     print(f'{env_key}={arn}')
 "
 
-# Write back deployed ARNs and harnessNames to agents.json
-AGENTS_JSON="$SCRIPT_DIR/../../src/config/agents.json"
-if [ -f "$AGENTS_JSON" ]; then
-  echo ""
-  echo "Updating agents.json with deployed runtime ARNs..."
-  python3 -c "
-import json, sys
-
-with open('$RESULTS_FILE') as f:
-    deployed = json.load(f)
-
-with open('$AGENTS_JSON') as f:
-    config = json.load(f)
-
-updated = 0
-for agent in config['agents']:
-    # Map agent id to deployed runtime name (team-foo-bar → agentis_foo_bar)
-    runtime_name = 'agentis_' + agent['id'].replace('team-', '').replace('-', '_')
-    if runtime_name in deployed:
-        agent['harnessName'] = runtime_name
-        agent['runtimeArn'] = deployed[runtime_name]
-        updated += 1
-
-with open('$AGENTS_JSON', 'w') as f:
-    json.dump(config, f, indent=2)
-    f.write('\n')
-
-print(f'  ✓ Updated {updated}/{len(config[\"agents\"])} agents in agents.json')
-"
-fi
+# Sync agents.json + fleet-runtime-ids.json from AWS. Delegating to the
+# standalone refresh script keeps a single source of truth for this logic
+# and preserves the existing compact array formatting in agents.json.
+echo ""
+"$SCRIPT_DIR/refresh-agents-json.sh" --region "$REGION"
 
 echo ""
 echo "Running post-deploy health check..."
