@@ -180,10 +180,9 @@ async function appendToBuffer(agentId, sessionData, batchSize) {
         TableName: TABLE,
         Key: { agentId },
         UpdateExpression:
-          'SET sessionBuffer = list_append(if_not_exists(sessionBuffer, :empty), :new), lastUpdatedAt = :now',
-        ConditionExpression: 'size(if_not_exists(sessionBuffer, :empty)) < :max',
+          'SET sessionBuffer = list_append(sessionBuffer, :new), lastUpdatedAt = :now',
+        ConditionExpression: 'size(sessionBuffer) < :max',
         ExpressionAttributeValues: {
-          ':empty': [],
           ':new': [sessionData],
           ':max': batchSize,
           ':now': new Date().toISOString(),
@@ -234,10 +233,9 @@ async function handleOverflow(agentId, sessionData, batchSize) {
         TableName: TABLE,
         Key: { agentId },
         UpdateExpression:
-          'SET sessionBuffer = list_append(if_not_exists(sessionBuffer, :empty), :new), lastUpdatedAt = :now',
-        ConditionExpression: 'size(if_not_exists(sessionBuffer, :empty)) < :max',
+          'SET sessionBuffer = list_append(sessionBuffer, :new), lastUpdatedAt = :now',
+        ConditionExpression: 'size(sessionBuffer) < :max',
         ExpressionAttributeValues: {
-          ':empty': [],
           ':new': [sessionData],
           ':max': batchSize,
           ':now': new Date().toISOString(),
