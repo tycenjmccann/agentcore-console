@@ -63,7 +63,7 @@ function transformEvent(item: Record<string, unknown>): Record<string, unknown> 
 
     case "agent.started":
     case "agent.invoked":
-      return { type: "agent_status", agentId: agentId || detail.assignee as string, status: "running", timestamp };
+      return { type: "agent_status", agentId: agentId || detail.assignee as string, status: "running", ticketId: detail.ticketId as string, timestamp };
 
     case "workflow.report_completion":
       // Agent reported done — emit agent_complete immediately (don't wait for Jira webhook cascade)

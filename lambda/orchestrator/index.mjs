@@ -1227,6 +1227,7 @@ async function bootstrapBugWorkflow(bugTicket) {
     startedAt: new Date().toISOString(),
     ticketProvider: "jira",
     intakeChannel: "jira-webhook",
+    workflowType: "bug",
   };
   await saveWorkflow(workflow);
 

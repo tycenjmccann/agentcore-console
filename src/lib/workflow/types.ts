@@ -105,6 +105,8 @@ export interface StoredEvent {
   event: WorkflowEvent;
 }
 
+export type WorkflowType = "feature" | "bug";
+
 export interface WorkflowState {
   id: string;                    // workflow run ID
   phase: WorkflowPhase;
@@ -117,6 +119,8 @@ export interface WorkflowState {
   startedAt: string;
   completedAt?: string;
   error?: string;
+  /** Workflow classification — "feature" (default) or "bug" */
+  workflowType?: WorkflowType;
   /** Shared feature branch — all dev agents commit to this single branch */
   featureBranch?: string;
   /** QA verification retry counter (max 3 fix cycles before human escalation) */
@@ -191,6 +195,8 @@ export interface WorkflowInput {
   sources: IntakeSource[];
   /** Per-invocation model override for dev agents (e.g., Opus for complex tasks) */
   modelOverride?: ModelOverride;
+  /** Workflow classification — "feature" (default) or "bug" */
+  workflowType?: WorkflowType;
 }
 
 // ─── Human Notifications ─────────────────────────────────────────────────────

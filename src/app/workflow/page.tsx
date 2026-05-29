@@ -13,6 +13,17 @@ interface WorkflowSummary {
   input: { title: string; description: string };
   startedAt: string;
   completedAt?: string;
+  workflowType?: "feature" | "bug";
+}
+
+function BugIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" height="16" viewBox="0 0 16 16" width="16" xmlns="http://www.w3.org/2000/svg">
+      <path clipRule="evenodd"
+        d="m8 2.5c-.82843 0-1.5.67157-1.5 1.5h3c0-.82843-.67157-1.5-1.5-1.5zm3 1.52074v-.02074c0-1.65685-1.34315-3-3-3s-3 1.34315-3 3v.02074c-.29048.04873-.55266.18096-.761.37115l-.88669-.63334-.91695-2.06315-1.37072.6092.94464 2.12544c.09062.20389.23416.37981.41572.50949l1.325.94643v1.11404h-3.25v1.5h3.25v1.14872l-1.14979.95818c-.13248.1104-.24068.247-.3178.4012l-1.20323 2.4065 1.34164.6708 1.17984-2.3597.46058-.3838c.63558 1.5764 2.17703 2.6581 3.94022 2.6581h.24854c1.71908 0 3.1849-1.0844 3.7506-2.6066l.3987.3323 1.1799 2.3597 1.3416-.6708-1.2032-2.4065c-.0771-.1542-.1853-.2908-.3178-.4012l-1.1498-.95818v-1.14872h3.25v-1.5h-3.25v-1.11404l1.325-.94643c.1816-.12968.3251-.3056.4157-.50949l.9447-2.12544-1.3708-.6092-.9169 2.06315-.8867.63334c-.2083-.19019-.4705-.32242-.761-.37115zm-.25 5.97926v-4.5h-5.5v4.44265l.03488.22675c.20629 1.3408 1.35998 2.3306 2.71658 2.3306h.24854c1.38071 0 2.5-1.1193 2.5-2.5z"
+        fill="#f15b50" fillRule="evenodd"/>
+    </svg>
+  );
 }
 
 export default function WorkflowPage() {
@@ -55,6 +66,7 @@ export default function WorkflowPage() {
         input: { title: w.input.title, description: w.input.description },
         startedAt: w.startedAt,
         completedAt: w.completedAt,
+        workflowType: w.workflowType,
       }));
       // Sort: active first, then by date descending
       list.sort((a, b) => {
@@ -348,6 +360,7 @@ function WorkflowListItem({
   onClick: () => void;
   onNudge?: (id: string) => void;
 }) {
+  const isBug = workflow.workflowType === "bug";
   const isRunning = workflow.phase !== "complete" && workflow.phase !== "error" && workflow.phase !== "cancelled";
   const timeStr = formatRelativeTime(workflow.startedAt);
 
@@ -380,9 +393,12 @@ function WorkflowListItem({
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-[var(--color-text-primary)] truncate">
-            {workflow.input.title}
-          </p>
+          <div className="flex items-center gap-1.5">
+            {isBug && <BugIcon className="w-3.5 h-3.5 flex-shrink-0" />}
+            <p className="text-xs font-medium text-[var(--color-text-primary)] truncate">
+              {workflow.input.title}
+            </p>
+          </div>
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-[10px] text-blue-400 font-mono">{workflow.epicId}</span>
             <span className="text-[10px] text-[var(--color-text-muted)]">{timeStr}</span>
