@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   StartQueryCommand,
   GetQueryResultsCommand,
+  DescribeLogGroupsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 import { getLogsClient, DEFAULT_REGION } from "@/lib/agentcore-sdk";
+import agentsConfig from "@/config/agents.json";
 
 // In-memory cache for recently captured traces (immediate availability during streaming)
 // Bounded: max 100 entries, 5-minute TTL per entry
@@ -83,6 +85,18 @@ export async function GET(req: NextRequest) {
   // Query OTEL spans from aws/spans (Transaction Search log group — all spans land here)
   try {
     const { traces, diagnostics } = await queryOtelSpans(sessionId, region);
+
+    // Enrich tool spans with their actual input/output from the agent's runtime log group.
+    // OTEL spans on aws/spans only carry tool metadata (name, status); the args + result
+    // live in the runtime log under body.output.messages[].content as toolUse/toolResult blocks.
+    if (traces.length > 0) {
+      try {
+        await enrichTraceTools(traces, sessionId, region);
+      } catch (err) {
+        console.warn("Tool enrichment failed (non-fatal):", (err as Error).message);
+      }
+    }
+
     return NextResponse.json({
       traces,
       source: traces.length > 0 ? `otel_spans:${diagnostics.matchMode}` : "empty",
@@ -198,6 +212,7 @@ async function runSpansQuery(
           attributes.gen_ai.tool.name as toolName,
           attributes.gen_ai.tool.status as toolStatus,
           attributes.gen_ai.tool.description as toolDescription,
+          attributes.gen_ai.tool.call.id as toolCallId,
           attributes.gen_ai.operation.name as operation,
           status.code as statusCode
         ${sessionFilter}
@@ -256,6 +271,7 @@ async function runSpansQuery(
             toolName: fields.toolName,
             toolStatus: fields.toolStatus,
             toolDescription: fields.toolDescription,
+            toolCallId: fields.toolCallId,
           },
         };
       });
@@ -348,4 +364,131 @@ function categorizeSpan(name: string, fields: Record<string, string>): string {
   if (n.includes("counttokens")) return "internal";
 
   return "span";
+}
+
+/**
+ * Enrich tool spans with their actual input/output by reading the agent's
+ * runtime log group. OTEL spans on aws/spans only carry tool metadata (name,
+ * status, json_schema, call_id); the actual args + result live in the runtime
+ * log under body.output.messages[].content as toolUse/toolResult blocks
+ * correlated by toolUseId.
+ *
+ * Mutates `traces` in place. Silent-fails on any error so the basic timeline
+ * still renders.
+ */
+async function enrichTraceTools(
+  traces: TraceRecord[],
+  sessionId: string,
+  region: string
+): Promise<void> {
+  const toolSpans = traces.filter((t) => t.details?.toolCallId);
+  if (toolSpans.length === 0) return;
+
+  // sessionId format: TEAM-<n>_wf_<id>-<agent-slug>-<timestamp>
+  // Find the agent whose id appears in the sessionId (longest match wins —
+  // "team-claude-code-developer" must beat "team-claude-code").
+  const agents = (agentsConfig as { agents: Array<{ id: string; harnessName?: string }> }).agents;
+  let matched: { id: string; harnessName?: string } | undefined;
+  for (const agent of agents) {
+    if (!agent.harnessName) continue;
+    if (sessionId.includes(`-${agent.id}-`) || sessionId.includes(`_${agent.id}-`)) {
+      if (!matched || agent.id.length > matched.id.length) matched = agent;
+    }
+  }
+  if (!matched?.harnessName) return;
+
+  const client = getLogsClient(region);
+
+  // Discover the runtime log group. AgentCore creates two per harness — we want
+  // the -DEFAULT one (application logs); the other is system telemetry.
+  const lgRes = await client.send(
+    new DescribeLogGroupsCommand({
+      logGroupNamePrefix: `/aws/bedrock-agentcore/runtimes/${matched.harnessName}-`,
+      limit: 10,
+    })
+  );
+  const logGroup = lgRes.logGroups?.find((lg) => lg.logGroupName?.endsWith("-DEFAULT"));
+  if (!logGroup?.logGroupName) return;
+
+  const endTime = Date.now();
+  const startTime = endTime - 1 * 24 * 60 * 60 * 1000;
+
+  const startRes = await client.send(
+    new StartQueryCommand({
+      logGroupName: logGroup.logGroupName,
+      startTime: Math.floor(startTime / 1000),
+      endTime: Math.floor(endTime / 1000),
+      queryString: `fields @timestamp, @message
+        | filter @message like "${sessionId}"
+        | filter @message like "toolUseId"
+        | limit 1000`,
+    })
+  );
+  if (!startRes.queryId) return;
+
+  // Poll up to 10s — same budget shape as the spans query.
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const results = await client.send(new GetQueryResultsCommand({ queryId: startRes.queryId }));
+    if (
+      results.status !== "Complete" &&
+      results.status !== "Cancelled" &&
+      results.status !== "Failed"
+    ) {
+      continue;
+    }
+    if (!results.results || results.results.length === 0) return;
+
+    // Build toolUseId -> { input, result } map by walking each log line's
+    // body.output.messages[].content[] for toolUse/toolResult blocks.
+    const toolMap: Map<string, { toolInput?: unknown; toolResult?: string }> = new Map();
+    for (const row of results.results) {
+      const msgField = row.find((f) => f.field === "@message");
+      if (!msgField?.value) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(msgField.value);
+      } catch {
+        continue;
+      }
+      const messages = (parsed as { body?: { output?: { messages?: unknown } } })?.body?.output
+        ?.messages;
+      if (!Array.isArray(messages)) continue;
+      for (const m of messages) {
+        const content = (m as { content?: unknown })?.content;
+        if (!Array.isArray(content)) continue;
+        for (const block of content) {
+          const tu = (block as { toolUse?: { toolUseId?: string; input?: unknown } }).toolUse;
+          const tr = (block as {
+            toolResult?: { toolUseId?: string; content?: Array<{ text?: string }> };
+          }).toolResult;
+          if (tu?.toolUseId) {
+            const existing = toolMap.get(tu.toolUseId) ?? {};
+            existing.toolInput = tu.input;
+            toolMap.set(tu.toolUseId, existing);
+          } else if (tr?.toolUseId) {
+            const existing = toolMap.get(tr.toolUseId) ?? {};
+            if (Array.isArray(tr.content)) {
+              existing.toolResult = tr.content.map((c) => c.text ?? "").join("\n");
+            }
+            toolMap.set(tr.toolUseId, existing);
+          }
+        }
+      }
+    }
+
+    for (const span of toolSpans) {
+      const id = span.details?.toolCallId as string | undefined;
+      if (!id) continue;
+      const enriched = toolMap.get(id);
+      if (enriched) {
+        span.details = {
+          ...span.details,
+          toolInput: enriched.toolInput,
+          toolResult: enriched.toolResult,
+        };
+      }
+    }
+    return;
+  }
 }

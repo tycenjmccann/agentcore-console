@@ -8,15 +8,37 @@ REGION="${AWS_REGION:-us-east-1}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 
-# Source GITHUB_PAT from .env.local if not already set (needed for MCP access)
+# Source GITHUB_PAT from .env.local if not already set (needed for MCP access).
 # IMPORTANT: Do NOT source the full .env.local — it contains dev-account values
 # that would override prod deployment vars (e.g., ARTIFACT_BUCKET).
+# Search multiple known locations so single-agent deploys don't silently strip
+# MCP auth when the env file lives outside the default repo-root location.
 if [ -z "${GITHUB_PAT:-}" ]; then
-  ENV_FILE="$SCRIPT_DIR/../../.env.local"
-  if [ -f "$ENV_FILE" ]; then
-    GITHUB_PAT=$(grep "^GITHUB_PAT=" "$ENV_FILE" | cut -d= -f2-)
-    export GITHUB_PAT
-  fi
+  for candidate in \
+    "$SCRIPT_DIR/../../.env.local" \
+    "$SCRIPT_DIR/../.env.local" \
+    "$SCRIPT_DIR/.env.local" \
+    "$PWD/.env.local"; do
+    if [ -f "$candidate" ]; then
+      GITHUB_PAT=$(grep "^GITHUB_PAT=" "$candidate" | cut -d= -f2-)
+      if [ -n "$GITHUB_PAT" ]; then
+        export GITHUB_PAT
+        echo "Loaded GITHUB_PAT from $candidate" >&2
+        break
+      fi
+    fi
+  done
+fi
+
+# Hard-fail if neither GITHUB_PAT nor MCP_SERVERS is set — silent regression
+# here strips GitHub MCP auth from the runtime and every deploy reports OK.
+if [ -z "${GITHUB_PAT:-}" ] && [ -z "${MCP_SERVERS:-}" ]; then
+  echo "FAIL $AGENT_NAME (neither GITHUB_PAT nor MCP_SERVERS is set — refusing to deploy without MCP auth)" >&2
+  echo "  Set one of:" >&2
+  echo "    export GITHUB_PAT=<your-pat>" >&2
+  echo "    export MCP_SERVERS='<json-config>'" >&2
+  echo "  Or place GITHUB_PAT=... in one of: ../../.env.local, ../.env.local, ./.env.local" >&2
+  exit 1
 fi
 
 DEPLOY_DIR=$(mktemp -d)
