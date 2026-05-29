@@ -14,6 +14,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { validateIntakeSources } from "@/lib/workflow/intake";
+import { runPreflightValidation } from "@/lib/connectors/preflight";
 import type { WorkflowInput } from "@/lib/workflow/types";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
@@ -44,6 +45,21 @@ export async function POST(req: NextRequest) {
       const errors = await validateIntakeSources(body.sources);
       if (errors.length > 0) {
         return NextResponse.json({ error: "Source validation failed", details: errors }, { status: 422 });
+      }
+    }
+
+    // Connector preflight validation
+    if (process.env.CONNECTOR_PREFLIGHT_ENABLED !== 'false') {
+      const preflight = await runPreflightValidation(body);
+      if (!preflight.passed) {
+        return NextResponse.json(
+          {
+            error: 'Connector preflight validation failed',
+            failedConnectors: preflight.failedConnectors,
+            details: preflight.results.filter(r => r.status === 'unhealthy' || r.status === 'error'),
+          },
+          { status: 503 }
+        );
       }
     }
 
