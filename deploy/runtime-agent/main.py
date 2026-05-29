@@ -18,6 +18,7 @@ Key advantages over Harness:
 import os
 import subprocess
 import signal
+import threading
 os.environ["BYPASS_TOOL_CONSENT"] = "true"  # Required for non-interactive strands_tools (shell, editor, etc.)
 os.environ["HOME"] = "/tmp"  # Runtime /var/task is read-only; tools need writable HOME
 os.environ["SHELL_DEFAULT_TIMEOUT"] = "300"  # 5 min — safety net for hung commands
@@ -368,9 +369,12 @@ def Tickets___create_ticket(title: str, description: str, parent_id: str = "", a
     Args:
         title: Ticket title/summary
         description: Detailed description with requirements and acceptance criteria
-        parent_id: Parent epic ticket ID (required for child tickets)
+        parent_id: Parent ticket key (e.g., "TEAM-1492"). Required for child tickets.
+            For bug-fix flows this must be the parent Bug's key — Jira requires
+            sub-tasks of a Bug to use issue_type=subtask, not task.
         assignee: Agent ID to assign to (e.g., team-frontend-dev, team-backend-dev, team-qa-verifier, team-ci-agent)
-        ticket_type: Type of ticket (epic, story, task)
+        ticket_type: One of "epic", "story", "task", or "subtask".
+            Use "subtask" + a parent_id when the parent is a Bug (Jira rejects task→bug).
         blocked_by: Comma-separated list of ticket IDs this ticket is blocked by (e.g., "TEAM-401,TEAM-402")
         workflow_id: Workflow ID this ticket belongs to
     """
@@ -628,7 +632,7 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
                 "--dangerously-skip-permissions",
                 "--output-format", "text",
                 "--model", cc_model,
-                "--max-turns", "50",
+                "--max-turns", "100",
                 task,
             ],
             cwd=working_directory,
@@ -643,20 +647,57 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
             },
         )
 
+        # Independent watchdog thread enforces the deadline. We can't rely on
+        # proc.communicate(timeout=...) alone because on AgentCore the calling
+        # thread can wedge in the selector (OTEL + asyncio + tool wrapper) and
+        # never raise TimeoutExpired. threading.Event.wait sits on a pthread
+        # condvar that wakes regardless of selector state, so it always fires.
+        # Once we killpg the process group, pipe EOF unblocks communicate().
+        # Deadline kept under AgentCore's 900s idleSessionTimeout.
+        DEADLINE_SECS = 600
+        watchdog_done = threading.Event()
+        watchdog_fired = {"value": False}
+
+        def _watchdog():
+            if not watchdog_done.wait(timeout=DEADLINE_SECS):
+                # Deadline expired — kill the whole process group.
+                watchdog_fired["value"] = True
+                try:
+                    pgid = os.getpgid(proc.pid)
+                    logger.warning(f"[claude_code] WATCHDOG firing after {DEADLINE_SECS}s — killing pgid={pgid}")
+                    os.killpg(pgid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
+
+        watchdog = threading.Thread(target=_watchdog, daemon=True)
+        watchdog.start()
+
         try:
-            stdout, stderr = proc.communicate(timeout=900)  # 15 min — agents target ~10 min per session
+            # Belt-and-suspenders: also pass a timeout slightly past the
+            # watchdog so if communicate ever DOES wake, we don't hang here.
+            stdout, stderr = proc.communicate(timeout=DEADLINE_SECS + 30)
         except subprocess.TimeoutExpired:
-            # Kill the ENTIRE process group (claude + all children/grandchildren)
+            # Watchdog should have killed it; force-kill in case it didn't.
             try:
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             except (ProcessLookupError, OSError):
-                proc.kill()  # Fallback if process group already gone
-            # Drain remaining pipe data to avoid zombie FDs
+                proc.kill()
             try:
-                proc.communicate(timeout=5)
+                stdout, stderr = proc.communicate(timeout=5)
             except (subprocess.TimeoutExpired, OSError):
-                pass
-            return "ERROR: Claude Code timed out after 900 seconds (15 min limit). Break this into smaller, focused claude_code calls — each should do ONE thing (implement, test, or fix)."
+                stdout, stderr = "", ""
+        finally:
+            watchdog_done.set()
+
+        if watchdog_fired["value"]:
+            return (
+                f"ERROR: Claude Code timed out after {DEADLINE_SECS} seconds (10 min limit). "
+                "Break this into smaller, focused claude_code calls — each should do ONE thing "
+                "(implement, test, or fix). For large content generation, chunk into ~50-item batches."
+            )
 
         output = stdout.strip()
         if proc.returncode != 0 and stderr:

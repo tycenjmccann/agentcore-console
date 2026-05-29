@@ -26,13 +26,14 @@ function normalizeEvaluatorName(raw: string): string {
   return raw;
 }
 
-// Derive agent fleet from agents.json config — no hardcoded values
-// evalConfigName = "eval_" + harnessName, runtimeLogGroupPrefix from harnessName
+// Derive agent fleet from agents.json config — no hardcoded values.
+// evalConfigName and harnessName are first-class fields in agents.json
+// (populated from the actual deployed CW log group / AgentCore runtime names).
 const AGENTS: Record<string, { name: string; runtimeLogGroupPrefix: string }> = Object.fromEntries(
   agentsConfig.agents
-    .filter((a) => a.evaluationsEnabled && a.harnessName)
+    .filter((a) => a.evaluationsEnabled && a.harnessName && a.evalConfigName)
     .map((a) => [
-      `eval_${a.harnessName}`,
+      a.evalConfigName,
       {
         name: a.name,
         runtimeLogGroupPrefix: `/aws/bedrock-agentcore/runtimes/${a.harnessName}-`,

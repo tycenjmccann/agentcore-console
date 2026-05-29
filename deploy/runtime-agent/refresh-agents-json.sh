@@ -3,12 +3,13 @@
 # refresh-agents-json.sh — Sync src/config/agents.json with what's actually
 # deployed in AgentCore, without redeploying.
 #
-# Reconciles three fields on every agent in agents.json:
-#   - harnessName  — the runtime resource name (queried from AgentCore)
-#   - runtimeArn   — the runtime ARN (queried from AgentCore)
-#   - tools        — the actual tool capability set loaded by main.py
-#                    (computed by parsing main.py + the GitHub MCP set
-#                    declared in the canonical tool list below)
+# Reconciles four fields on every agent in agents.json:
+#   - harnessName    — the runtime resource name (queried from AgentCore)
+#   - runtimeArn     — the runtime ARN (queried from AgentCore)
+#   - evalConfigName — the CW Logs eval config name (queried from CloudWatch)
+#   - tools          — the actual tool capability set loaded by main.py
+#                      (computed by parsing main.py + the GitHub MCP set
+#                      declared in the canonical tool list below)
 #
 # All 14 fleet agents load an identical 37-tool capability set in main.py,
 # so the same canonical list is written to every agent. The event processor
@@ -87,6 +88,32 @@ with open(results_file, "w") as f:
     f.write("\n")
 print(f"  Wrote {len(deployed)} entries to fleet-runtime-ids.json")
 
+# ─── Step 1b: Query CW Logs for eval config names ───────────────────────────
+# Eval log groups live at /aws/bedrock-agentcore/evaluations/results/<configName>
+# where <configName> = "eval_<short>-<random>" (e.g. eval_requirements_analyst-FO0D...)
+# We strip the "-<random>" suffix and key on the canonical "eval_<short>" form
+# that matches what's in agents.json. If multiple log groups share the same
+# canonical prefix (e.g. duplicate configs), we use the most recently created.
+print(f"Querying eval log groups in {region}...")
+logs = boto3.client("logs", region_name=region)
+eval_configs = {}  # short_name -> full_log_group_basename
+seen_creation = {}
+paginator2 = logs.get_paginator("describe_log_groups")
+for page in paginator2.paginate(logGroupNamePrefix="/aws/bedrock-agentcore/evaluations/results/"):
+    for lg in page.get("logGroups", []):
+        full_name = lg["logGroupName"].rsplit("/", 1)[-1]  # eval_X-randomId
+        m = re.match(r"^(eval_[a-z_]+?)(-[A-Za-z0-9]+)?$", full_name)
+        if not m:
+            continue
+        short = m.group(1)
+        created = lg.get("creationTime", 0)
+        # Keep the most recent if dupes
+        if short not in eval_configs or created > seen_creation.get(short, 0):
+            eval_configs[short] = short
+            seen_creation[short] = created
+
+print(f"  Found {len(eval_configs)} eval configs.")
+
 # ─── Step 2: Compute canonical tool set from main.py ────────────────────────
 # Every agent loads the same set: builtin strands tools + AgentCore service
 # tools + LAMBDA_TOOLS (declared in main.py) + claude_code + GitHub MCP tools.
@@ -158,8 +185,12 @@ plans = []
 missing = []
 for agent in config["agents"]:
     runtime_name = "agentis_" + agent["id"].replace("team-", "").replace("-", "_")
+    # Eval config name uses the same short id (no "agentis_" prefix), e.g.
+    # team-requirements-analyst -> eval_requirements_analyst.
+    eval_short = "eval_" + agent["id"].replace("team-", "").replace("-", "_")
+    eval_name = eval_configs.get(eval_short)
     if runtime_name in deployed:
-        plans.append((agent["id"], runtime_name, deployed[runtime_name]))
+        plans.append((agent["id"], runtime_name, deployed[runtime_name], eval_name))
     else:
         missing.append(agent["id"])
 
@@ -169,7 +200,7 @@ tools_array_str = "[" + ", ".join(f'"{t}"' for t in canonical_tools) + "]"
 updated = 0
 unchanged = 0
 
-for agent_id, runtime_name, runtime_arn in plans:
+for agent_id, runtime_name, runtime_arn, eval_name in plans:
     id_marker = f'"id": "{agent_id}"'
     id_pos = text.find(id_marker)
     if id_pos < 0:
@@ -191,12 +222,28 @@ for agent_id, runtime_name, runtime_arn in plans:
             new_block,
         )
 
+    # evalConfigName (insert after harnessName)
+    if eval_name:
+        if re.search(r'"evalConfigName":\s*"[^"]*"', new_block):
+            new_block = re.sub(r'"evalConfigName":\s*"[^"]*"', f'"evalConfigName": "{eval_name}"', new_block)
+        else:
+            new_block = re.sub(
+                r'("harnessName":\s*"' + re.escape(runtime_name) + r'",\n)',
+                r'\1      "evalConfigName": "' + eval_name + r'",\n',
+                new_block,
+            )
+
     # runtimeArn
     if re.search(r'"runtimeArn":\s*"[^"]*"', new_block):
         new_block = re.sub(r'"runtimeArn":\s*"[^"]*"', f'"runtimeArn": "{runtime_arn}"', new_block)
     else:
+        # Insert after evalConfigName if present, else after harnessName
+        anchor = (
+            r'("evalConfigName":\s*"[^"]*",\n)' if eval_name and '"evalConfigName"' in new_block
+            else r'("harnessName":\s*"' + re.escape(runtime_name) + r'",\n)'
+        )
         new_block = re.sub(
-            r'("harnessName":\s*"' + re.escape(runtime_name) + r'",\n)',
+            anchor,
             r'\1      "runtimeArn": "' + runtime_arn + r'",\n',
             new_block,
         )

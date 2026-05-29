@@ -33,22 +33,25 @@ if (!ACCOUNT_ID) throw new Error("AWS_ACCOUNT_ID env var required");
 const s3 = new S3Client({ region: REGION });
 const agentcore = new BedrockAgentCoreClient({ region: REGION });
 
-const CONFIG_TO_AGENT = {
-  eval_agentis_analytics_designer: "agentis_analytics_designer",
-  eval_agentis_android_designer: "agentis_android_designer",
-  eval_agentis_api_dev: "agentis_api_dev",
-  eval_agentis_backend_designer: "agentis_backend_designer",
-  eval_agentis_backend_dev: "agentis_backend_dev",
-  eval_agentis_ci_agent: "agentis_ci_agent",
-  eval_agentis_frontend_designer: "agentis_frontend_designer",
-  eval_agentis_frontend_dev: "agentis_frontend_dev",
-  eval_agentis_ios_designer: "agentis_ios_designer",
-  eval_agentis_legal_compliance: "agentis_legal_compliance",
-  eval_agentis_localization: "agentis_localization",
-  eval_agentis_qa_verifier: "agentis_qa_verifier",
-  eval_agentis_requirements_analyst: "agentis_requirements_analyst",
-  eval_agentis_security_reviewer: "agentis_security_reviewer",
-};
+// Eval config name → harnessName, derived from agents.json (synced to S3 on deploy).
+// Loaded once on cold start; we identify the agent by which eval log group fired.
+let CONFIG_TO_AGENT_PROMISE = null;
+
+async function loadConfigToAgent() {
+  if (CONFIG_TO_AGENT_PROMISE) return CONFIG_TO_AGENT_PROMISE;
+  CONFIG_TO_AGENT_PROMISE = (async () => {
+    const result = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: "config/agents.json" }));
+    const body = await result.Body.transformToString();
+    const parsed = JSON.parse(body);
+    const map = {};
+    for (const a of parsed.agents || []) {
+      if (a.evalConfigName && a.harnessName) map[a.evalConfigName] = a.harnessName;
+    }
+    console.log(`[eval-packager] Loaded ${Object.keys(map).length} agent eval mappings from S3`);
+    return map;
+  })();
+  return CONFIG_TO_AGENT_PROMISE;
+}
 
 // All agents share the same tool set
 const AGENT_TOOLS = [
@@ -75,7 +78,8 @@ export async function handler(event) {
   const logGroup = json.logGroup || "";
   const logEvents = json.logEvents || [];
 
-  // Determine which agent
+  // Determine which agent (mapping loaded from agents.json on S3)
+  const CONFIG_TO_AGENT = await loadConfigToAgent();
   const configMatch = Object.keys(CONFIG_TO_AGENT).find(c => logGroup.includes(c));
   if (!configMatch) {
     console.log(`[eval-packager] Unknown log group: ${logGroup}`);
