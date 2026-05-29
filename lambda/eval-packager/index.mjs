@@ -158,7 +158,7 @@ export async function handler(event) {
     },
     current_prompt: currentPrompt,
     tools: AGENT_TOOLS,
-    skills: `Agent loads role-specific skills via SkillLoader___load_skill. Skills are stored in lambda/skill-loader/ and provide detailed instructions for the agent's specialty.`,
+    skills: `Agent loads role-specific blueprints via load_blueprint. Blueprints are stored in S3 (blueprints/<role>.md) and provide detailed instructions for the agent's specialty.`,
     recent_changes: recentChanges,
     raw_eval_events: rawEvents,
     prompt_path: `deploy/runtime-agent/prompts/${agentName}.txt`,

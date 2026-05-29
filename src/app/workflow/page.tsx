@@ -140,11 +140,13 @@ export default function WorkflowPage() {
   const handleTestWorkflow = async () => {
     setIsSubmitting(true);
     try {
+      const now = new Date();
+      const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
       const res = await fetch("/api/workflow/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: "[E2E-TEST] System Validation — DAG + Roster",
+          title: `Pipeline Connectivity Check ${hhmm}`,
           description: E2E_TEST_DESCRIPTION,
           sources: [],
           repoConfig: {
@@ -431,102 +433,96 @@ function formatRelativeTime(isoString: string): string {
 }
 
 // ─── E2E Test Workflow Description ─────────────────────────────────────────
+// Mirror of scripts/test-ticket-flow.sh DESC. Keep in sync — the button is the
+// in-app version of that curl call.
 
-const E2E_TEST_DESCRIPTION = `## E2E SYSTEM VALIDATION — ORCHESTRATOR PIPELINE TEST
+const E2E_TEST_DESCRIPTION = `## Workflow End-to-End Connectivity Test
 
-**THIS IS AN AUTOMATED TEST. DO NOT WRITE ANY REAL CODE.**
-
-The purpose of this test is to validate the orchestrator's ticket tracking, phase transitions, and dependency cascade. Each agent exercises its real toolchain (skill loading, S3 artifacts, ticket creation, completion reporting) without writing application code.
+This is a workflow end-to-end test. Each agent is being given a minimal task to prove connectivity and access to their tools. Run your task, save a short artifact to S3 confirming success, then complete.
 
 ---
 
 ## REQUIREMENTS AGENT — YOUR STEPS:
 
-You are the first agent. Your job is to validate the system by creating a ticket DAG that exercises the pipeline.
+1. Load skill \`requirements-analysis\`
+2. Create EXACTLY these 5 tickets using \`Tickets___create_ticket\`. Each ticket's description must contain the exact instructions for that agent shown in the section below — copy-paste the relevant block.
 
-1. Call \`SkillLoader___load_skill(skill_name="requirements-analysis")\` to load your blueprint
-2. Use \`Tickets___list_tickets\` or your knowledge of the team roster to determine which agents are available
-3. Create tickets that form a meaningful DAG:
-   - At least 2-3 design/review agents in PARALLEL (blocked only by your ticket)
-   - At least 1 dev agent blocked by ALL the parallel agents
-   - 1 QA agent blocked by the dev agent — QA MUST create a fix-it loop (see below)
-4. In EACH ticket description, include these EXACT instructions for that agent:
+   **Ticket 1:** summary="Design: Frontend Designer", assignee="team-frontend-designer", blocked_by=[YOUR_TICKET_ID]
+   **Ticket 2:** summary="Review: Security Reviewer", assignee="team-security-reviewer", blocked_by=[YOUR_TICKET_ID]
+   **Ticket 3:** summary="Review: Legal Compliance", assignee="team-legal-compliance", blocked_by=[YOUR_TICKET_ID]
+   **Ticket 4:** summary="Dev: Frontend Dev", assignee="team-frontend-dev", blocked_by=[TICKET_1, TICKET_2, TICKET_3]
+   **Ticket 5:** summary="QA: Verifier", assignee="team-qa-verifier", blocked_by=[TICKET_4]
 
-### For parallel agents (design/review/compliance):
-\`\`\`
-E2E TEST — Your steps:
-1. Call SkillLoader___load_skill(skill_name="<your-relevant-skill>") to load blueprint
-2. Save to S3: workflows/{workflowId}/agents/<your-team-id>/test-pass.md — content: "<Your Name> E2E pass — blueprint loaded, phase validated"
-3. Call WorkflowOutput___report_completion
-DO NOT write code. DO NOT clone repos. Just follow these 3 steps.
-\`\`\`
+   Do NOT create a CI ticket — QA will create it.
 
-### For dev agent:
-\`\`\`
-E2E TEST — Dev steps:
-1. Call SkillLoader___load_skill(skill_name="full-stack") to load blueprint
-2. Save to S3: workflows/{workflowId}/agents/<your-team-id>/test-pass.md — content: "<Your Name> E2E pass — dev phase validated"
-3. Call WorkflowOutput___report_completion
-DO NOT write code. Just follow these steps.
-NOTE: You may be invoked again for a "fix-it" ticket from QA. Same steps — save artifact with "fix-it pass" and complete.
-\`\`\`
-
-### For QA agent — CRITICAL (must create fix-it loop):
-\`\`\`
-E2E TEST — QA steps — READ CAREFULLY:
-
-You must create THREE tickets before completing. This tests the full QA fix-it loop.
-
-1. Call SkillLoader___load_skill(skill_name="qa-verification") to load blueprint
-2. Create THREE tickets in this EXACT order using Tickets___create_ticket:
-
-   TICKET A — Fix-it for Dev (no blockers, invoked immediately):
-   - summary: "[E2E] Fix-it: <Dev Agent> — QA found simulated issue"
-   - assignee: "<dev-team-id>"
-   - blocked_by: [] (empty — no blockers)
-   - description: "E2E TEST — Fix-it steps:
-1. Call SkillLoader___load_skill(skill_name=\\"full-stack\\")
-2. Save to S3: workflows/{workflowId}/agents/<dev-team-id>/fix-it-pass.md with content: Fix-it E2E pass — issue resolved
-3. Call WorkflowOutput___report_completion"
-
-   TICKET B — QA Re-verification (blocked by fix-it):
-   - summary: "[E2E] QA Re-verify — confirm fix"
-   - assignee: "team-qa-verifier"
-   - blocked_by: [TICKET_A_ID]
-   - description: "E2E TEST — Re-verification steps:
-1. Call SkillLoader___load_skill(skill_name=\\"qa-verification\\")
-2. Save to S3: workflows/{workflowId}/agents/team-qa-verifier/rerun-pass.md with content: QA re-verification E2E pass — fix confirmed
-3. Call WorkflowOutput___report_completion
-DO NOT create any more tickets."
-
-   TICKET C — CI Agent (blocked by QA re-verify):
-   - summary: "[E2E] CI: Final validation"
-   - assignee: "team-ci-agent"
-   - blocked_by: [TICKET_B_ID]
-   - description: "E2E TEST — CI steps:
-1. Call SkillLoader___load_skill(skill_name=\\"ci-verification\\")
-2. Save to S3: workflows/{workflowId}/agents/team-ci-agent/test-pass.md with content: CI Agent E2E pass — pipeline complete
-3. Call WorkflowOutput___report_completion"
-
-3. After creating all 3 tickets, save to S3: workflows/{workflowId}/agents/team-qa-verifier/test-pass.md — content: "QA E2E pass — created fix-it chain"
-4. Call WorkflowOutput___report_completion
-
-The blocking chain MUST be: A (no blockers) → B (blocked by A) → C (blocked by B).
-\`\`\`
-
-5. Save artifact to S3: \`workflows/{workflowId}/agents/team-requirements-analyst/test-pass.md\` with content describing tickets created
-6. Call \`WorkflowOutput___report_completion\`
+3. Save artifact to S3: \`workflows/{workflowId}/agents/team-requirements-analyst/test-pass.md\` with content "Requirements connectivity check — created 5 tickets"
+4. Call \`WorkflowOutput___report_completion\`
 
 ---
 
-## REFERENCE FLOW (proven working):
-Requirements → 3 parallel (Frontend Designer, Security Reviewer, Legal Compliance) → Frontend Dev → QA (creates fix-it + re-run + CI chain) → Complete
+## INSTRUCTIONS TO PUT IN EACH TICKET DESCRIPTION:
 
-Adapt this to whatever agents are available. The key validation points:
-- Parallel fan-out works (multiple agents unblocked simultaneously)
-- Dependency cascade works (dev waits for ALL parallel agents)
-- Dynamic ticket creation works (QA creates new tickets mid-flow)
-- Fix-it loop works (QA → Dev fix → QA re-verify → CI)
+### For Frontend Designer (Ticket 1):
+\`\`\`
+Connectivity check — Frontend Designer:
+1. Load skill \`frontend-design\`
+2. Confirm GitHub access: run \`git ls-remote https://github.com/tycenjmccann/agentcore-console\` (or any equivalent gh/git command) and capture the first few refs as proof
+3. Save to S3: workflows/{workflowId}/agents/team-frontend-designer/test-pass.md — include the ref output and "GitHub access confirmed"
+4. Call WorkflowOutput___report_completion
+Do not write code. Do not clone repos.
+\`\`\`
 
-Total expected time: ~6-12 minutes`;
+### For Security Reviewer (Ticket 2):
+\`\`\`
+Connectivity check — Security Reviewer:
+1. Load skill \`code-review\`
+2. Confirm GitHub access: run \`git ls-remote https://github.com/tycenjmccann/agentcore-console\` and capture the first few refs
+3. Save to S3: workflows/{workflowId}/agents/team-security-reviewer/test-pass.md — include the ref output and "GitHub access confirmed"
+4. Call WorkflowOutput___report_completion
+Do not write code. Do not clone repos.
+\`\`\`
+
+### For Legal Compliance (Ticket 3):
+\`\`\`
+Connectivity check — Legal Compliance:
+1. Load skill \`privacy-compliance\`
+2. Confirm GitHub access: run \`git ls-remote https://github.com/tycenjmccann/agentcore-console\` and capture the first few refs
+3. Save to S3: workflows/{workflowId}/agents/team-legal-compliance/test-pass.md — include the ref output and "GitHub access confirmed"
+4. Call WorkflowOutput___report_completion
+Do not write code. Do not clone repos.
+\`\`\`
+
+### For Frontend Dev (Ticket 4):
+\`\`\`
+Connectivity check — Frontend Dev:
+1. Load skill \`full-stack\`
+2. Confirm Claude Code is available: run a simple \`claude --version\` (or equivalent) and a one-shot ping prompt like \`claude -p "reply with the single word: pong"\` and capture both outputs
+3. Save to S3: workflows/{workflowId}/agents/team-frontend-dev/test-pass.md — include the version + ping output and "Claude Code access confirmed"
+4. Call WorkflowOutput___report_completion
+Do not write code. Do not clone repos.
+\`\`\`
+
+### For QA Verifier (Ticket 5):
+\`\`\`
+Connectivity check — QA Verifier:
+1. Load skill \`qa-verification\`
+2. Create the CI ticket using Tickets___create_ticket:
+   - summary: "CI: Agent — connectivity check"
+   - assignee: "team-ci-agent"
+   - blocked_by: [YOUR_TICKET_ID]
+   - description: |
+     Connectivity check — CI Agent:
+     1. Load skill \`ci-verification\`
+     2. Save to S3: workflows/{workflowId}/agents/team-ci-agent/test-pass.md — content: "CI connectivity check passed"
+     3. Call WorkflowOutput___report_completion
+     Do not write code. Do not clone repos.
+3. Save to S3: workflows/{workflowId}/agents/team-qa-verifier/test-pass.md — content: "QA connectivity check passed — CI ticket created"
+4. Call WorkflowOutput___report_completion
+Do not write code. Do not clone repos.
+\`\`\`
+
+---
+
+## EXPECTED FLOW:
+Requirements → Design + Security + Legal (parallel) → Dev → QA → CI → Complete`;
 

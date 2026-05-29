@@ -10,7 +10,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_requirements_analyst",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_requirements_analyst-iUpYwC25KS",
-      "tools": ["gateway", "browser", "claude_code", "S3Storage___read_object", "S3Storage___write_object", "S3Storage___list_objects", "SkillLoader___load_skill", "Tickets___create_ticket", "Tickets___transition_ticket", "Tickets___update_ticket", "Tickets___list_tickets", "Tickets___add_comment", "Tickets___search_issues", "WorkflowOutput___report_completion", "get_file_contents", "search_code"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": [],
       "keywords": ["requirements", "requirementsanalyst", "productanalyst", "prd", "analysis"]
     },
@@ -24,7 +24,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_ios_designer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_ios_designer-GOLOXGG3h7",
-      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-requirements-analyst"],
       "keywords": ["iosdesign", "iosarchitect", "uidesign", "swiftuidesign"]
     },
@@ -38,7 +38,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_backend_designer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_backend_designer-WcCbzyBZ4i",
-      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-requirements-analyst"],
       "keywords": ["backenddesign", "apidesign", "backendarchitect", "servicedesign"]
     },
@@ -52,7 +52,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_frontend_designer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_frontend_designer-0F6gH873ZO",
-      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-requirements-analyst"],
       "keywords": ["frontenddesign", "webdesign", "uidesign", "uxdesign", "webarchitect", "componentdesign", "responsivedesign"]
     },
@@ -66,7 +66,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_android_designer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_android_designer-99sWXeFskP",
-      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-requirements-analyst"],
       "keywords": ["androiddesign", "androidarchitect", "materialdesign", "composedesign"]
     },
@@ -80,7 +80,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_security_reviewer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_security_reviewer-tmoEXEHFg9",
-      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-requirements-analyst", "team-backend-designer"],
       "keywords": ["security", "securityreview", "threatmodel", "owasp"]
     },
@@ -94,7 +94,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_legal_compliance",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_legal_compliance-R3RnglAnOm",
-      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-requirements-analyst"],
       "keywords": ["legal", "compliance", "gdpr", "privacy", "legalcompliance"]
     },
@@ -108,7 +108,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_localization",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_localization-EI5eUWGmDJ",
-      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-ios-designer", "team-android-designer"],
       "keywords": ["localization", "i18n", "l10n", "translation", "locale"]
     },
@@ -122,7 +122,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_analytics_designer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_analytics_designer-nIfOVs3GEj",
-      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-requirements-analyst", "team-ios-designer", "team-backend-designer", "team-android-designer"],
       "keywords": ["analytics", "tracking", "metrics", "events", "instrumentation"]
     },
@@ -136,7 +136,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_backend_dev",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_backend_dev-UKXih09TYL",
-      "tools": ["gateway", "code_interpreter", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "create_or_update_file", "create_branch", "create_pull_request", "push_files", "list_commits"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-backend-designer", "team-security-reviewer"],
       "keywords": ["backenddev", "backenddevelop", "backendimpl", "serverdev"]
     },
@@ -150,7 +150,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_api_dev",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_api_dev-6V6nFpBL3L",
-      "tools": ["gateway", "code_interpreter", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "create_or_update_file", "create_branch", "create_pull_request", "push_files", "list_commits"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-backend-designer", "team-backend-dev"],
       "keywords": ["apidev", "apidevelop", "apiimpl", "apiengineer"]
     },
@@ -164,7 +164,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_frontend_dev",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_frontend_dev-1YoJPW6ASF",
-      "tools": ["gateway", "code_interpreter", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "create_or_update_file", "create_branch", "create_pull_request", "push_files", "list_commits"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-ios-designer", "team-android-designer"],
       "keywords": ["frontenddev", "frontenddevelop", "iosdev", "iosdevelop", "uidev", "mobiledevelop", "mobiledev", "iosengineer", "iosdeveloper", "frontenddeveloper"]
     },
@@ -178,7 +178,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_qa_verifier",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_qa_verifier-RZfbvN5e64",
-      "tools": ["gateway", "code_interpreter", "browser", "claude_code", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "Tickets___create_ticket", "Tickets___transition_ticket", "Tickets___list_tickets", "Tickets___add_comment", "get_file_contents", "search_code", "WorkflowOutput___report_completion"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-frontend-dev", "team-backend-dev", "team-api-dev"],
       "keywords": ["qa", "verification", "testing", "visualregression", "e2e"]
     },
@@ -192,7 +192,7 @@
       "evaluationsEnabled": true,
       "harnessName": "agentis_ci_agent",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_ci_agent-tSCbVuA5eb",
-      "tools": ["gateway", "claude_code", "S3Storage___read_object", "S3Storage___write_object", "Tickets___create_ticket", "Tickets___transition_ticket", "Tickets___list_tickets", "Tickets___add_comment", "get_file_contents", "create_or_update_file", "search_code", "WorkflowOutput___report_completion"],
+      "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
       "canQueryAgents": ["team-frontend-dev", "team-backend-dev", "team-api-dev"],
       "keywords": ["ci", "build", "pipeline", "validation", "cicd"]
     }

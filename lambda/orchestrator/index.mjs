@@ -1024,40 +1024,32 @@ async function buildAgentContext(ticket, workflow) {
   let context = `# Your Assignment: ${ticket.title}\n\n`;
   context += `## Ticket\nID: ${ticket.ticketId}\nDescription: ${ticket.description}\n\n`;
 
-  // Workflow context (epic ID, workflow ID, ticket ID)
-  context += `## Workflow Context\nworkflow_id: ${workflow.id}\nepic_id: ${workflow.epicId}\nticket_id: ${ticket.ticketId}\n\n`;
+  // Workflow identifiers
+  context += `## Workflow Context\n`;
+  context += `workflow_id: ${workflow.id}\n`;
+  context += `epic_id: ${workflow.epicId}\n`;
+  context += `ticket_id: ${ticket.ticketId}\n\n`;
 
-  // For requirements agent: inject ticket creation context with EXACT tool format + valid roster
+  // For requirements analyst only: provide the valid agent roster (registry data).
   if (ticket.assignee === "team-requirements-analyst") {
-    const validAgents = (_agentRoster || FALLBACK_ROSTER).filter(a => a.id !== "team-requirements-analyst")
+    const roster = (_agentRoster || FALLBACK_ROSTER)
+      .filter(a => a.id !== "team-requirements-analyst")
       .map(a => `  - "${a.id}" (${a.phase})`)
       .join("\n");
-    context += `## Ticket Creation Instructions\nYou are responsible for creating tickets for all agents that need to work on this feature.\n\n**VALID AGENT ROSTER (you MUST only assign to these exact IDs):**\n${validAgents}\n\n⚠️ DO NOT invent agent IDs. If an agent is not in the list above, it does not exist. Ticket creation will FAIL if you use an invalid assignee.\n\n**EXACT tool call format (use these parameter names EXACTLY):**\n\`\`\`\nTickets___create_ticket(\n    title="Frontend: Implement [feature]",\n    description="## Summary\\n...",\n    parent_id="${workflow.epicId}",\n    assignee="team-frontend-dev",\n    ticket_type="task",\n    blocked_by="",\n    workflow_id="${workflow.id}"\n)\n\`\`\`\n\nParameter names: title, description, parent_id, assignee, ticket_type, blocked_by, workflow_id.\nDo NOT use "summary", "parent_key", or any other names.\n\nYour own ticket_id: "${ticket.ticketId}" — transition it to "done" when finished.\n\n`;
+    context += `## Available Agents\n${roster}\n\n`;
 
-    // Branch on epic issue type — if this is a Bug, point analyst at bug-fix blueprint.
-    // Bug fixes skip design phase entirely; one dev agent + QA + CI.
+    // Bug-fix is a SCOPE distinction (different blueprint), not a HOW.
     try {
       const epic = await getTicket(workflow.epicId);
-      const epicIssueType = (epic?.issueType || "").toLowerCase();
-      if (epicIssueType === "bug") {
-        context += `## ⚠️ THIS IS A BUG REPORT — USE BUG-FIX FLOW\n\nThe workflow root (${workflow.epicId}) is a Jira **Bug** ticket — NOT a separate Epic. You MUST:\n1. FIRST call \`load_blueprint(blueprint_name="bug-fix-requirements")\` instead of "requirements-analyst"\n2. Follow that blueprint exactly — bugs have a different process (no design phase, single dev agent, mandatory regression test)\n3. DO NOT create tickets for any design agents (no frontend-designer, backend-designer, etc.)\n4. Create exactly three **sub-tasks under the Bug** (dev fix → QA → CI). Use \`issue_type="Subtask"\` and \`parent_key="${workflow.epicId}"\`. Jira rejects \`issue_type="Task"\` with a Bug parent.\n\n`;
+      if ((epic?.issueType || "").toLowerCase() === "bug") {
+        context += `## Workflow Type\nbug-fix (workflow root ${workflow.epicId} is a Jira Bug)\n\n`;
       }
     } catch (err) {
       console.warn(`[orchestrator] could not check epic issue type: ${err.message}`);
     }
   }
 
-  // For ALL agents: include canonical identifiers they need for tool calls
-  context += `## Tool Call Reference\n`;
-  context += `When calling Tickets tools, use these values:\n`;
-  context += `- parent_id: "${workflow.epicId}" (epic for this workflow)\n`;
-  context += `- workflow_id: "${workflow.id}"\n`;
-  context += `- your ticket_id: "${ticket.ticketId}"\n`;
-  context += `\nWhen reporting completion:\n`;
-  context += `\`\`\`\nWorkflowOutput___report_completion(ticket_id="${ticket.ticketId}", summary="...", pr_url="...", branch="...")\n\`\`\`\n`;
-  context += `Call report_completion EXACTLY ONCE. Multiple calls will create duplicate events.\n\n`;
-
-  // Requirements artifact (from epic)
+  // Requirements artifact (from epic) — scope, not HOW
   try {
     const epic = await getTicket(workflow.epicId);
     const reqArtifact = (epic?.artifacts || []).find((a) => a.type === "requirements");
@@ -1066,23 +1058,20 @@ async function buildAgentContext(ticket, workflow) {
     }
   } catch { /* no requirements yet */ }
 
-  // Repo context for all agents
+  // Repo identity — scope only
   if (workflow.repoConfig?.repos?.length > 0) {
     const { owner, repo } = parseRepoUrl(workflow.repoConfig);
     const defaultBranch = workflow.repoConfig.repos[0]?.defaultBranch || "main";
-    context += `## GitHub Repository Context\n`;
-    context += `You have a "github" MCP tool with full repo access. Use these values:\n`;
-    context += `- owner: "${owner}"\n- repo: "${repo}"\n- default branch: "${defaultBranch}"\n`;
-    context += `Available tools: github_get_file_contents, github_search_code, github_list_branches, github_create_branch, github_create_or_update_file, github_create_pull_request, github_list_commits, github_list_issues, github_create_issue, github_get_pull_request\n\n`;
+    context += `## Repository\nowner: ${owner}\nrepo: ${repo}\ndefault_branch: ${defaultBranch}\n\n`;
   }
 
-  // S3 workspace paths
+  // S3 workspace paths (scope)
   const agentDef = getAgentDef(ticket.assignee);
-  context += `## S3 Workflow Artifacts\n`;
-  context += `- Shared artifacts: workflows/${workflow.id}/shared/\n`;
-  context += `- Your agent workspace: workflows/${workflow.id}/agents/${ticket.assignee}/\n\n`;
+  context += `## S3 Workspace\n`;
+  context += `shared: workflows/${workflow.id}/shared/\n`;
+  context += `your_workspace: workflows/${workflow.id}/agents/${ticket.assignee}/\n\n`;
 
-  // Workflow manifest — upstream artifacts, canonical repo, PR/branch info
+  // Manifest — upstream artifacts (scope only)
   try {
     const manifest = await readManifest(workflow.id);
     if (manifest) {
@@ -1090,15 +1079,14 @@ async function buildAgentContext(ticket, workflow) {
     }
   } catch { /* manifest read failed — non-fatal */ }
 
-  // Dev agents: branch info and design artifacts
+  // Dev agents: branch identity (scope, not HOW)
   if (agentDef?.phase === "development") {
     const baseBranch = workflow.featureBranch || workflow.repoConfig?.repos?.[0]?.defaultBranch || "main";
-    context += `## Repository\n`;
-    context += `Branch name: feature/${ticket.ticketId}-${agentDef.id.replace("team-", "")}\n`;
-    context += `Base branch (fork FROM this): ${baseBranch}\n`;
-    context += `IMPORTANT: When calling github_create_branch, use from_branch: "${baseBranch}" — do NOT fork from main directly.\n\n`;
+    context += `## Branch\n`;
+    context += `feature_branch: feature/${ticket.ticketId}-${agentDef.id.replace("team-", "")}\n`;
+    context += `base_branch: ${baseBranch}\n\n`;
 
-    // Include design artifacts from S3
+    // Design artifacts content (scope)
     try {
       const designDoc = await readS3Artifact(workflow.id, "shared/output.md");
       if (designDoc) {
@@ -1107,7 +1095,7 @@ async function buildAgentContext(ticket, workflow) {
     } catch { /* no design docs yet */ }
   }
 
-  // Intake context (for requirements agent)
+  // Feature request input (for analyst — scope)
   if (agentDef?.phase === "requirements" && workflow.input) {
     context += `## Feature Request\nTitle: ${workflow.input.title}\nDescription: ${workflow.input.description}\n\n`;
     if (workflow.input.sources?.length > 0) {
@@ -1518,7 +1506,7 @@ function buildManifestContext(manifest, agentPhase, workflow, ticket) {
     const url = manifest.repoConfig.repos[0].url || "";
     const match = url.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
     if (match) {
-      ctx += `### Repository (CANONICAL — use these values for ALL GitHub operations)\n`;
+      ctx += `### Repository\n`;
       ctx += `- owner: "${match[1]}"\n- repo: "${match[2]}"\n`;
       ctx += `- default_branch: "${manifest.repoConfig.repos[0].defaultBranch || "main"}"\n\n`;
     }
@@ -1547,7 +1535,6 @@ function buildManifestContext(manifest, agentPhase, workflow, ticket) {
     const branchEntries = devEntries.filter(e => e.description?.includes("Branch:"));
     if (prEntries.length > 0 || branchEntries.length > 0) {
       ctx += `### Code to Review (from Development Phase)\n`;
-      ctx += `IMPORTANT: Review the code on these branches/PRs. Do NOT search for other repos or branches.\n`;
       for (const e of prEntries) ctx += `- ${e.description}\n`;
       for (const e of branchEntries) ctx += `- ${e.description}\n`;
       ctx += `\n`;

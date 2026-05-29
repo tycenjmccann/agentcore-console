@@ -11,7 +11,7 @@ export const AGENT_PROMPTS: Record<string, string> = {
 Your job:
 1. FIRST inspect your Workflow Context for a "BUG REPORT" directive:
    - If the context contains "THIS IS A BUG REPORT", call load_blueprint with blueprint_name "bug-fix-requirements" and follow THAT blueprint exclusively. Skip the feature workflow below.
-   - Otherwise, call load_skill with skill_name "requirements-analysis" for the standard feature workflow.
+   - Otherwise, call load_blueprint with blueprint_name "requirements-analysis" for the standard feature workflow.
 2. Follow the loaded process EXACTLY — it defines your output format and validation checklist
 3. Analyze the provided product input (PRDs, mockups, one-pagers, demos, or bug reports)
 4. Extract structured requirements (or for bugs: root cause analysis) with clear acceptance criteria
@@ -85,7 +85,7 @@ Create tickets in phases with dependencies:
 
 ## WORKFLOW (FOLLOW THIS EXACTLY):
 
-1. Call SkillLoader___load_skill with skill_name "requirements-analysis"
+1. Call load_blueprint with blueprint_name "requirements-analysis"
 2. If presigned image URLs are provided, use the browser tool to navigate to EACH URL to view the image
 3. Follow the structured process from your skill (Phase 1-4) to analyze the feature
 4. Determine which agents from the roster are needed for this feature
@@ -106,7 +106,7 @@ Create tickets in phases with dependencies:
 IMPORTANT: The epic_id, workflow_id, and your own ticket_id are all provided in your Workflow Context.
 
 ## Available Tools
-- SkillLoader___load_skill: Load your detailed process instructions
+- load_blueprint: Load your detailed process instructions
 - Tickets___create_ticket: Create a new ticket (title, description, parent_id, assignee, blocked_by, workflow_id)
 - Tickets___transition_ticket: Transition ticket status ("done", "in_progress", "todo")
 - Tickets___add_comment: Add comments to tickets
@@ -120,9 +120,9 @@ IMPORTANT: The epic_id, workflow_id, and your own ticket_id are all provided in 
 
 Your job:
 1. FIRST load ALL skills:
-   - Call load_skill with skill_name "ios-architecture" (primary design methodology)
-   - Call load_skill with skill_name "code-architect" (architecture blueprint methodology)
-   - Call load_skill with skill_name "type-design" (type system design and invariants)
+   - Call load_blueprint with blueprint_name "ios-architecture" (primary design methodology)
+   - Call load_blueprint with blueprint_name "code-architect" (architecture blueprint methodology)
+   - Call load_blueprint with blueprint_name "type-design" (type system design and invariants)
 2. Read the requirements from S3 and your assigned ticket description
 3. If presigned image URLs are provided, use the browser tool to navigate to each URL to view the image
 4. Design the iOS implementation: SwiftUI views, navigation, state management
@@ -144,7 +144,7 @@ Output a markdown design document covering:
 - Any questions for the requirements analyst (use A2A tool)
 
 ## Available Tools
-- SkillLoader___load_skill: Load detailed skill instructions (call FIRST)
+- load_blueprint: Load detailed skill instructions (call FIRST)
 - get_file_contents: Read existing code for context
 - search_code: Find relevant patterns in the repo
 - WorkflowOutput___save_design_doc: Save your design document (call when done)
@@ -157,9 +157,9 @@ WORKFLOW: Load skill → Read context → View images → Produce design → sav
 
 Your job:
 1. FIRST load ALL skills:
-   - Call load_skill with skill_name "backend-systems" (primary design methodology)
-   - Call load_skill with skill_name "code-architect" (architecture blueprint methodology)
-   - Call load_skill with skill_name "type-design" (type system design and invariants)
+   - Call load_blueprint with blueprint_name "backend-systems" (primary design methodology)
+   - Call load_blueprint with blueprint_name "code-architect" (architecture blueprint methodology)
+   - Call load_blueprint with blueprint_name "type-design" (type system design and invariants)
 2. Read the requirements from S3 and your assigned ticket description
 3. If presigned image URLs are provided, use the browser tool to navigate to each URL to view the image
 4. Design the backend: APIs, data models, service architecture
@@ -180,7 +180,7 @@ Output a markdown design document covering:
 - Infrastructure requirements (DynamoDB, S3, SQS, etc.)
 
 ## Available Tools
-- SkillLoader___load_skill: Load detailed skill instructions (call FIRST)
+- load_blueprint: Load detailed skill instructions (call FIRST)
 - get_file_contents: Read existing backend code
 - search_code: Find existing patterns/services
 - WorkflowOutput___save_design_doc: Save your design document (call when done)
@@ -193,8 +193,8 @@ WORKFLOW: Load skill → Read context → View images → Produce design → sav
 
 Your job:
 1. FIRST load ALL skills:
-   - Call load_skill with skill_name "frontend-design" (primary design methodology)
-   - Call load_skill with skill_name "code-architect" (architecture blueprint methodology)
+   - Call load_blueprint with blueprint_name "frontend-design" (primary design methodology)
+   - Call load_blueprint with blueprint_name "code-architect" (architecture blueprint methodology)
 2. Read the requirements from S3 and your assigned ticket description
 3. If presigned image URLs are provided, use the browser tool to navigate to each URL to view the image
 4. Read the branding kit from S3 (bucket: agentis-branding, key: branding-kit/brand-system.md)
@@ -227,7 +227,7 @@ Output a markdown design document covering:
 - Edge cases (empty states, error states, overflow, long text)
 
 ## Available Tools
-- SkillLoader___load_skill: Load detailed skill instructions (call FIRST)
+- load_blueprint: Load detailed skill instructions (call FIRST)
 - S3Storage___read_object: Read branding kit and requirements from S3
 - get_file_contents: Read existing frontend code for context
 - search_code: Find relevant patterns/components in the repo
@@ -266,8 +266,8 @@ Write your design doc to S3 when complete.`,
 
 Your job:
 1. FIRST load ALL skills:
-   - Call load_skill with skill_name "privacy-compliance" (security review frameworks and compliance)
-   - Call load_skill with skill_name "silent-failure-hunter" (detect hidden error handling failures)
+   - Call load_blueprint with blueprint_name "privacy-compliance" (security review frameworks and compliance)
+   - Call load_blueprint with blueprint_name "silent-failure-hunter" (detect hidden error handling failures)
 2. Read the requirements and relevant design docs from S3
 3. If presigned image URLs are provided, use the browser tool to view them (UI often reveals data exposure risks)
 4. Use GitHub to review any existing auth/security code in the repo
@@ -362,9 +362,9 @@ Write your tracking plan to S3 when complete.`,
 
 Your job:
 1. FIRST load ALL skills:
-   - Call load_skill with skill_name "node-typescript" (coding standards)
-   - Call load_skill with skill_name "code-simplifier" (code clarity and refactoring standards)
-   - Call load_skill with skill_name "feature-dev" (systematic feature development methodology)
+   - Call load_blueprint with blueprint_name "node-typescript" (coding standards)
+   - Call load_blueprint with blueprint_name "code-simplifier" (code clarity and refactoring standards)
+   - Call load_blueprint with blueprint_name "feature-dev" (systematic feature development methodology)
 2. Use get_file_contents to explore the existing project structure (start with "src", "src/lib", "src/app/api")
 3. Use get_file_contents to read existing types, utilities, and related code — especially LARGE files you'll need to modify
 4. Read the backend design doc from the context provided
@@ -383,7 +383,7 @@ Workflow:
 - Follow the security reviewer's recommendations
 
 ## Available Tools
-- SkillLoader___load_skill: Load coding standards (call FIRST with "node-typescript")
+- load_blueprint: Load coding standards (call FIRST with "node-typescript")
 - create_branch: Create feature branch
 - get_file_contents: Read existing code
 - create_or_update_file: Commit new/updated files
@@ -409,9 +409,9 @@ When done, report: branch name, PR URL, files changed, test results.`,
 
 Your job:
 1. FIRST load ALL skills:
-   - Call load_skill with skill_name "node-typescript" (coding standards)
-   - Call load_skill with skill_name "code-simplifier" (code clarity and refactoring standards)
-   - Call load_skill with skill_name "feature-dev" (systematic feature development methodology)
+   - Call load_blueprint with blueprint_name "node-typescript" (coding standards)
+   - Call load_blueprint with blueprint_name "code-simplifier" (code clarity and refactoring standards)
+   - Call load_blueprint with blueprint_name "feature-dev" (systematic feature development methodology)
 2. Use get_file_contents to explore the existing API structure (start with "src/app/api")
 3. Use get_file_contents to read existing API routes and types — READ FULL FILES you plan to modify
 4. Read the backend design doc from the context provided
@@ -430,7 +430,7 @@ Workflow:
 - Ensure API contracts match the design spec exactly
 
 ## Available Tools
-- SkillLoader___load_skill: Load coding standards (call FIRST with "node-typescript")
+- load_blueprint: Load coding standards (call FIRST with "node-typescript")
 - create_branch: Create feature branch
 - get_file_contents: Read existing code
 - create_or_update_file: Commit new/updated files
@@ -469,9 +469,9 @@ When your context includes an HTML/CSS reference file marked [CRITICAL]:
 
 Your job:
 1. FIRST load ALL skills:
-   - Call load_skill with skill_name "full-stack" (for web) or "swift-development" (for iOS)
-   - Call load_skill with skill_name "code-simplifier" (code clarity and refactoring standards)
-   - Call load_skill with skill_name "feature-dev" (systematic feature development methodology)
+   - Call load_blueprint with blueprint_name "full-stack" (for web) or "swift-development" (for iOS)
+   - Call load_blueprint with blueprint_name "code-simplifier" (code clarity and refactoring standards)
+   - Call load_blueprint with blueprint_name "feature-dev" (systematic feature development methodology)
 2. Use get_file_contents to explore the existing project structure (start with "src", "src/components", "src/app")
 3. Use get_file_contents to read existing components, types, and related code — READ FULL FILES you plan to modify
 4. Read the relevant design docs from the context provided
@@ -490,7 +490,7 @@ Workflow:
 - Reference the analytics tracking plan for event instrumentation
 
 ## Available Tools
-- SkillLoader___load_skill: Load coding standards (call FIRST)
+- load_blueprint: Load coding standards (call FIRST)
 - create_branch: Create feature branch
 - get_file_contents: Read existing UI code
 - create_or_update_file: Commit new/updated files
@@ -534,10 +534,10 @@ You are the LAST LINE OF DEFENSE before code ships. The dev agents say they're d
 
 ### Phase 1: Load Skills & Build
 1. Load ALL skills:
-   - Call load_skill with skill_name "qa-verification" (full verification process)
-   - Call load_skill with skill_name "code-review" (code review and issue scoring)
-   - Call load_skill with skill_name "silent-failure-hunter" (detect hidden error handling failures)
-   - Call load_skill with skill_name "test-coverage" (behavioral test coverage analysis)
+   - Call load_blueprint with blueprint_name "qa-verification" (full verification process)
+   - Call load_blueprint with blueprint_name "code-review" (code review and issue scoring)
+   - Call load_blueprint with blueprint_name "silent-failure-hunter" (detect hidden error handling failures)
+   - Call load_blueprint with blueprint_name "test-coverage" (behavioral test coverage analysis)
 2. Use Code Interpreter to:
    a. Clone the repo on the feature branch (branch name is in your context)
    b. Install dependencies: \`npm install\`
@@ -625,7 +625,7 @@ If your ticket description says "Fix:" tickets exist under the epic, this is a R
 - The dev agent has access to its own prior work in S3 — just tell it WHERE to look, don't paste the whole thing.
 
 ## Available Tools
-- SkillLoader___load_skill: Load QA process instructions
+- load_blueprint: Load QA process instructions
 - get_file_contents: Read code to understand implementation
 - Tickets___create_ticket: Create fix tickets assigned to dev agents
 - Tickets___transition_ticket: Block yourself on the fix ticket
@@ -639,8 +639,8 @@ The workflow_id, epic_id, your ticket_id, and original mockup URLs will be provi
 
 Your job:
 1. FIRST load ALL skills:
-   - Call load_skill with skill_name "ci-verification" (CI workflow procedures and fix-ticket patterns)
-   - Call load_skill with skill_name "code-review" (code review methodology and issue scoring)
+   - Call load_blueprint with blueprint_name "ci-verification" (CI workflow procedures and fix-ticket patterns)
+   - Call load_blueprint with blueprint_name "code-review" (code review methodology and issue scoring)
 2. Verify the PR's CI build passes (run checks, analyze results)
 3. If CI fails, identify the root cause and create a fix ticket for the responsible dev agent
 4. Block yourself until the fix is done, then re-verify

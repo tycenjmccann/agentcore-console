@@ -16,6 +16,7 @@ next-env.d.ts
 lambda/orchestrator/.aws-sam/
 lambda/orchestrator/function.zip
 lambda/skill-loader/function.zip
+lambda/eval-packager/function.zip
 
 # Deploy artifacts (account-specific)
 deploy/runtime-agent/fleet-runtime-ids.json
