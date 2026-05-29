@@ -17,7 +17,7 @@ import {
   GetCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { gunzipSync } from 'zlib';
 
 // ─── Clients ────────────────────────────────────────────────────────────────
@@ -31,27 +31,51 @@ const s3 = new S3Client({});
 const TABLE = process.env.EVAL_CONFIG_TABLE || 'agentis-eval-config';
 const BUCKET = process.env.ARTIFACTS_BUCKET || 'agentis-artifacts-838829463875-us-east-1';
 const S3_PREFIX = 'fleet-imp-agent/prd';
+const AGENTS_CONFIG_KEY = 'config/agents.json';
+
+// ─── Agent ID Resolution (loaded from S3, cached for warm starts) ───────────
+let harnessToIdMap = null;
 
 /**
- * Map from CW log group config identifier to agentId.
- * This mirrors the existing routing used elsewhere in the system.
+ * Load agents.json from S3 and build a harnessName → canonical id lookup map.
+ * Cached in module-level variable for Lambda warm starts.
  */
-const CONFIG_TO_AGENT = {
-  'agentis_requirements_analyst': 'agentis_requirements_analyst',
-  'agentis_frontend_designer': 'agentis_frontend_designer',
-  'agentis_ios_designer': 'agentis_ios_designer',
-  'agentis_backend_designer': 'agentis_backend_designer',
-  'agentis_android_designer': 'agentis_android_designer',
-  'agentis_security_reviewer': 'agentis_security_reviewer',
-  'agentis_legal_compliance': 'agentis_legal_compliance',
-  'agentis_localization': 'agentis_localization',
-  'agentis_analytics_designer': 'agentis_analytics_designer',
-  'agentis_backend_dev': 'agentis_backend_dev',
-  'agentis_api_dev': 'agentis_api_dev',
-  'agentis_frontend_dev': 'agentis_frontend_dev',
-  'agentis_qa_verifier': 'agentis_qa_verifier',
-  'agentis_ci_agent': 'agentis_ci_agent',
-};
+async function loadAgentMap() {
+  if (harnessToIdMap) return harnessToIdMap;
+
+  console.log('[eval-packager] Loading agents.json from S3...');
+  const response = await s3.send(
+    new GetObjectCommand({
+      Bucket: BUCKET,
+      Key: AGENTS_CONFIG_KEY,
+    })
+  );
+
+  const body = await response.Body.transformToString();
+  const config = JSON.parse(body);
+
+  harnessToIdMap = new Map();
+  for (const agent of config.agents) {
+    if (agent.harnessName && agent.id) {
+      harnessToIdMap.set(agent.harnessName, agent.id);
+    }
+  }
+
+  console.log(`[eval-packager] Loaded ${harnessToIdMap.size} agent mappings from agents.json`);
+  return harnessToIdMap;
+}
+
+/**
+ * Extract harness name from a CW Logs logGroup.
+ * Expected format: /aws/bedrock-agentcore/evaluations/results/eval_<harnessName>
+ * Returns the substring after the last 'eval_' prefix.
+ */
+function extractHarnessName(logGroup) {
+  const prefix = 'eval_';
+  const idx = logGroup.lastIndexOf(prefix);
+  if (idx === -1) return null;
+  return logGroup.substring(idx + prefix.length);
+}
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 export const handler = async (event) => {
@@ -60,14 +84,22 @@ export const handler = async (event) => {
   const parsed = JSON.parse(gunzipSync(payload).toString());
   const logGroup = parsed.logGroup || '';
 
-  // 1. Resolve agentId from the log group
-  const configKey = Object.keys(CONFIG_TO_AGENT).find((k) => logGroup.includes(k));
-  if (!configKey) {
-    console.log('[eval-packager] No matching agent for log group:', logGroup);
+  // 1. Load agent map and resolve agentId from the log group
+  const agentMap = await loadAgentMap();
+  const harnessName = extractHarnessName(logGroup);
+
+  if (!harnessName) {
+    console.log('[eval-packager] Could not extract harness name from log group:', logGroup);
     return { statusCode: 200, body: 'no-match' };
   }
-  const agentId = CONFIG_TO_AGENT[configKey];
-  console.log(`[eval-packager] Processing event for agent: ${agentId}`);
+
+  const agentId = agentMap.get(harnessName);
+  if (!agentId) {
+    console.log(`[eval-packager] No matching agent for harness name: ${harnessName}`);
+    return { statusCode: 200, body: 'no-match' };
+  }
+
+  console.log(`[eval-packager] Processing event for agent: ${agentId} (harness: ${harnessName})`);
 
   // 2. Read agent config from DynamoDB
   const config = await getAgentConfig(agentId);
@@ -89,7 +121,7 @@ export const handler = async (event) => {
     return { statusCode: 200, body: 'sampled-out' };
   }
 
-  // Extract session data from log events
+  // Extract session data from log events (enriched with parsed evaluator results)
   const sessionData = extractSessionData(parsed);
 
   // 5. Atomic append to sessionBuffer with size guard
@@ -121,18 +153,40 @@ async function getAgentConfig(agentId) {
 
 /**
  * Extract session data from parsed CW Logs event.
+ * Parses each logEvent.message as JSON to extract evaluator scores,
+ * evaluator name, and evidence. Stores parsed results (not raw event metadata)
+ * so the improver agent can synthesize actionable insights from batch payloads.
  */
 function extractSessionData(parsed) {
   const logEvents = parsed.logEvents || [];
+  const sessionBuffer = [];
+
+  for (const event of logEvents) {
+    try {
+      const parsedMessage = JSON.parse(event.message);
+      sessionBuffer.push({
+        timestamp: event.timestamp,
+        evaluatorName: parsedMessage.evaluatorName || parsedMessage.name || null,
+        score: parsedMessage.score ?? parsedMessage.evaluatorScore ?? null,
+        evidence: parsedMessage.evidence || parsedMessage.reasoning || null,
+        metadata: parsedMessage.metadata || null,
+        result: parsedMessage.result || null,
+      });
+    } catch {
+      // If message is not valid JSON, include it as raw text with a flag
+      sessionBuffer.push({
+        timestamp: event.timestamp,
+        rawMessage: event.message,
+        parseError: true,
+      });
+    }
+  }
+
   return {
     logGroup: parsed.logGroup,
     logStream: parsed.logStream,
     timestamp: new Date().toISOString(),
-    events: logEvents.map((e) => ({
-      id: e.id,
-      timestamp: e.timestamp,
-      message: e.message,
-    })),
+    evaluatorResults: sessionBuffer,
   };
 }
 

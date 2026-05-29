@@ -3,6 +3,8 @@
 # Creates the agentis-eval-config DynamoDB table and seeds all fleet agents.
 # Idempotent: skips agents that already have a config row.
 #
+# Agent IDs are sourced from src/config/agents.json (canonical source of truth).
+#
 # Usage: ./deploy-all.sh [--region us-east-1]
 
 set -euo pipefail
@@ -13,7 +15,8 @@ set -euo pipefail
 TABLE_NAME="agentis-eval-config"
 REGION="${AWS_REGION:-us-east-1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FLEET_IDS_FILE="${SCRIPT_DIR}/../runtime-agent/fleet-runtime-ids.json"
+REPO_ROOT="${SCRIPT_DIR}/../.."
+FLEET_IDS_FILE="${REPO_ROOT}/src/config/agents.json"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -62,12 +65,12 @@ echo ""
 echo "=== Step 2: Seed agent eval configs ==="
 
 if [[ ! -f "${FLEET_IDS_FILE}" ]]; then
-  echo "[deploy-all] ERROR: Fleet IDs file not found at ${FLEET_IDS_FILE}"
+  echo "[deploy-all] ERROR: Agents config file not found at ${FLEET_IDS_FILE}"
   exit 1
 fi
 
-# Read agent IDs from the JSON file (keys)
-AGENT_IDS=$(jq -r 'keys[]' "${FLEET_IDS_FILE}")
+# Read canonical agent IDs from agents.json
+AGENT_IDS=$(jq -r '.agents[].id' "${FLEET_IDS_FILE}")
 NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SEEDED=0
 SKIPPED=0
