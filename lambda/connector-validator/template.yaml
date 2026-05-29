@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Connector Validation Service — On-demand and scheduled connector health validation
+  with circuit breaker pattern and EventBridge integration.
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    MemorySize: 256
+    Tracing: Active
+    Environment:
+      Variables:
+        AWS_REGION_OVERRIDE: !Ref AWS::Region
+        CONNECTORS_TABLE: !GetAtt ConnectorsTable.Arn
+        VALIDATIONS_TABLE: !GetAtt ConnectorValidationsTable.Arn
+        TICKETS_TABLE: !Ref TicketsTableName
+        WORKFLOWS_TABLE: !Ref WorkflowsTableName
+        EVENT_BUS: !Ref EventBus
+
+Parameters:
+  TicketsTableName:
+    Type: String
+    Default: agentis-tickets
+    Description: Existing DynamoDB table for tickets
+
+  WorkflowsTableName:
+    Type: String
+    Default: agentis-workflows
+    Description: Existing DynamoDB table for workflow metadata
+
+  EventBus:
+    Type: String
+    Default: default
+    Description: EventBridge bus name for publishing connector validation events
+
+Resources:
+  # ─── DynamoDB Tables ───────────────────────────────────────────────────────────
+
+  ConnectorsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: agentis-connectors
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: connectorId
+          AttributeType: S
+        - AttributeName: workspaceId
+          AttributeType: S
+        - AttributeName: connectorType
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connectorId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: workspace-type-index
+          KeySchema:
+            - AttributeName: workspaceId
+              KeyType: HASH
+            - AttributeName: connectorType
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: type-status-index
+          KeySchema:
+            - AttributeName: connectorType
+              KeyType: HASH
+            - AttributeName: status
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  ConnectorValidationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: agentis-connector-validations
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: connectorId
+          AttributeType: S
+        - AttributeName: validatedAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connectorId
+          KeyType: HASH
+        - AttributeName: validatedAt
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ─── Connector Validator Lambda ────────────────────────────────────────────────
+
+  ConnectorValidatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentis-connector-validator
+      Handler: index.handler
+      CodeUri: .
+      Timeout: 30
+      MemorySize: 256
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectorsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectorValidationsTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:agentcore/connectors/*"
+
+  # ─── Connector Preflight Lambda ────────────────────────────────────────────────
+
+  ConnectorPreflightFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentis-connector-preflight
+      Handler: index.handler
+      CodeUri: ../connector-preflight
+      Timeout: 15
+      MemorySize: 256
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectorsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectorValidationsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref WorkflowsTableName
+        - DynamoDBStreamReadPolicy:
+            TableName: !Ref WorkflowsTableName
+            StreamName: "*"
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:agentcore/connectors/*"
+      Events:
+        DynamoDBStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${WorkflowsTableName}/stream/*"
+            StartingPosition: LATEST
+            BatchSize: 5
+            MaximumBatchingWindowInSeconds: 0
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["INSERT"],"dynamodb":{"NewImage":{"status":{"S":["PENDING"]}}}}'
+
+  # ─── Scheduled Validation (EventBridge Rule) ──────────────────────────────────
+
+  ScheduledValidationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: agentis-connector-scheduled-validation
+      Description: Trigger connector validation every 5 minutes
+      ScheduleExpression: "rate(5 minutes)"
+      State: ENABLED
+      Targets:
+        - Id: ConnectorValidatorTarget
+          Arn: !GetAtt ConnectorValidatorFunction.Arn
+          Input: '{"source":"scheduled","action":"validateAll"}'
+
+  ScheduledValidationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ConnectorValidatorFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScheduledValidationRule.Arn
+
+Outputs:
+  ConnectorValidatorFunctionArn:
+    Description: Connector Validator Lambda ARN
+    Value: !GetAtt ConnectorValidatorFunction.Arn
+
+  ConnectorPreflightFunctionArn:
+    Description: Connector Preflight Lambda ARN
+    Value: !GetAtt ConnectorPreflightFunction.Arn
+
+  ConnectorsTableArn:
+    Description: Connectors DynamoDB Table ARN
+    Value: !GetAtt ConnectorsTable.Arn
+
+  ConnectorValidationsTableArn:
+    Description: Connector Validations DynamoDB Table ARN
+    Value: !GetAtt ConnectorValidationsTable.Arn
