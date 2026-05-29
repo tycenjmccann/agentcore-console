@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Search, Plus, Play, Radio, Zap, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Plus, Play, Radio, Zap, ChevronLeft, ChevronRight, FlaskConical } from "lucide-react";
 import WorkflowBoard from "@/components/workflow/WorkflowBoard";
 import IntakeForm from "@/components/workflow/IntakeForm";
 import type { WorkflowState, WorkflowInput } from "@/lib/workflow/types";
@@ -137,6 +137,37 @@ export default function WorkflowPage() {
     window.history.pushState({}, "", "/workflow");
   };
 
+  const handleTestWorkflow = async () => {
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("/api/workflow/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "[E2E-TEST] System Validation — DAG + Roster",
+          description: E2E_TEST_DESCRIPTION,
+          sources: [],
+          repoConfig: {
+            repos: [{ url: "https://github.com/tycenjmccann/agentcore-console", defaultBranch: "clean-main" }],
+          },
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to start test workflow");
+      const data = await res.json();
+      const newId = data.workflowId || data.id;
+      if (newId) {
+        setSelectedId(newId);
+        setShowIntake(false);
+        window.history.pushState({}, "", `/workflow?id=${newId}`);
+        setTimeout(fetchWorkflows, 1000);
+      }
+    } catch (err) {
+      console.error("Failed to start test workflow:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleNudge = async (id: string) => {
     try {
       const res = await fetch(`/api/workflow/${id}/nudge`, { method: "POST" });
@@ -265,12 +296,22 @@ export default function WorkflowPage() {
             <p className="text-sm text-[var(--color-text-muted)] max-w-md mb-4">
               Choose a past run from the sidebar to view its pipeline state, or create a new workflow to watch agents work in real-time.
             </p>
-            <button
-              onClick={handleNewWorkflow}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-500 transition-colors"
-            >
-              New Workflow
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleNewWorkflow}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-500 transition-colors"
+              >
+                New Workflow
+              </button>
+              <button
+                onClick={handleTestWorkflow}
+                disabled={isSubmitting}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-600/80 text-white text-sm font-medium rounded-lg hover:bg-amber-500 transition-colors disabled:opacity-50"
+              >
+                <FlaskConical className="w-4 h-4" />
+                Test Workflow
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -388,3 +429,104 @@ function formatRelativeTime(isoString: string): string {
   if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
   return new Date(isoString).toLocaleDateString();
 }
+
+// ─── E2E Test Workflow Description ─────────────────────────────────────────
+
+const E2E_TEST_DESCRIPTION = `## E2E SYSTEM VALIDATION — ORCHESTRATOR PIPELINE TEST
+
+**THIS IS AN AUTOMATED TEST. DO NOT WRITE ANY REAL CODE.**
+
+The purpose of this test is to validate the orchestrator's ticket tracking, phase transitions, and dependency cascade. Each agent exercises its real toolchain (skill loading, S3 artifacts, ticket creation, completion reporting) without writing application code.
+
+---
+
+## REQUIREMENTS AGENT — YOUR STEPS:
+
+You are the first agent. Your job is to validate the system by creating a ticket DAG that exercises the pipeline.
+
+1. Call \`SkillLoader___load_skill(skill_name="requirements-analysis")\` to load your blueprint
+2. Use \`Tickets___list_tickets\` or your knowledge of the team roster to determine which agents are available
+3. Create tickets that form a meaningful DAG:
+   - At least 2-3 design/review agents in PARALLEL (blocked only by your ticket)
+   - At least 1 dev agent blocked by ALL the parallel agents
+   - 1 QA agent blocked by the dev agent — QA MUST create a fix-it loop (see below)
+4. In EACH ticket description, include these EXACT instructions for that agent:
+
+### For parallel agents (design/review/compliance):
+\`\`\`
+E2E TEST — Your steps:
+1. Call SkillLoader___load_skill(skill_name="<your-relevant-skill>") to load blueprint
+2. Save to S3: workflows/{workflowId}/agents/<your-team-id>/test-pass.md — content: "<Your Name> E2E pass — blueprint loaded, phase validated"
+3. Call WorkflowOutput___report_completion
+DO NOT write code. DO NOT clone repos. Just follow these 3 steps.
+\`\`\`
+
+### For dev agent:
+\`\`\`
+E2E TEST — Dev steps:
+1. Call SkillLoader___load_skill(skill_name="full-stack") to load blueprint
+2. Save to S3: workflows/{workflowId}/agents/<your-team-id>/test-pass.md — content: "<Your Name> E2E pass — dev phase validated"
+3. Call WorkflowOutput___report_completion
+DO NOT write code. Just follow these steps.
+NOTE: You may be invoked again for a "fix-it" ticket from QA. Same steps — save artifact with "fix-it pass" and complete.
+\`\`\`
+
+### For QA agent — CRITICAL (must create fix-it loop):
+\`\`\`
+E2E TEST — QA steps — READ CAREFULLY:
+
+You must create THREE tickets before completing. This tests the full QA fix-it loop.
+
+1. Call SkillLoader___load_skill(skill_name="qa-verification") to load blueprint
+2. Create THREE tickets in this EXACT order using Tickets___create_ticket:
+
+   TICKET A — Fix-it for Dev (no blockers, invoked immediately):
+   - summary: "[E2E] Fix-it: <Dev Agent> — QA found simulated issue"
+   - assignee: "<dev-team-id>"
+   - blocked_by: [] (empty — no blockers)
+   - description: "E2E TEST — Fix-it steps:
+1. Call SkillLoader___load_skill(skill_name=\\"full-stack\\")
+2. Save to S3: workflows/{workflowId}/agents/<dev-team-id>/fix-it-pass.md with content: Fix-it E2E pass — issue resolved
+3. Call WorkflowOutput___report_completion"
+
+   TICKET B — QA Re-verification (blocked by fix-it):
+   - summary: "[E2E] QA Re-verify — confirm fix"
+   - assignee: "team-qa-verifier"
+   - blocked_by: [TICKET_A_ID]
+   - description: "E2E TEST — Re-verification steps:
+1. Call SkillLoader___load_skill(skill_name=\\"qa-verification\\")
+2. Save to S3: workflows/{workflowId}/agents/team-qa-verifier/rerun-pass.md with content: QA re-verification E2E pass — fix confirmed
+3. Call WorkflowOutput___report_completion
+DO NOT create any more tickets."
+
+   TICKET C — CI Agent (blocked by QA re-verify):
+   - summary: "[E2E] CI: Final validation"
+   - assignee: "team-ci-agent"
+   - blocked_by: [TICKET_B_ID]
+   - description: "E2E TEST — CI steps:
+1. Call SkillLoader___load_skill(skill_name=\\"ci-verification\\")
+2. Save to S3: workflows/{workflowId}/agents/team-ci-agent/test-pass.md with content: CI Agent E2E pass — pipeline complete
+3. Call WorkflowOutput___report_completion"
+
+3. After creating all 3 tickets, save to S3: workflows/{workflowId}/agents/team-qa-verifier/test-pass.md — content: "QA E2E pass — created fix-it chain"
+4. Call WorkflowOutput___report_completion
+
+The blocking chain MUST be: A (no blockers) → B (blocked by A) → C (blocked by B).
+\`\`\`
+
+5. Save artifact to S3: \`workflows/{workflowId}/agents/team-requirements-analyst/test-pass.md\` with content describing tickets created
+6. Call \`WorkflowOutput___report_completion\`
+
+---
+
+## REFERENCE FLOW (proven working):
+Requirements → 3 parallel (Frontend Designer, Security Reviewer, Legal Compliance) → Frontend Dev → QA (creates fix-it + re-run + CI chain) → Complete
+
+Adapt this to whatever agents are available. The key validation points:
+- Parallel fan-out works (multiple agents unblocked simultaneously)
+- Dependency cascade works (dev waits for ALL parallel agents)
+- Dynamic ticket creation works (QA creates new tickets mid-flow)
+- Fix-it loop works (QA → Dev fix → QA re-verify → CI)
+
+Total expected time: ~6-12 minutes`;
+

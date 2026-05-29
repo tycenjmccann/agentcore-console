@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { fetchAgentTokens, cwLogsRequest, type AgentTokenResult } from "./fetch-tokens";
+import agentsConfig from "@/config/agents.json";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,23 +26,19 @@ function normalizeEvaluatorName(raw: string): string {
   return raw;
 }
 
-// Agent fleet: eval config name → display name → runtime log group
-const AGENTS: Record<string, { name: string; runtimeLogGroup: string }> = {
-  "eval_agentis_analytics_designer": { name: "Analytics Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_analytics_designer-nIfOVs3GEj-DEFAULT" },
-  "eval_agentis_android_designer": { name: "Android Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_android_designer-99sWXeFskP-DEFAULT" },
-  "eval_agentis_api_dev": { name: "API Developer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_api_dev-6V6nFpBL3L-DEFAULT" },
-  "eval_agentis_backend_designer": { name: "Backend Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_backend_designer-WcCbzyBZ4i-DEFAULT" },
-  "eval_agentis_backend_dev": { name: "Backend Developer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_backend_dev-UKXih09TYL-DEFAULT" },
-  "eval_agentis_ci_agent": { name: "CI Agent", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_ci_agent-tSCbVuA5eb-DEFAULT" },
-  "eval_agentis_frontend_designer": { name: "Frontend Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_frontend_designer-0F6gH873ZO-DEFAULT" },
-  "eval_agentis_frontend_dev": { name: "Frontend Developer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_frontend_dev-1YoJPW6ASF-DEFAULT" },
-  "eval_agentis_ios_designer": { name: "iOS Designer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_ios_designer-GOLOXGG3h7-DEFAULT" },
-  "eval_agentis_legal_compliance": { name: "Legal & Compliance", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_legal_compliance-R3RnglAnOm-DEFAULT" },
-  "eval_agentis_localization": { name: "Localization", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_localization-EI5eUWGmDJ-DEFAULT" },
-  "eval_agentis_qa_verifier": { name: "QA Verifier", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_qa_verifier-RZfbvN5e64-DEFAULT" },
-  "eval_agentis_requirements_analyst": { name: "Requirements Analyst", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_requirements_analyst-iUpYwC25KS-DEFAULT" },
-  "eval_agentis_security_reviewer": { name: "Security Reviewer", runtimeLogGroup: "/aws/bedrock-agentcore/runtimes/agentis_security_reviewer-tmoEXEHFg9-DEFAULT" },
-};
+// Derive agent fleet from agents.json config — no hardcoded values
+// evalConfigName = "eval_" + harnessName, runtimeLogGroupPrefix from harnessName
+const AGENTS: Record<string, { name: string; runtimeLogGroupPrefix: string }> = Object.fromEntries(
+  agentsConfig.agents
+    .filter((a) => a.evaluationsEnabled && a.harnessName)
+    .map((a) => [
+      `eval_${a.harnessName}`,
+      {
+        name: a.name,
+        runtimeLogGroupPrefix: `/aws/bedrock-agentcore/runtimes/${a.harnessName}-`,
+      },
+    ])
+);
 
 // Per-model pricing (per 1M tokens)
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
@@ -53,9 +50,17 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 };
 const DEFAULT_PRICING = { input: 15, output: 75 }; // fallback to Opus if unknown
 
+// In-memory cache: evaluations data changes slowly (7-day window), no need to re-fetch every request
+let cachedResponse: { data: unknown; timestamp: number } | null = null;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 export async function GET() {
-  // Force dynamic — prevent any Next.js caching
   await headers();
+
+  // Return cached data if fresh
+  if (cachedResponse && Date.now() - cachedResponse.timestamp < CACHE_TTL_MS) {
+    return NextResponse.json(cachedResponse.data);
+  }
 
   try {
     const endTime = Date.now();
@@ -108,11 +113,24 @@ export async function GET() {
           return { name: agentDef.name, scores: agentScores, sessionCount: sessions.size };
         })
       ),
-      // Token usage: raw HTTPS per agent (parallel)
+      // Token usage: discover log group by prefix, then fetch tokens (parallel)
       Promise.all(
-        agentEntries.map(([, agentDef]) =>
-          fetchAgentTokens(agentDef.runtimeLogGroup, startTime, endTime).catch((): AgentTokenResult => ({ input: 0, output: 0, byModel: [] }))
-        )
+        agentEntries.map(async ([, agentDef]) => {
+          try {
+            // Discover the actual log group name using prefix
+            const groupsResp = await cwLogsRequest("DescribeLogGroups", {
+              logGroupNamePrefix: agentDef.runtimeLogGroupPrefix,
+              limit: 5,
+            });
+            const logGroups = (groupsResp.logGroups || []) as { logGroupName: string }[];
+            if (logGroups.length === 0) return { input: 0, output: 0, byModel: [] } as AgentTokenResult;
+            // Use the most recent (last) log group matching the prefix
+            const logGroupName = logGroups[logGroups.length - 1].logGroupName;
+            return await fetchAgentTokens(logGroupName, startTime, endTime);
+          } catch {
+            return { input: 0, output: 0, byModel: [] } as AgentTokenResult;
+          }
+        })
       ),
     ]);
 
@@ -176,7 +194,7 @@ export async function GET() {
       debugTokens[agentEntries[i][1].name] = tokenResults[i];
     }
 
-    return NextResponse.json({
+    const responseData = {
       agents: Object.values(AGENTS).map(a => a.name),
       scorecard: scorecardSummary,
       metrics,
@@ -195,7 +213,12 @@ export async function GET() {
         "DependencyChainCompliance",
       ],
       lastUpdated: new Date().toISOString(),
-    });
+    };
+
+    // Cache the response
+    cachedResponse = { data: responseData, timestamp: Date.now() };
+
+    return NextResponse.json(responseData);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
