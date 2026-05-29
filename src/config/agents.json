@@ -9,7 +9,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_requirements_analyst",
-      "tools": ["gateway", "browser", "S3Storage___read_object", "S3Storage___write_object", "S3Storage___list_objects", "SkillLoader___load_skill", "Tickets___create_ticket", "Tickets___transition_ticket", "Tickets___update_ticket", "Tickets___list_tickets", "Tickets___add_comment", "Tickets___search_issues", "WorkflowOutput___report_completion"],
+      "tools": ["gateway", "browser", "claude_code", "S3Storage___read_object", "S3Storage___write_object", "S3Storage___list_objects", "SkillLoader___load_skill", "Tickets___create_ticket", "Tickets___transition_ticket", "Tickets___update_ticket", "Tickets___list_tickets", "Tickets___add_comment", "Tickets___search_issues", "WorkflowOutput___report_completion", "get_file_contents", "search_code"],
       "canQueryAgents": [],
       "keywords": ["requirements", "requirementsanalyst", "productanalyst", "prd", "analysis"]
     },
@@ -22,7 +22,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_ios_designer",
-      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
       "canQueryAgents": ["team-requirements-analyst"],
       "keywords": ["iosdesign", "iosarchitect", "uidesign", "swiftuidesign"]
     },
@@ -35,7 +35,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_backend_designer",
-      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
       "canQueryAgents": ["team-requirements-analyst"],
       "keywords": ["backenddesign", "apidesign", "backendarchitect", "servicedesign"]
     },
@@ -48,7 +48,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_frontend_designer",
-      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
+      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
       "canQueryAgents": ["team-requirements-analyst"],
       "keywords": ["frontenddesign", "webdesign", "uidesign", "uxdesign", "webarchitect", "componentdesign", "responsivedesign"]
     },
@@ -61,7 +61,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_android_designer",
-      "tools": ["s3_read", "s3_write", "a2a", "figma"],
+      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
       "canQueryAgents": ["team-requirements-analyst"],
       "keywords": ["androiddesign", "androidarchitect", "materialdesign", "composedesign"]
     },
@@ -74,7 +74,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_security_reviewer",
-      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "search_code"],
+      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
       "canQueryAgents": ["team-requirements-analyst", "team-backend-designer"],
       "keywords": ["security", "securityreview", "threatmodel", "owasp"]
     },
@@ -87,7 +87,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_legal_compliance",
-      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill"],
+      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
       "canQueryAgents": ["team-requirements-analyst"],
       "keywords": ["legal", "compliance", "gdpr", "privacy", "legalcompliance"]
     },
@@ -100,7 +100,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_localization",
-      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill"],
+      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
       "canQueryAgents": ["team-ios-designer", "team-android-designer"],
       "keywords": ["localization", "i18n", "l10n", "translation", "locale"]
     },
@@ -113,7 +113,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_analytics_designer",
-      "tools": ["gateway", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill"],
+      "tools": ["gateway", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "search_code"],
       "canQueryAgents": ["team-requirements-analyst", "team-ios-designer", "team-backend-designer", "team-android-designer"],
       "keywords": ["analytics", "tracking", "metrics", "events", "instrumentation"]
     },
@@ -126,7 +126,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_backend_dev",
-      "tools": ["gateway", "code_interpreter", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "get_file_contents", "create_or_update_file", "create_branch", "create_pull_request"],
+      "tools": ["gateway", "code_interpreter", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "create_or_update_file", "create_branch", "create_pull_request", "push_files", "list_commits"],
       "canQueryAgents": ["team-backend-designer", "team-security-reviewer"],
       "keywords": ["backenddev", "backenddevelop", "backendimpl", "serverdev"]
     },
@@ -139,7 +139,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_api_dev",
-      "tools": ["gateway", "code_interpreter", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "get_file_contents", "create_or_update_file", "create_branch", "create_pull_request"],
+      "tools": ["gateway", "code_interpreter", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "create_or_update_file", "create_branch", "create_pull_request", "push_files", "list_commits"],
       "canQueryAgents": ["team-backend-designer", "team-backend-dev"],
       "keywords": ["apidev", "apidevelop", "apiimpl", "apiengineer"]
     },
@@ -152,7 +152,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_frontend_dev",
-      "tools": ["gateway", "code_interpreter", "browser", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "get_file_contents", "create_or_update_file", "create_branch", "create_pull_request"],
+      "tools": ["gateway", "code_interpreter", "browser", "claude_code", "invoke_team_agent", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "get_file_contents", "create_or_update_file", "create_branch", "create_pull_request", "push_files", "list_commits"],
       "canQueryAgents": ["team-ios-designer", "team-android-designer"],
       "keywords": ["frontenddev", "frontenddevelop", "iosdev", "iosdevelop", "uidev", "mobiledevelop", "mobiledev", "iosengineer", "iosdeveloper", "frontenddeveloper"]
     },
@@ -165,7 +165,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_qa_verifier",
-      "tools": ["gateway", "code_interpreter", "browser", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "Tickets___create_ticket", "Tickets___transition_ticket", "Tickets___list_tickets", "Tickets___add_comment", "get_file_contents", "WorkflowOutput___report_completion"],
+      "tools": ["gateway", "code_interpreter", "browser", "claude_code", "S3Storage___read_object", "S3Storage___write_object", "SkillLoader___load_skill", "Tickets___create_ticket", "Tickets___transition_ticket", "Tickets___list_tickets", "Tickets___add_comment", "get_file_contents", "search_code", "WorkflowOutput___report_completion"],
       "canQueryAgents": ["team-frontend-dev", "team-backend-dev", "team-api-dev"],
       "keywords": ["qa", "verification", "testing", "visualregression", "e2e"]
     },
@@ -178,7 +178,7 @@
       "model": "Claude Opus 4.6",
       "evaluationsEnabled": true,
       "harnessName": "agentis_ci_agent",
-      "tools": ["gateway", "S3Storage___read_object", "Tickets___create_ticket", "Tickets___transition_ticket", "Tickets___list_tickets", "Tickets___add_comment", "get_file_contents", "create_or_update_file", "WorkflowOutput___report_completion"],
+      "tools": ["gateway", "claude_code", "S3Storage___read_object", "S3Storage___write_object", "Tickets___create_ticket", "Tickets___transition_ticket", "Tickets___list_tickets", "Tickets___add_comment", "get_file_contents", "create_or_update_file", "search_code", "WorkflowOutput___report_completion"],
       "canQueryAgents": ["team-frontend-dev", "team-backend-dev", "team-api-dev"],
       "keywords": ["ci", "build", "pipeline", "validation", "cicd"]
     }

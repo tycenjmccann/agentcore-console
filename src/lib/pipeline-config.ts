@@ -14,49 +14,56 @@
 import agentsConfig from "@/config/agents.json";
 
 // ─── Tool → Icon Mapping ────────────────────────────────────────────────────
-// Maps gateway tool name prefixes to the AWS icon key used in the visualization.
-// When a tool_use event fires, we match it here to determine which icon to flash.
+// Derived from agents.json tool arrays. Maps tool names to icon categories.
+//
+// TOOL_CATEGORIES: prefix or exact name → { icon, labelPrefix }
+// The full TOOL_ICON_MAP is built by scanning all tools declared in agents.json.
 
-export const TOOL_ICON_MAP: Record<string, { icon: string; label: string }> = {
-  // S3 tools
-  "S3Storage___read_object": { icon: "s3", label: "S3 Read" },
-  "S3Storage___write_object": { icon: "s3", label: "S3 Write" },
-  "S3Storage___list_objects": { icon: "s3", label: "S3 List" },
+// Tool categories: maps tool name patterns to icon + display label.
+// `cardLabel` is what shows on the phase card. Tools sharing an icon are one card.
+// `hidden` tools contribute to flash matching but don't generate a card.
+const TOOL_CATEGORIES: Array<{ match: string; icon: string; cardLabel: string; hidden?: boolean }> = [
+  { match: "S3Storage___",          icon: "s3",        cardLabel: "S3 Storage" },
+  { match: "SkillLoader___",        icon: "skill",     cardLabel: "Skills", hidden: true }, // shown in Skills section
+  { match: "Tickets___",            icon: "jira",      cardLabel: "Jira" },
+  { match: "WorkflowOutput___",     icon: "agentcore", cardLabel: "AgentCore (Strands)" },
+  { match: "get_file_contents",     icon: "github",    cardLabel: "GitHub (MCP)" },
+  { match: "create_or_update_file", icon: "github",    cardLabel: "GitHub (MCP)" },
+  { match: "create_branch",         icon: "github",    cardLabel: "GitHub (MCP)" },
+  { match: "create_pull_request",   icon: "github",    cardLabel: "GitHub (MCP)" },
+  { match: "search_code",           icon: "github",    cardLabel: "GitHub (MCP)" },
+  { match: "push_files",            icon: "github",    cardLabel: "GitHub (MCP)" },
+  { match: "list_commits",          icon: "github",    cardLabel: "GitHub (MCP)" },
+  { match: "code_interpreter",      icon: "agentcore", cardLabel: "AgentCore (Strands)" },
+  { match: "browser",               icon: "agentcore", cardLabel: "AgentCore (Strands)" },
+  { match: "gateway",               icon: "agentcore", cardLabel: "AgentCore (Strands)" },
+  { match: "claude_code",           icon: "claude",    cardLabel: "Claude Code" },
+  { match: "invoke_team_agent",     icon: "agentcore", cardLabel: "AgentCore (Strands)" },
+];
 
-  // Skill loader (flashes the skill dot)
-  "SkillLoader___load_skill": { icon: "skill", label: "Load Skill" },
+function categorize(toolName: string): { icon: string; cardLabel: string; hidden?: boolean } {
+  for (const cat of TOOL_CATEGORIES) {
+    if (cat.match.includes("___")) {
+      if (toolName.startsWith(cat.match)) {
+        return { icon: cat.icon, cardLabel: cat.cardLabel, hidden: cat.hidden };
+      }
+    } else {
+      if (toolName === cat.match) {
+        return { icon: cat.icon, cardLabel: cat.cardLabel, hidden: cat.hidden };
+      }
+    }
+  }
+  // Default: any unrecognized tool → Strands built-in
+  return { icon: "agentcore", cardLabel: "AgentCore (Strands)" };
+}
 
-  // GitHub integration (via MCP)
-  "get_file_contents": { icon: "github", label: "GitHub Read" },
-  "create_or_update_file": { icon: "github", label: "GitHub Commit" },
-  "create_branch": { icon: "github", label: "GitHub Branch" },
-  "create_pull_request": { icon: "github", label: "GitHub PR" },
-  "search_code": { icon: "github", label: "GitHub Search" },
-  "push_files": { icon: "github", label: "GitHub Push" },
-  "list_commits": { icon: "github", label: "GitHub Commits" },
-
-  // Workflow output
-  "WorkflowOutput___submit_ticket_plan": { icon: "agentcore", label: "Submit Plan" },
-  "WorkflowOutput___report_completion": { icon: "agentcore", label: "Report Complete" },
-  "WorkflowOutput___save_design_doc": { icon: "agentcore", label: "Save Design" },
-
-  // Ticket tools
-  "Tickets___create_ticket": { icon: "ticket", label: "Create Ticket" },
-  "Tickets___transition_ticket": { icon: "ticket", label: "Transition Ticket" },
-  "Tickets___update_ticket": { icon: "ticket", label: "Update Ticket" },
-  "Tickets___list_tickets": { icon: "ticket", label: "List Tickets" },
-  "Tickets___add_comment": { icon: "ticket", label: "Add Comment" },
-  "Tickets___search_issues": { icon: "ticket", label: "Search Tickets" },
-
-  // Code interpreter (AgentCore sandbox)
-  "code_interpreter": { icon: "codebuild", label: "Code Interpreter" },
-
-  // Browser (AgentCore sandbox)
-  "browser": { icon: "agentcore", label: "Browser" },
-
-  // Claude Code
-  "claude_code": { icon: "claude", label: "Claude Code" },
-};
+// Build the map from all tools declared across agents in agents.json
+export const TOOL_ICON_MAP: Record<string, { icon: string; label: string }> = Object.fromEntries(
+  [...new Set(agentsConfig.agents.flatMap((a) => a.tools))].map((tool) => {
+    const cat = categorize(tool);
+    return [tool, { icon: cat.icon, label: cat.cardLabel }];
+  })
+);
 
 // ─── Phase Display Order ────────────────────────────────────────────────────
 // Defines the left-to-right ordering of phases in the visualization.
@@ -140,12 +147,11 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { key: "Timeout", val: "15 min" },
     ],
     tools: [
-      { icon: "agentcore", label: "Built-in (Strands)" },
+      { icon: "agentcore", label: "AgentCore (Strands)" },
       { icon: "s3", label: "S3 Storage" },
       { icon: "jira", label: "Jira" },
       { icon: "github", label: "GitHub (MCP)" },
       { icon: "claude", label: "Claude Code" },
-      { icon: "agentcore", label: "Workflow Output" },
     ],
     skills: [
       "Requirements Analysis",
@@ -170,11 +176,10 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { key: "Branch", val: "feature/{ticket}-{role}" },
     ],
     tools: [
-      { icon: "agentcore", label: "Built-in (Strands)" },
+      { icon: "agentcore", label: "AgentCore (Strands)" },
       { icon: "s3", label: "S3 Storage" },
       { icon: "github", label: "GitHub (MCP)" },
       { icon: "claude", label: "Claude Code" },
-      { icon: "agentcore", label: "Workflow Output" },
     ],
     skills: [
       "iOS Architecture",
@@ -205,11 +210,10 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { key: "Branch", val: "feature/{ticket}-{role}" },
     ],
     tools: [
-      { icon: "agentcore", label: "Built-in (Strands)" },
+      { icon: "agentcore", label: "AgentCore (Strands)" },
       { icon: "s3", label: "S3 Storage" },
       { icon: "github", label: "GitHub (MCP)" },
       { icon: "claude", label: "Claude Code" },
-      { icon: "agentcore", label: "Workflow Output" },
     ],
     skills: [
       "Swift Development",
@@ -238,12 +242,11 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { key: "Retry", val: "3x fix cycles before escalation" },
     ],
     tools: [
-      { icon: "agentcore", label: "Built-in (Strands)" },
+      { icon: "agentcore", label: "AgentCore (Strands)" },
       { icon: "s3", label: "S3 Storage" },
       { icon: "jira", label: "Jira" },
       { icon: "github", label: "GitHub (MCP)" },
       { icon: "claude", label: "Claude Code" },
-      { icon: "agentcore", label: "Workflow Output" },
     ],
     skills: [
       "QA Verification",
@@ -370,7 +373,7 @@ function buildPipelinePhases(): PipelinePhaseConfig[] {
         model: a.model || "",
         evaluationsEnabled: a.evaluationsEnabled ?? false,
         harnessName: a.harnessName,
-        tools: a.tools.filter((t) => t !== "gateway" && t !== "invoke_team_agent" && t !== "browser"),
+        tools: a.tools.filter((t) => t !== "invoke_team_agent"),
       }));
 
     // Generate typeLabel dynamically
@@ -386,6 +389,23 @@ function buildPipelinePhases(): PipelinePhaseConfig[] {
       typeLabel = parts.join(" + ") || `${agents.length} Agents`;
     }
 
+    // Derive tool cards from agents' declared tools + TOOL_CATEGORIES config
+    const phaseTools: PipelineDisplayItem[] = meta.type === "app"
+      ? meta.tools
+      : (() => {
+          const seen = new Set<string>();
+          const items: PipelineDisplayItem[] = [];
+          for (const agent of agents) {
+            for (const toolName of agent.tools) {
+              const cat = categorize(toolName);
+              if (cat.hidden || seen.has(cat.icon)) continue;
+              seen.add(cat.icon);
+              items.push({ icon: cat.icon, label: cat.cardLabel });
+            }
+          }
+          return items;
+        })();
+
     return {
       id: phaseId,
       name: meta.name,
@@ -395,7 +415,7 @@ function buildPipelinePhases(): PipelinePhaseConfig[] {
       agentPhase: meta.agentPhase,
       identity: meta.identity,
       config: meta.config,
-      tools: meta.tools,
+      tools: phaseTools,
       agents,
       skills: meta.skills,
       outputs: meta.outputs,
@@ -416,19 +436,17 @@ export const PIPELINE_PHASES: PipelinePhaseConfig[] = buildPipelinePhases();
  * Returns the icon key (for aws-icons.json) or "skill"/"ext" for dot indicators.
  */
 export function resolveToolIcon(toolName: string): { icon: string; label: string } | null {
-  // Direct match
+  if (!toolName) return null;
+
+  // Direct match from derived map
   if (TOOL_ICON_MAP[toolName]) {
     return TOOL_ICON_MAP[toolName];
   }
 
-  // Prefix match (e.g., "S3Storage___" prefix)
-  for (const [key, value] of Object.entries(TOOL_ICON_MAP)) {
-    if (toolName.startsWith(key.split("___")[0] + "___")) {
-      return value;
-    }
-  }
-
-  return null;
+  // Dynamic categorization for tool names not in agents.json
+  // (e.g., runtime reports "load_blueprint" instead of "SkillLoader___load_skill")
+  const cat = categorize(toolName);
+  return { icon: cat.icon, label: cat.cardLabel };
 }
 
 // ─── Helper: Find which phase an agent belongs to ───────────────────────────

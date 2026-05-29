@@ -82,26 +82,48 @@ function shortModelName(modelId: string): string {
   return modelId.split(".").pop()?.split("-")[0] || modelId;
 }
 
+// Client-side cache key for sessionStorage
+const EVAL_CACHE_KEY = "agentis-eval-cache";
+const EVAL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function getCachedData(): EvalData | null {
+  try {
+    const raw = sessionStorage.getItem(EVAL_CACHE_KEY);
+    if (!raw) return null;
+    const { data, timestamp } = JSON.parse(raw);
+    if (Date.now() - timestamp > EVAL_CACHE_TTL) return null;
+    return data;
+  } catch { return null; }
+}
+
+function setCachedData(data: EvalData) {
+  try {
+    sessionStorage.setItem(EVAL_CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
+  } catch {}
+}
+
 export default function EvaluationsPage() {
-  const [data, setData] = useState<EvalData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<EvalData | null>(() => getCachedData());
+  const [loading, setLoading] = useState(!getCachedData());
   const [error, setError] = useState("");
   const [loopEnabled, setLoopEnabled] = useState<boolean | null>(null);
   const [loopToggling, setLoopToggling] = useState(false);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = useCallback(async () => {
+    setLoading((prev) => prev); // keep current loading state
     try {
       const res = await fetch("/api/evaluations");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setData(await res.json());
+      const newData = await res.json();
+      setData(newData);
+      setCachedData(newData);
       setError("");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const fetchLoopStatus = useCallback(async () => {
     try {
@@ -131,7 +153,7 @@ export default function EvaluationsPage() {
     }
   };
 
-  useEffect(() => { fetchData(); fetchLoopStatus(); }, [fetchLoopStatus]);
+  useEffect(() => { fetchData(); fetchLoopStatus(); }, [fetchData, fetchLoopStatus]);
 
   const agents = data?.agents || [];
   const hasScores = !!(data?.scorecard && Object.keys(data.scorecard).length > 0);
