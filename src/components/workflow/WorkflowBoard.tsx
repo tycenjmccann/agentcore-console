@@ -74,6 +74,25 @@ function applyEventToState(s: WorkflowState, event: WorkflowEvent): WorkflowStat
       return { ...s, phase: "complete" };
     case "ticket_update":
       return s;
+    case "ticket_created": {
+      if (event.ticket.assignee) {
+        if (s.agentTasks[event.ticket.assignee]) return s;
+        return {
+          ...s,
+          agentTasks: {
+            ...s.agentTasks,
+            [event.ticket.assignee]: {
+              id: `task_${Date.now()}`,
+              agentId: event.ticket.assignee,
+              ticketId: event.ticket.id,
+              status: "pending",
+              input: "",
+            },
+          },
+        };
+      }
+      return s;
+    }
     default:
       return s;
   }
@@ -549,6 +568,30 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       }
       return s;
     });
+    // Populate ticketStatusMap from ticket_created events during replay
+    const replayTicketMap: Record<string, { status: TicketStatus; title: string; updatedAt: string }> = {};
+    for (let i = 0; i <= replayIndex && i < replayEvents.length; i++) {
+      const ev = replayEvents[i];
+      if (ev.type === "ticket_created") {
+        replayTicketMap[ev.ticket.id] = {
+          status: ev.ticket.status,
+          title: ev.ticket.title,
+          updatedAt: ev.ticket.updatedAt || ev.timestamp || new Date().toISOString(),
+        };
+      } else if (ev.type === "ticket_update") {
+        if (replayTicketMap[ev.ticketId]) {
+          replayTicketMap[ev.ticketId] = {
+            ...replayTicketMap[ev.ticketId],
+            status: ev.status,
+            updatedAt: ev.timestamp || new Date().toISOString(),
+          };
+        }
+      }
+    }
+    if (Object.keys(replayTicketMap).length > 0) {
+      setTicketStatusMap((prev) => ({ ...prev, ...replayTicketMap }));
+    }
+
     // Fire visual effects for just the current event
     if (replayIndex < replayEvents.length) {
       fireReplayVisuals(replayEvents[replayIndex]);

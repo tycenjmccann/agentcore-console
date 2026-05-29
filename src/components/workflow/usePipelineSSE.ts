@@ -168,6 +168,25 @@ export function usePipelineSSE({
           break;
         }
 
+        case "ticket_created": {
+          if (event.ticket.assignee) {
+            const existingKey = findTaskKey(event.ticket.assignee);
+            if (!existingKey) {
+              next.agentTasks = {
+                ...next.agentTasks,
+                [event.ticket.assignee]: {
+                  id: `task_${Date.now()}`,
+                  agentId: event.ticket.assignee,
+                  ticketId: event.ticket.id,
+                  status: "pending" as AgentTaskStatus,
+                  input: "",
+                },
+              };
+            }
+          }
+          break;
+        }
+
         default:
           break;
       }
