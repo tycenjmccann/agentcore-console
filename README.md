@@ -367,8 +367,15 @@ To configure:
 **Webhook setup** (required for cascade orchestration):
 1. In Jira → Settings → Webhooks → Create webhook
 2. URL: `https://your-deployed-app.com/api/jira/webhook`
-3. Events: `issue_updated`
+3. Events: `issue_created`, `issue_updated`
+   - `issue_updated` drives the cascade (transitions on existing tickets)
+   - `issue_created` enables the third intake path: filing a Bug directly in Jira auto-bootstraps a workflow (the orchestrator creates the workflow row + analyst sub-task and routes it through the bug-fix flow)
 4. Filter: project = YOUR_PROJECT_KEY
+
+**Three intake paths** (all converge on the same orchestrator):
+1. **In-app form** — `POST /api/workflow/start` (UI submission)
+2. **Programmatic API** — `POST /api/workflow/start` with the same payload (Claude Code, scripts, CI)
+3. **Jira-native bug** — file a `Bug` issue in Jira directly. The `issue_created` webhook bootstraps a workflow keyed off the Bug, creates a requirements-analyst sub-task under it, and the analyst loads the `bug-fix-requirements` blueprint to produce a 3-subtask chain (Fix → QA → CI).
 
 **Agent Jira Lambda** (separate infra, agents call Jira through this):
 - Function: `agentis-jira` — SAM-deployed Lambda (for Jira mode) or `agentis-tickets` (for DynamoDB mode)

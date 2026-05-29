@@ -140,10 +140,23 @@ async function createTicket(params) {
   if (assignee) labels.push(`agent:${assignee}`);
   if (workflow_id) labels.push(`wf:${workflow_id}`);
 
+  // Normalize common LLM variations of issue type names to Jira's canonical form
+  const ISSUE_TYPE_ALIASES = {
+    "subtask": "Subtask",
+    "sub-task": "Subtask",
+    "sub task": "Subtask",
+    "task": "Task",
+    "story": "Story",
+    "epic": "Epic",
+    "bug": "Bug",
+  };
+  const requestedType = (issue_type || "Task").toString().trim();
+  const canonicalType = ISSUE_TYPE_ALIASES[requestedType.toLowerCase()] || requestedType;
+
   const fields = {
     project: { key: PROJECT_KEY },
     summary,
-    issuetype: { name: issue_type || "Task" },
+    issuetype: { name: canonicalType },
     labels,
   };
 

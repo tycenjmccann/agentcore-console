@@ -160,6 +160,19 @@ async function processStatusChange(ticketId, newStatus, oldStatus) {
       const todoTicket = await getTicket(ticketId);
       if (!todoTicket) return;
 
+      // Bug bootstrap: a top-level Bug filed directly in Jira (no parent, no workflow row)
+      // is a workflow root. Provision the workflow + analyst sub-task here, mirroring
+      // what /api/workflow/start does for the in-app/programmatic intake path.
+      if (
+        TICKET_PROVIDER === "jira" &&
+        todoTicket.issueType === "Bug" &&
+        !todoTicket.parentId &&
+        !todoTicket.workflowId
+      ) {
+        await bootstrapBugWorkflow(todoTicket);
+        return;
+      }
+
       // Track in agentTasks at creation time (both paths)
       await trackTicketCreation(ticketId, todoTicket.assignee, todoTicket.workflowId, todoTicket.parentId);
 
@@ -1020,6 +1033,18 @@ async function buildAgentContext(ticket, workflow) {
       .map(a => `  - "${a.id}" (${a.phase})`)
       .join("\n");
     context += `## Ticket Creation Instructions\nYou are responsible for creating tickets for all agents that need to work on this feature.\n\n**VALID AGENT ROSTER (you MUST only assign to these exact IDs):**\n${validAgents}\n\n⚠️ DO NOT invent agent IDs. If an agent is not in the list above, it does not exist. Ticket creation will FAIL if you use an invalid assignee.\n\n**EXACT tool call format (use these parameter names EXACTLY):**\n\`\`\`\nTickets___create_ticket(\n    title="Frontend: Implement [feature]",\n    description="## Summary\\n...",\n    parent_id="${workflow.epicId}",\n    assignee="team-frontend-dev",\n    ticket_type="task",\n    blocked_by="",\n    workflow_id="${workflow.id}"\n)\n\`\`\`\n\nParameter names: title, description, parent_id, assignee, ticket_type, blocked_by, workflow_id.\nDo NOT use "summary", "parent_key", or any other names.\n\nYour own ticket_id: "${ticket.ticketId}" — transition it to "done" when finished.\n\n`;
+
+    // Branch on epic issue type — if this is a Bug, point analyst at bug-fix blueprint.
+    // Bug fixes skip design phase entirely; one dev agent + QA + CI.
+    try {
+      const epic = await getTicket(workflow.epicId);
+      const epicIssueType = (epic?.issueType || "").toLowerCase();
+      if (epicIssueType === "bug") {
+        context += `## ⚠️ THIS IS A BUG REPORT — USE BUG-FIX FLOW\n\nThe workflow root (${workflow.epicId}) is a Jira **Bug** ticket — NOT a separate Epic. You MUST:\n1. FIRST call \`load_blueprint(blueprint_name="bug-fix-requirements")\` instead of "requirements-analyst"\n2. Follow that blueprint exactly — bugs have a different process (no design phase, single dev agent, mandatory regression test)\n3. DO NOT create tickets for any design agents (no frontend-designer, backend-designer, etc.)\n4. Create exactly three **sub-tasks under the Bug** (dev fix → QA → CI). Use \`issue_type="Subtask"\` and \`parent_key="${workflow.epicId}"\`. Jira rejects \`issue_type="Task"\` with a Bug parent.\n\n`;
+      }
+    } catch (err) {
+      console.warn(`[orchestrator] could not check epic issue type: ${err.message}`);
+    }
   }
 
   // For ALL agents: include canonical identifiers they need for tool calls
@@ -1154,6 +1179,115 @@ async function saveWorkflow(workflow) {
   await ddb.send(new PutCommand({ TableName: WORKFLOWS_TABLE, Item: { ...workflow, workflowId: workflow.id } }));
 }
 
+/**
+ * Bootstrap a workflow when a Bug is filed directly in Jira (not via /api/workflow/start).
+ * The Bug ticket itself is the workflow root — there is no separate Epic wrapper.
+ * Mirrors startWithJira() in src/app/api/workflow/start/route.ts.
+ *
+ * Steps:
+ *   1. Idempotency check: if a workflow already exists for this bug key, do nothing.
+ *   2. Create workflow row in DDB (epicId = bug.key).
+ *   3. Label the Bug with `wf:<workflow_id>` and `agentis-workflow` so the analyst sub-task
+ *      will inherit the workflow context via the same labels.
+ *   4. Create a requirements-analyst sub-task under the Bug.
+ *   5. The analyst sub-task is created without blockers, so the agentis-jira Lambda
+ *      transitions it to Ready on creation, which fires the orchestrator's normal
+ *      "ready" path → invokes the analyst → bug-fix blueprint.
+ */
+async function bootstrapBugWorkflow(bugTicket) {
+  const bugKey = bugTicket.ticketId;
+
+  // Idempotency: scan workflows table for an existing workflow with this epicId
+  try {
+    const existing = await ddb.send(new QueryCommand({
+      TableName: WORKFLOWS_TABLE,
+      IndexName: "epicId-index",
+      KeyConditionExpression: "epicId = :eid",
+      ExpressionAttributeValues: { ":eid": bugKey },
+    }));
+    if (existing.Items?.length > 0) {
+      console.log(`[orchestrator] Bug ${bugKey} already has workflow ${existing.Items[0].id} — skipping bootstrap`);
+      return;
+    }
+  } catch (err) {
+    console.warn(`[orchestrator] Bootstrap idempotency check failed (continuing): ${err.message}`);
+  }
+
+  const workflowId = `wf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  console.log(`[orchestrator] Bootstrapping bug workflow ${workflowId} for ${bugKey}`);
+
+  // 1. Create workflow row
+  const repoUrl = process.env.DEFAULT_BUG_REPO_URL || "https://github.com/your-org/your-repo";
+  const repoConfig = {
+    repos: [{ platform: "github", url: repoUrl, defaultBranch: "main" }],
+  };
+  const workflow = {
+    id: workflowId,
+    workflowId,
+    phase: "requirements",
+    epicId: bugKey,
+    repoConfig,
+    input: {
+      title: bugTicket.title || `Bug fix: ${bugKey}`,
+      description: bugTicket.description || "",
+      sources: [],
+      repoConfig,
+    },
+    agentTasks: {},
+    messages: [],
+    humanNotifications: [],
+    startedAt: new Date().toISOString(),
+    ticketProvider: "jira",
+    intakeChannel: "jira-webhook",
+  };
+  await saveWorkflow(workflow);
+
+  // 2. Label the Bug ticket itself with `wf:<id>` so future webhooks can resolve the workflow
+  try {
+    await jiraFetch(`/rest/api/3/issue/${bugKey}`, "PUT", {
+      update: {
+        labels: [{ add: `wf:${workflowId}` }, { add: "agentis-workflow" }],
+      },
+    });
+  } catch (err) {
+    console.warn(`[orchestrator] Could not label Bug ${bugKey}: ${err.message}`);
+  }
+
+  // 3. Create requirements-analyst sub-task under the Bug
+  const analystSummary = `Requirements: requirements analyst — ${bugTicket.title || bugKey}`;
+  const analystDescription = `Analyze the bug report (${bugKey}) and create the bug-fix sub-task chain (Fix → QA → CI). The orchestrator has injected a "THIS IS A BUG REPORT" directive — load the bug-fix-requirements blueprint.\n\n${bugTicket.description || ""}`;
+
+  const subtaskFields = {
+    project: { key: process.env.JIRA_PROJECT_KEY || "TEAM" },
+    summary: analystSummary,
+    issuetype: { name: "Subtask" },
+    parent: { key: bugKey },
+    labels: ["agentis-workflow", `wf:${workflowId}`, "agent:team-requirements-analyst"],
+    description: {
+      type: "doc",
+      version: 1,
+      content: [{ type: "paragraph", content: [{ type: "text", text: analystDescription }] }],
+    },
+  };
+
+  let analystKey;
+  try {
+    const created = await jiraFetch(`/rest/api/3/issue`, "POST", { fields: subtaskFields });
+    analystKey = created.key;
+    console.log(`[orchestrator] Created analyst sub-task ${analystKey} under bug ${bugKey}`);
+  } catch (err) {
+    console.error(`[orchestrator] Failed to create analyst sub-task for bug ${bugKey}: ${err.message}`);
+    return;
+  }
+
+  // 4. Transition analyst sub-task to Ready (no blockers) — this fires the webhook → orchestrator → invoke
+  try {
+    await jiraTransition(analystKey, "Ready");
+  } catch (err) {
+    console.warn(`[orchestrator] Could not transition ${analystKey} to Ready (will rely on Jira webhook fallback): ${err.message}`);
+  }
+}
+
 async function checkAllBlockersResolved(blockerIds) {
   // Check if all tickets in the blockedBy list are done/cancelled
   for (const bid of blockerIds) {
@@ -1170,7 +1304,13 @@ async function getTicket(ticketId) {
     return await getTicketFromJira(ticketId);
   }
   const result = await ddb.send(new GetCommand({ TableName: TICKETS_TABLE, Key: { ticketId } }));
-  return result.Item || null;
+  if (!result.Item) return null;
+  // Normalize: DDB tickets store the raw Jira issue type as `type` (e.g., "Bug", "Task").
+  // Mirror it onto `issueType` so callers can branch on it the same way as the Jira path.
+  if (result.Item.type && !result.Item.issueType) {
+    result.Item.issueType = result.Item.type;
+  }
+  return result.Item;
 }
 
 async function getChildTickets(parentId) {
@@ -1188,14 +1328,25 @@ async function getChildTickets(parentId) {
 
 // ─── Jira Ticket Provider ─────────────────────────────────────────────────────
 
-async function jiraFetch(path) {
+async function jiraFetch(path, method = "GET", body = null) {
   const url = `https://${JIRA_SITE_URL}${path}`;
+  const headers = {
+    Authorization: JIRA_AUTH,
+    Accept: "application/json",
+  };
+  if (body) headers["Content-Type"] = "application/json";
   const resp = await fetch(url, {
-    headers: { Authorization: JIRA_AUTH, Accept: "application/json" },
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
   });
   if (resp.status === 204) return null;
-  if (!resp.ok) throw new Error(`Jira API ${resp.status}: ${await resp.text()}`);
-  return resp.json();
+  if (!resp.ok) throw new Error(`Jira API ${method} ${path} ${resp.status}: ${await resp.text()}`);
+  if (resp.status === 201 || resp.status === 200) {
+    const text = await resp.text();
+    try { return JSON.parse(text); } catch { return text; }
+  }
+  return null;
 }
 
 function mapJiraStatus(name) {
@@ -1219,6 +1370,7 @@ function mapJiraIssueToTicket(issue) {
     }
   }
 
+  const rawIssueType = f.issuetype?.name || "Task";
   return {
     ticketId: issue.key,
     title: f.summary || "",
@@ -1227,7 +1379,8 @@ function mapJiraIssueToTicket(issue) {
     assignee: agentLabel ? agentLabel.replace("agent:", "") : null,
     parentId: f.parent?.key || null,
     workflowId: wfLabel ? wfLabel.replace("wf:", "") : null,
-    type: (f.issuetype?.name || "Task").toLowerCase() === "epic" ? "epic" : "task",
+    type: rawIssueType.toLowerCase() === "epic" ? "epic" : "task",
+    issueType: rawIssueType,
     blockedBy,
     comments: [],
     artifacts: [],
