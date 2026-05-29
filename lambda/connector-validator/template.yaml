@@ -12,11 +12,11 @@ Globals:
     Environment:
       Variables:
         AWS_REGION_OVERRIDE: !Ref AWS::Region
-        CONNECTORS_TABLE: !GetAtt ConnectorsTable.Arn
-        VALIDATIONS_TABLE: !GetAtt ConnectorValidationsTable.Arn
+        CONNECTORS_TABLE: agentis-connectors
+        VALIDATIONS_TABLE: agentis-connector-validations
         TICKETS_TABLE: !Ref TicketsTableName
         WORKFLOWS_TABLE: !Ref WorkflowsTableName
-        EVENT_BUS: !Ref EventBus
+        EVENT_BUS_NAME: !Ref EventBus
 
 Parameters:
   TicketsTableName:
@@ -49,11 +49,13 @@ Resources:
           AttributeType: S
         - AttributeName: connectorType
           AttributeType: S
-        - AttributeName: status
+        - AttributeName: validationStatus
           AttributeType: S
       KeySchema:
         - AttributeName: connectorId
           KeyType: HASH
+        - AttributeName: workspaceId
+          KeyType: RANGE
       GlobalSecondaryIndexes:
         - IndexName: workspace-type-index
           KeySchema:
@@ -67,7 +69,7 @@ Resources:
           KeySchema:
             - AttributeName: connectorType
               KeyType: HASH
-            - AttributeName: status
+            - AttributeName: validationStatus
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
@@ -132,10 +134,15 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref ConnectorValidationsTable
         - DynamoDBReadPolicy:
-            TableName: !Ref WorkflowsTableName
+            TableName: !Ref TicketsTableName
         - DynamoDBStreamReadPolicy:
-            TableName: !Ref WorkflowsTableName
+            TableName: !Ref TicketsTableName
             StreamName: "*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+              Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TicketsTableName}"
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref EventBus
         - Statement:
@@ -147,7 +154,7 @@ Resources:
         DynamoDBStream:
           Type: DynamoDB
           Properties:
-            Stream: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${WorkflowsTableName}/stream/*"
+            Stream: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TicketsTableName}/stream/*"
             StartingPosition: LATEST
             BatchSize: 5
             MaximumBatchingWindowInSeconds: 0
@@ -167,7 +174,7 @@ Resources:
       Targets:
         - Id: ConnectorValidatorTarget
           Arn: !GetAtt ConnectorValidatorFunction.Arn
-          Input: '{"source":"scheduled","action":"validateAll"}'
+          Input: '{"triggerType": "SCHEDULED"}'
 
   ScheduledValidationPermission:
     Type: AWS::Lambda::Permission
