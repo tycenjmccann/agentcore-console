@@ -375,10 +375,13 @@ def Tickets___create_ticket(title: str, description: str, parent_id: str = "", a
         workflow_id: Workflow ID this ticket belongs to
     """
     blockers = [b.strip() for b in blocked_by.split(",") if b.strip()] if blocked_by else []
+    # Auto-inject workflow_id from invocation context if agent didn't pass one —
+    # without the wf:<id> label, the ticket is invisible to the workflow UI.
+    effective_workflow_id = workflow_id or _CURRENT_WORKFLOW_ID
     return _invoke_lambda(TICKET_TOOLS_LAMBDA, "Tickets___create_ticket", {
         "summary": title, "description": description, "parent_key": parent_id,
         "assignee": assignee, "issue_type": ticket_type, "blocked_by": blockers,
-        "workflow_id": workflow_id
+        "workflow_id": effective_workflow_id
     })
 
 

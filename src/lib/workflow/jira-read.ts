@@ -33,7 +33,9 @@ const JIRA_TO_INTERNAL_STATUS: Record<string, string> = {
 
 /**
  * Get all tickets for a workflow from Jira.
- * Tickets are labeled with `wf:<workflowId>` during creation.
+ * Workflow children are labeled `wf:<workflowId>`; the epic itself is only
+ * labeled `agentis-workflow`, so we fetch it separately by its parent key
+ * (which every child references via `parent.key`).
  */
 export async function getTicketsForWorkflowFromJira(workflowId: string) {
   const jql = `project = ${JIRA_PROJECT_KEY} AND labels = "wf:${workflowId}" ORDER BY created ASC`;
@@ -49,6 +51,7 @@ export async function getTicketsForWorkflowFromJira(workflowId: string) {
       Authorization: getAuthHeader(),
       Accept: "application/json",
     },
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -58,8 +61,46 @@ export async function getTicketsForWorkflowFromJira(workflowId: string) {
 
   const data = await response.json();
   const issues = (data.issues || []) as Array<Record<string, unknown>>;
+  const tickets = issues.map(mapIssueToTicket);
 
-  return issues.map(mapIssueToTicket);
+  // Fetch the epic — children point at it via parent.key; pull the unique parent
+  // key (epic) and resolve it directly.
+  const epicKeys = new Set<string>();
+  for (const t of tickets) {
+    if (t.parentId) epicKeys.add(t.parentId);
+  }
+  const epicTickets = await Promise.all(
+    [...epicKeys].map(async (key) => {
+      try {
+        return await getIssueByKey(key);
+      } catch {
+        return null;
+      }
+    })
+  );
+  for (const epic of epicTickets) {
+    if (epic && !tickets.some((t) => t.ticketId === epic.ticketId)) {
+      tickets.push(epic);
+    }
+  }
+
+  return tickets;
+}
+
+async function getIssueByKey(key: string) {
+  const fields = "summary,status,issuetype,parent,labels,issuelinks,assignee,created,updated,description";
+  const response = await fetch(`${getBaseUrl()}/rest/api/3/issue/${key}?fields=${fields}`, {
+    method: "GET",
+    headers: {
+      Authorization: getAuthHeader(),
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Jira get issue ${key} failed: ${response.status}`);
+  }
+  return mapIssueToTicket(await response.json());
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -96,6 +137,7 @@ function mapIssueToTicket(issue: Record<string, unknown>) {
   return {
     ticketId: issue.key as string,
     title: (fields?.summary as string) || "",
+    description: adfToPlainText(fields?.description),
     status: JIRA_TO_INTERNAL_STATUS[statusName] || "todo",
     assignee,
     parentId: parent?.key as string | undefined,
@@ -105,4 +147,36 @@ function mapIssueToTicket(issue: Record<string, unknown>) {
     createdAt: (fields?.created as string) || new Date().toISOString(),
     updatedAt: (fields?.updated as string) || new Date().toISOString(),
   };
+}
+
+/**
+ * Flatten Atlassian Document Format (ADF) JSON into plain text.
+ * Walks the content tree and concatenates text nodes, inserting newlines
+ * between paragraph-like blocks.
+ */
+function adfToPlainText(adf: unknown): string {
+  if (!adf) return "";
+  if (typeof adf === "string") return adf;
+  if (typeof adf !== "object") return "";
+
+  const blockTypes = new Set(["paragraph", "heading", "bulletList", "orderedList", "listItem", "codeBlock", "blockquote"]);
+  const lines: string[] = [];
+
+  const walk = (node: Record<string, unknown>, currentLine: string[]): void => {
+    if (node.type === "text" && typeof node.text === "string") {
+      currentLine.push(node.text);
+      return;
+    }
+    const children = Array.isArray(node.content) ? (node.content as Array<Record<string, unknown>>) : [];
+    if (blockTypes.has(node.type as string)) {
+      const buf: string[] = [];
+      for (const child of children) walk(child, buf);
+      lines.push(buf.join(""));
+    } else {
+      for (const child of children) walk(child, currentLine);
+    }
+  };
+
+  walk(adf as Record<string, unknown>, []);
+  return lines.join("\n").trim();
 }

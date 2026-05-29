@@ -90,8 +90,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true, ignored: true, reason: "no status change" });
   }
 
-  const newStatus = mapJiraStatusToInternal(statusChange.toString);
-  const oldStatus = mapJiraStatusToInternal(statusChange.fromString);
+  const newStatus = mapJiraStatusToInternal(statusChange.toString || "");
+  const oldStatus = mapJiraStatusToInternal(statusChange.fromString || "");
 
   console.log(`[jira-webhook] ${issueKey}: "${statusChange.fromString}" → "${statusChange.toString}" (${oldStatus} → ${newStatus})`);
 

@@ -40,6 +40,7 @@ lambda/agentis-tickets/function.zip
 
 # Test results
 test-results/
+playwright-screenshots/
 scripts/tool-test-results.json
 
 # Demo output (large binaries)

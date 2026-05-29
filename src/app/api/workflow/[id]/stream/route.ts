@@ -84,6 +84,14 @@ function transformEvent(item: Record<string, unknown>): Record<string, unknown> 
     case "workflow.complete":
       return { type: "workflow_complete", timestamp };
 
+    case "ticket.created":
+      // Orchestrator publishes this when a new ticket is tracked. Surface it to the UI
+      // so badges render immediately, without polling.
+      if (detail.ticket) {
+        return { type: "ticket_created", ticket: detail.ticket, timestamp };
+      }
+      return null;
+
     default:
       // Pass through unknown events as-is
       return { type: eventType, ...detail, timestamp };
@@ -107,8 +115,11 @@ export async function GET(
       // Send heartbeat
       controller.enqueue(encoder.encode(": heartbeat\n\n"));
 
-      // Poll loop — check for new events every 1 second
+      // Poll loop — check for new events every 1 second.
+      // Emit a heartbeat comment every ~15s of idle time so App Runner doesn't
+      // close the connection during long phase gaps (idle TCP gets killed).
       const poll = async () => {
+        let tick = 0;
         while (!stopped) {
           try {
             const result = await ddb.send(new QueryCommand({
@@ -131,6 +142,13 @@ export async function GET(
               }
               lastEventId = item.eventId;
             }
+
+            // Idle heartbeat every 15 ticks (~15s) keeps the connection alive
+            // through App Runner's idle-connection killer.
+            if (tick % 15 === 0) {
+              controller.enqueue(encoder.encode(`: heartbeat ${Date.now()}\n\n`));
+            }
+            tick++;
           } catch (err) {
             // Log but don't crash — keep polling
             console.warn(`[stream] Poll error for ${workflowId}:`, (err as Error).message);
@@ -152,6 +170,10 @@ export async function GET(
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      // Disable proxy buffering (App Runner / nginx-style) so SSE chunks
+      // reach the browser immediately instead of being held in the proxy buffer.
+      "X-Accel-Buffering": "no",
+      "Content-Encoding": "identity",
     },
   });
 }

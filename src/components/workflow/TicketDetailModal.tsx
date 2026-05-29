@@ -305,7 +305,7 @@ export default function TicketDetailModal({
           title: (t.title || t.summary || t.ticketId || t.id) as string,
           type: (t.type || t.issueType || "task") as TicketType,
           children: (t.children || []) as string[],
-          blockedBy: (t.blockedBy || []) as string[],
+          blockedBy: Array.isArray(t.blockedBy) ? t.blockedBy : (t.blockedBy ? String(t.blockedBy).split(",").filter(Boolean) : []),
           comments: (t.comments || []) as JiraTicket["comments"],
           artifacts: (t.artifacts || []) as JiraTicket["artifacts"],
           parent: (t.parentId || t.parent || "") as string,

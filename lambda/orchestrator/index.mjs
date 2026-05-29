@@ -557,6 +557,26 @@ async function trackTicketCreation(ticketId, assignee, workflowId, parentId) {
   };
   await saveWorkflow(workflow);
   console.log(`[orchestrator] Tracked new ticket ${ticketId} (${assignee}) in workflow ${workflow.id}`);
+
+  // Fan out a ticket.created event so the UI can render the badge without polling.
+  // Keep the publish best-effort — failure here must not block tracking.
+  try {
+    const t = await getTicket(ticketId);
+    await publishEvent(ticketId, "ticket.created", {
+      workflowId: workflow.id,
+      ticket: {
+        id: ticketId,
+        title: t?.title || ticketId,
+        status: t?.status || "todo",
+        assignee,
+        parent: parentId,
+        type: t?.type || "task",
+        updatedAt: t?.updatedAt || new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    console.warn(`[orchestrator] ticket.created publish failed for ${ticketId}:`, err.message);
+  }
 }
 
 // ─── Core Handlers ─────────────────────────────────────────────────────────────

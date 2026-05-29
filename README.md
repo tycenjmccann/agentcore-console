@@ -79,7 +79,12 @@ aws s3 mb s3://agentis-artifacts-<ACCOUNT_ID> --region us-east-1
 
 ### Stage 3: Tickets Lambda
 
-Deploys the Lambda that agents call to create/update/query tickets. The script creates the IAM role, deploys the code, and verifies with a test invocation.
+Deploys the Lambda that agents call to create/update/query tickets. The script reads your `TICKET_PROVIDER` setting and deploys the correct Lambda:
+
+- `TICKET_PROVIDER=jira` → deploys `lambda/agentis-jira/` (calls Jira Cloud REST API)
+- `TICKET_PROVIDER=dynamodb` → deploys `lambda/agentis-tickets/` (reads/writes DynamoDB)
+
+Both expose the identical tool interface to agents (`Tickets___create_ticket`, `Tickets___transition_ticket`, etc.) — agents don't know or care which backend is in use.
 
 ```bash
 node deploy/setup-tickets-lambda.mjs
@@ -596,6 +601,14 @@ aws apprunner start-deployment \
   --region us-east-1
 ```
 
+**Build-time configuration:**
+
+The Dockerfile sets `ENV TICKET_PROVIDER=jira` in the builder stage. This value is baked into the frontend bundle at build time (controls the dashboard UI label). If you're deploying for DynamoDB mode, change this to `dynamodb` before building:
+
+```dockerfile
+ENV TICKET_PROVIDER=dynamodb  # Set BEFORE 'RUN npm run build'
+```
+
 **Dockerfile requirements:**
 
 The `Dockerfile` uses a multi-stage build with a non-root `nextjs` user. The following line is **critical** and must appear before `USER nextjs`:
@@ -659,6 +672,22 @@ If you already have a hosted Next.js or React app:
 3. Install the required AWS SDK packages (see `package.json`)
 4. Add the IAM permissions below to your existing compute role
 5. No additional credential configuration needed — uses whatever role your app already runs as
+
+### SSE Proxy Considerations
+
+The workflow UI relies on Server-Sent Events (`/api/workflow/[id]/stream`) for real-time event streaming. SSE requires an unbuffered, long-lived HTTP connection — most reverse proxies break this by default. The response sets `X-Accel-Buffering: no` and `Content-Encoding: identity` to handle nginx-style proxies, but some platforms need additional config:
+
+| Platform | SSE works out of the box? | Required config |
+|----------|---------------------------|-----------------|
+| **App Runner** (Option A) | Yes | None — Envoy honors response headers |
+| **Amplify Hosting** (Option B) | Yes | None — runs behind CloudFront with origin-shield bypass |
+| **ECS/Fargate behind ALB** (Option C) | Yes, with config | Set ALB `IdleTimeout >= 3600` (default 60s kills SSE) |
+| **Lambda Web Adapter** (Option C) | Limited | Use Lambda function URL with `RESPONSE_STREAM` invocation. API Gateway buffers and has 30s timeout — **don't put SSE behind API Gateway** |
+| **EKS with ingress-nginx** | Yes, with annotation | Add `nginx.ingress.kubernetes.io/proxy-buffering: "off"` to the ingress |
+| **CloudFront** in front of any origin | No | CloudFront buffers + has 30s idle timeout. Route SSE endpoints around CloudFront (separate path → ALB direct) |
+| **Cloudflare** in front | Yes, with rule | Add a Cache Rule that bypasses cache for `/api/workflow/*/stream` |
+
+**Symptom that you have a buffering proxy:** The replay widget's live event counter doesn't tick up in real time, but `curl -N` directly to `/api/workflow/[id]/stream` shows events flowing fine. The browser is receiving chunks in batches because the proxy is holding bytes.
 
 ### Required IAM Policy
 

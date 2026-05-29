@@ -316,6 +316,14 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                 updatedAt: ticket.updatedAt || new Date().toISOString(),
               };
             }
+            // Override with DDB agentTasks — Jira search index can lag behind actual status
+            if (state?.agentTasks) {
+              for (const task of Object.values(state.agentTasks) as Array<{ ticketId?: string; status?: string }>) {
+                if (task.ticketId && task.status === "complete" && map[task.ticketId] && map[task.ticketId].status !== "done") {
+                  map[task.ticketId] = { ...map[task.ticketId], status: "done" };
+                }
+              }
+            }
             setTicketStatusMap(map);
           }
         })
@@ -582,11 +590,16 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   atLiveEdgeRef.current = atLiveEdge;
 
   const handleEvent = useCallback((event: WorkflowEvent) => {
-    // DVR: always append to timeline so scrubber can access history
-    setReplayEvents((prev) => [...prev, event]);
-    if (atLiveEdgeRef.current) {
-      setReplayIndex((prev) => prev + 1);
-    }
+    // DVR: always append to timeline so scrubber can access history.
+    // Set replayIndex to align with new length (not prev+1) so the counter
+    // stays consistent when starting from an empty timeline (no catch-up).
+    setReplayEvents((prev) => {
+      const next = [...prev, event];
+      if (atLiveEdgeRef.current) {
+        setReplayIndex(next.length - 1);
+      }
+      return next;
+    });
 
     switch (event.type) {
       case "phase_change": {
@@ -726,6 +739,30 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             updatedAt: event.ticket.updatedAt || event.timestamp || new Date().toISOString(),
           },
         }));
+        // Wire the agent → ticket mapping so the badge renders on the agent's slot
+        // immediately, before the agent is invoked and emits its own agent_status event.
+        if (event.ticket.assignee) {
+          agentTicketMapRef.current[event.ticket.assignee] = event.ticket.id;
+          // Seed agentTasks with a "pending" entry so the slot picks up the ticketId
+          // without waiting for invocation. Status will transition via agent_status events.
+          setState((s) => {
+            if (!s) return s;
+            if (s.agentTasks[event.ticket.assignee!]) return s;
+            return {
+              ...s,
+              agentTasks: {
+                ...s.agentTasks,
+                [event.ticket.assignee!]: {
+                  id: `task_${Date.now()}`,
+                  agentId: event.ticket.assignee!,
+                  ticketId: event.ticket.id,
+                  status: "pending",
+                  input: "",
+                },
+              },
+            };
+          });
+        }
         break;
       default:
         break;
@@ -1191,21 +1228,29 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                               <span className="item-label">{agent.displayName}</span>
                               <span className="ml-auto mr-auto">
                                 {(() => {
-                                  const tid = agentTicketMapRef.current[agent.id];
+                                  const tid = agentTicketMapRef.current[agent.id] || agentTask?.ticketId;
                                   if (!tid) return null;
                                   const ticketInfo = ticketStatusMap[tid];
-                                  if (ticketInfo) {
-                                    return (
-                                      <span onClick={(e) => { e.stopPropagation(); handleOpenTicketModal(tid); }}>
-                                        <TicketStatusBadge
-                                          status={ticketInfo.status}
-                                          ticketId={tid}
-                                          ticketTitle={ticketInfo.title}
-                                        />
-                                      </span>
-                                    );
-                                  }
-                                  return <span className="text-[9px] text-zinc-500">{tid}</span>;
+                                  // Derive status from agentTask when ticketStatusMap hasn't caught up
+                                  // (Jira JQL indexing lag, or before the 15s /tickets poll fires)
+                                  const derivedStatus: TicketStatus | null = agentTask
+                                    ? agentTask.status === "complete" ? "done"
+                                    : agentTask.status === "running" || agentTask.status === "waiting_response" ? "in_progress"
+                                    : agentTask.status === "error" ? "blocked"
+                                    : agentTask.status === "pending" ? "todo"
+                                    : null
+                                    : null;
+                                  const status = ticketInfo?.status || derivedStatus;
+                                  if (!status) return null;
+                                  return (
+                                    <span onClick={(e) => { e.stopPropagation(); handleOpenTicketModal(tid); }}>
+                                      <TicketStatusBadge
+                                        status={status}
+                                        ticketId={tid}
+                                        ticketTitle={ticketInfo?.title}
+                                      />
+                                    </span>
+                                  );
                                 })()}
                               </span>
                               <span

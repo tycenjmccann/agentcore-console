@@ -13,7 +13,7 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_BUILD_SHA: gitSha,
     NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),
-    NEXT_PUBLIC_TICKET_PROVIDER: process.env.TICKET_PROVIDER || "dynamodb",
+    NEXT_PUBLIC_TICKET_PROVIDER: process.env.TICKET_PROVIDER || "jira",
   },
   outputFileTracingIncludes: {
     "/api/**": ["./node_modules/@aws-sdk/**"],

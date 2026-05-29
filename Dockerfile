@@ -13,6 +13,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
+ENV TICKET_PROVIDER=jira
 RUN npm run build
 
 # Production image
