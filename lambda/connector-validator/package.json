@@ -1,0 +1,17 @@
+{
+  "name": "connector-validator",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Lambda function for connector validation pipeline",
+  "main": "index.mjs",
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/.bin/jest"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1049.0",
+    "@aws-sdk/client-s3": "^3.1048.0",
+    "@aws-sdk/client-secrets-manager": "^3.1048.0",
+    "@aws-sdk/client-sts": "^3.1046.0",
+    "@aws-sdk/lib-dynamodb": "^3.1049.0"
+  }
+}
