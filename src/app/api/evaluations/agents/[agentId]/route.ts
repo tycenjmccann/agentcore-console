@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEvalConfig, updateEvalConfig } from "@/lib/eval-config";
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
 
 export const dynamic = "force-dynamic";
 
@@ -48,11 +44,6 @@ export async function PUT(
 
   if (sampleRate !== undefined && sampleRate !== existing.sampleRate) {
     console.log(`[eval-config] sampleRate changed for ${agentId}: ${existing.sampleRate} → ${sampleRate}`);
-    try {
-      await execAsync(`npx agentcore eval online update --agent-id ${agentId} --sampling-rate ${sampleRate}`);
-    } catch (err) {
-      console.error(`[eval-config] CLI update failed for ${agentId}:`, err);
-    }
   }
 
   if (enabled !== undefined && enabled !== existing.enabled) {
