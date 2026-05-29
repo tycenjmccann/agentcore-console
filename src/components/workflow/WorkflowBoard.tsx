@@ -74,6 +74,21 @@ function applyEventToState(s: WorkflowState, event: WorkflowEvent): WorkflowStat
       return { ...s, phase: "complete" };
     case "ticket_update":
       return s;
+    case "ticket_created": {
+      const assignee = (event as { ticket: { id: string; assignee?: string; status: string; title: string } }).ticket.assignee;
+      if (!assignee) return s;
+      if (s.agentTasks[assignee]) return s;
+      const ticket = (event as { ticket: { id: string; assignee?: string; status: string; title: string } }).ticket;
+      const tasks = { ...s.agentTasks };
+      tasks[assignee] = {
+        id: `task_${Date.now()}`,
+        agentId: assignee,
+        ticketId: ticket.id,
+        status: "pending",
+        input: "",
+      };
+      return { ...s, agentTasks: tasks };
+    }
     default:
       return s;
   }
