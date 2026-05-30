@@ -53,7 +53,15 @@ const DEFAULT_PRICING = { input: 15, output: 75 }; // fallback to Opus if unknow
 
 // In-memory cache: evaluations data changes slowly (7-day window), no need to re-fetch every request
 let cachedResponse: { data: unknown; timestamp: number } | null = null;
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+
+// Timeout wrapper — prevents one slow agent from stalling the entire response
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
 
 export async function GET() {
   await headers();
@@ -70,68 +78,76 @@ export async function GET() {
     // 1. Fetch eval scores + token usage ALL IN PARALLEL (no AWS SDK)
     const agentEntries = Object.entries(AGENTS);
 
+    const AGENT_TIMEOUT_MS = 15000; // 15s max per agent fetch
+    const emptyEval = { name: "", scores: {} as Record<string, { scores: number[] }>, sessionCount: 0 };
+    const emptyTokens: AgentTokenResult = { input: 0, output: 0, byModel: [] };
+
     const [evalResults, tokenResults] = await Promise.all([
       // Eval scores: describe log groups + filter events per agent (parallel)
       Promise.all(
-        agentEntries.map(async ([configName, agentDef]) => {
-          const logGroupPrefix = `/aws/bedrock-agentcore/evaluations/results/${configName}`;
-          const sessions = new Set<string>();
-          const agentScores: Record<string, { scores: number[] }> = {};
+        agentEntries.map(([configName, agentDef]) =>
+          withTimeout(
+            (async () => {
+              const logGroupPrefix = `/aws/bedrock-agentcore/evaluations/results/${configName}`;
+              const sessions = new Set<string>();
+              const agentScores: Record<string, { scores: number[] }> = {};
 
-          try {
-            const groupsResp = await cwLogsRequest("DescribeLogGroups", {
-              logGroupNamePrefix: logGroupPrefix,
-            });
-            const logGroups = groupsResp.logGroups || [];
+              const groupsResp = await cwLogsRequest("DescribeLogGroups", {
+                logGroupNamePrefix: logGroupPrefix,
+              });
+              const logGroups = groupsResp.logGroups || [];
 
-            const groupResults = await Promise.all(
-              logGroups.map((group: { logGroupName: string }) =>
-                cwLogsRequest("FilterLogEvents", {
-                  logGroupName: group.logGroupName,
-                  startTime, endTime, limit: 500,
-                }).catch(() => ({ events: [] }))
-              )
-            );
+              const groupResults = await Promise.all(
+                logGroups.map((group: { logGroupName: string }) =>
+                  cwLogsRequest("FilterLogEvents", {
+                    logGroupName: group.logGroupName,
+                    startTime, endTime, limit: 500,
+                  }).catch(() => ({ events: [] }))
+                )
+              );
 
-            for (const result of groupResults) {
-              for (const event of result.events || []) {
-                try {
-                  const parsed = JSON.parse(event.message || "{}");
-                  const attrs = parsed.attributes || {};
-                  const rawEvaluator = attrs["gen_ai.evaluation.name"] || "";
-                  const evaluator = normalizeEvaluatorName(rawEvaluator);
-                  const score = attrs["gen_ai.evaluation.score.value"];
-                  const sessionId = attrs["session.id"] || "";
-                  if (sessionId) sessions.add(sessionId);
-                  if (evaluator && score !== undefined && score !== null) {
-                    if (!agentScores[evaluator]) agentScores[evaluator] = { scores: [] };
-                    agentScores[evaluator].scores.push(Number(score));
-                  }
-                } catch {}
+              for (const result of groupResults) {
+                for (const event of result.events || []) {
+                  try {
+                    const parsed = JSON.parse(event.message || "{}");
+                    const attrs = parsed.attributes || {};
+                    const rawEvaluator = attrs["gen_ai.evaluation.name"] || "";
+                    const evaluator = normalizeEvaluatorName(rawEvaluator);
+                    const score = attrs["gen_ai.evaluation.score.value"];
+                    const sessionId = attrs["session.id"] || "";
+                    if (sessionId) sessions.add(sessionId);
+                    if (evaluator && score !== undefined && score !== null) {
+                      if (!agentScores[evaluator]) agentScores[evaluator] = { scores: [] };
+                      agentScores[evaluator].scores.push(Number(score));
+                    }
+                  } catch {}
+                }
               }
-            }
-          } catch {}
-          return { name: agentDef.name, scores: agentScores, sessionCount: sessions.size };
-        })
+              return { name: agentDef.name, scores: agentScores, sessionCount: sessions.size };
+            })(),
+            AGENT_TIMEOUT_MS,
+            { ...emptyEval, name: agentDef.name }
+          )
+        )
       ),
       // Token usage: discover log group by prefix, then fetch tokens (parallel)
       Promise.all(
-        agentEntries.map(async ([, agentDef]) => {
-          try {
-            // Discover the actual log group name using prefix
-            const groupsResp = await cwLogsRequest("DescribeLogGroups", {
-              logGroupNamePrefix: agentDef.runtimeLogGroupPrefix,
-              limit: 5,
-            });
-            const logGroups = (groupsResp.logGroups || []) as { logGroupName: string }[];
-            if (logGroups.length === 0) return { input: 0, output: 0, byModel: [] } as AgentTokenResult;
-            // Use the most recent (last) log group matching the prefix
-            const logGroupName = logGroups[logGroups.length - 1].logGroupName;
-            return await fetchAgentTokens(logGroupName, startTime, endTime);
-          } catch {
-            return { input: 0, output: 0, byModel: [] } as AgentTokenResult;
-          }
-        })
+        agentEntries.map(([, agentDef]) =>
+          withTimeout(
+            (async () => {
+              const groupsResp = await cwLogsRequest("DescribeLogGroups", {
+                logGroupNamePrefix: agentDef.runtimeLogGroupPrefix,
+                limit: 5,
+              });
+              const logGroups = (groupsResp.logGroups || []) as { logGroupName: string }[];
+              if (logGroups.length === 0) return emptyTokens;
+              const logGroupName = logGroups[logGroups.length - 1].logGroupName;
+              return await fetchAgentTokens(logGroupName, startTime, endTime);
+            })(),
+            AGENT_TIMEOUT_MS,
+            emptyTokens
+          )
+        )
       ),
     ]);
 

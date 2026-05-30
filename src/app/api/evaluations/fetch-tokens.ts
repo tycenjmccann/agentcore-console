@@ -29,7 +29,16 @@ interface Credentials {
   sessionToken?: string;
 }
 
+// Cache credentials for 10 minutes to avoid spawning subprocess on every CW call
+let cachedCreds: { creds: Credentials; expiry: number } | null = null;
+
 async function getCredentials(): Promise<Credentials> {
+  if (cachedCreds && Date.now() < cachedCreds.expiry) {
+    return cachedCreds.creds;
+  }
+
+  let creds: Credentials;
+
   // Try ECS/App Runner container credentials endpoint first
   const relativeUri = process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI;
   if (relativeUri) {
@@ -42,38 +51,41 @@ async function getCredentials(): Promise<Credentials> {
       req.on("error", reject);
       req.setTimeout(2000, () => { req.destroy(); reject(new Error("timeout")); });
     });
-    const creds = JSON.parse(resp);
-    return {
-      accessKeyId: creds.AccessKeyId,
-      secretAccessKey: creds.SecretAccessKey,
-      sessionToken: creds.Token,
+    const parsed = JSON.parse(resp);
+    creds = {
+      accessKeyId: parsed.AccessKeyId,
+      secretAccessKey: parsed.SecretAccessKey,
+      sessionToken: parsed.Token,
     };
-  }
-  // Try env vars
-  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-    return {
+  } else if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    // Try env vars
+    creds = {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID,
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       sessionToken: process.env.AWS_SESSION_TOKEN,
     };
+  } else {
+    // Fallback: resolve via AWS CLI credential_process / shared credentials
+    try {
+      const { execSync } = require("child_process");
+      const profile = process.env.AWS_PROFILE || "default";
+      const output = execSync(
+        `aws configure export-credentials --profile ${profile} --format process 2>/dev/null`,
+        { timeout: 5000, encoding: "utf-8" }
+      );
+      const parsed = JSON.parse(output);
+      creds = {
+        accessKeyId: parsed.AccessKeyId,
+        secretAccessKey: parsed.SecretAccessKey,
+        sessionToken: parsed.SessionToken,
+      };
+    } catch {
+      creds = { accessKeyId: "", secretAccessKey: "", sessionToken: undefined };
+    }
   }
-  // Fallback: resolve via AWS CLI credential_process / shared credentials
-  try {
-    const { execSync } = require("child_process");
-    const profile = process.env.AWS_PROFILE || "default";
-    const output = execSync(
-      `aws configure export-credentials --profile ${profile} --format process 2>/dev/null`,
-      { timeout: 5000, encoding: "utf-8" }
-    );
-    const creds = JSON.parse(output);
-    return {
-      accessKeyId: creds.AccessKeyId,
-      secretAccessKey: creds.SecretAccessKey,
-      sessionToken: creds.SessionToken,
-    };
-  } catch {
-    return { accessKeyId: "", secretAccessKey: "", sessionToken: undefined };
-  }
+
+  cachedCreds = { creds, expiry: Date.now() + 10 * 60 * 1000 };
+  return creds;
 }
 
 export async function cwLogsRequest(action: string, payload: object): Promise<any> {
@@ -175,9 +187,10 @@ export async function fetchAgentTokens(
   // Accumulate tokens grouped by model
   const modelMap: Record<string, { input: number; output: number }> = {};
   let nextToken: string | undefined = undefined;
+  const MAX_PAGES = 10; // Cap pagination to avoid 30s+ fetches on high-volume agents
 
   try {
-    while (true) {
+    for (let page = 0; page < MAX_PAGES; page++) {
       const payload: any = {
         logGroupName: logGroup,
         startTime,

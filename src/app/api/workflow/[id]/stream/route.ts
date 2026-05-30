@@ -12,6 +12,7 @@
 import { NextRequest } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { transformEvent } from "@/lib/workflow/transform-event";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,80 +24,7 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
   marshallOptions: { removeUndefinedValues: true },
 });
 
-/**
- * Transform EventBridge/agent-invoker events into the format usePipelineSSE expects.
- *
- * Source (DDB):  { type: "agent.streaming", detail: { agentId, type: "text"|"trace", content?, toolName? } }
- * Target (UI):   { type: "agent_output"|"agent_status"|"agent_complete"|"error", agentId, ... }
- */
-function transformEvent(item: Record<string, unknown>): Record<string, unknown> | null {
-  const eventType = item.type as string;
-  const detail = (item.detail || {}) as Record<string, unknown>;
-  const agentId = detail.agentId as string;
-  const timestamp = item.timestamp as string;
-
-  switch (eventType) {
-    case "agent.streaming": {
-      const subType = detail.type as string;
-      if (subType === "text") {
-        return { type: "agent_output", agentId, chunk: detail.content, timestamp };
-      }
-      if (subType === "trace") {
-        // Tool invocation trace — emit as tool_use to light up tool indicators
-        return { type: "tool_use", agentId, toolName: detail.toolName, timestamp };
-      }
-      return null;
-    }
-
-    case "agent.complete":
-      return {
-        type: "agent_complete",
-        agentId,
-        output: detail.output,
-        branch: detail.branch,
-        commitSha: detail.commitSha,
-        timestamp,
-      };
-
-    case "agent.error":
-      return { type: "error", agentId, error: detail.error, timestamp };
-
-    case "agent.started":
-    case "agent.invoked":
-      return { type: "agent_status", agentId: agentId || detail.assignee as string, status: "running", ticketId: detail.ticketId as string, timestamp };
-
-    case "workflow.report_completion":
-      // Agent reported done — emit agent_complete immediately (don't wait for Jira webhook cascade)
-      if (detail.agentId) {
-        return {
-          type: "agent_complete",
-          agentId: detail.agentId as string,
-          output: detail.summary,
-          branch: detail.branch,
-          timestamp,
-        };
-      }
-      return null;
-
-    case "workflow.phase_change":
-      return { type: "phase_change", phase: detail.phase, timestamp };
-
-    case "workflow.complete":
-      return { type: "workflow_complete", timestamp };
-
-    case "ticket.created":
-      // Orchestrator publishes this when a new ticket is tracked. Surface it to the UI
-      // so badges render immediately, without polling.
-      if (detail.ticket) {
-        return { type: "ticket_created", ticket: detail.ticket, timestamp };
-      }
-      return null;
-
-    default:
-      // Pass through unknown events as-is
-      return { type: eventType, ...detail, timestamp };
-  }
-}
+// Event transformation is handled by the shared transformer in @/lib/workflow/transform-event.ts
 
 export async function GET(
   req: NextRequest,

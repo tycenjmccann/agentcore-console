@@ -64,7 +64,7 @@ export default function TicketStatusBadge({
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border ${border} ${text} ${sizeClasses} ${interactiveClasses}`}
+      className={`inline-flex items-center gap-1 rounded-full border leading-none ${border} ${text} ${sizeClasses} ${interactiveClasses}`}
       title={ticketTitle}
       onClick={onClick}
       role={onClick ? "button" : undefined}
