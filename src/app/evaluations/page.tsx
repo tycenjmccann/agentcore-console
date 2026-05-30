@@ -174,7 +174,7 @@ export default function EvaluationsPage() {
     fetchAgentConfigs();
   }, [fetchData, fetchAgentConfigs]);
 
-  const agents = data?.agents || [];
+  const agents = data?.agents?.length ? data.agents : agentsConfig.agents.map((a) => a.name);
   const hasScores = !!(data?.scorecard && Object.keys(data.scorecard).length > 0);
 
   // Compute totals for operational metrics
@@ -293,7 +293,7 @@ export default function EvaluationsPage() {
         </div>
       )}
 
-      {data && (
+      {agents.length > 0 && (
         <div className="bg-surface-2 border border-surface-4 rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full" style={{ tableLayout: "auto" }}>
@@ -356,6 +356,8 @@ export default function EvaluationsPage() {
               </tbody>
 
               {/* ─── Operational Metrics ─── */}
+              {data && (
+              <>
               <thead>
                 <tr>
                   <td colSpan={agents.length + 2} className="px-3 pt-6 pb-2">
@@ -435,6 +437,8 @@ export default function EvaluationsPage() {
                   })}
                 </tr>
               </tbody>
+              </>
+              )}
 
               {/* ─── Evaluator Scores ─── */}
               {hasScores && (
@@ -548,7 +552,7 @@ export default function EvaluationsPage() {
           </div>
           {/* Footer */}
           <div className="px-3 py-2 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-[var(--color-text-muted)]">
-            <span>Updated: {data.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString() : "—"}</span>
+            <span>Updated: {data?.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString() : "—"}</span>
             <span>Scores: <span className="text-emerald-400">≥90%</span> · <span className="text-amber-400">≥75%</span> · <span className="text-red-400">&lt;75%</span></span>
           </div>
         </div>
