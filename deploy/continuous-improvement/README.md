@@ -1,349 +1,139 @@
-# Continuous Improvement Loop (Self-Improvement)
+# Continuous Improvement Pipeline
 
-The Self-Improvement (SI) loop automatically evaluates every agent invocation and, when scores drop below threshold, generates a PRD to fix the root cause — triggering the same workflow pipeline that builds features.
+This directory contains deployment scripts for the **eval-packager** continuous improvement pipeline.
 
-## How It Works
+## Architecture Overview
 
 ```
-Agent invocation
-    ↓
-OTEL traces → XRay → aws/spans (indexed)
-    ↓
-AgentCore Online Evaluation (10 evaluators, 100% sampling)
-    ↓
-Eval results → CloudWatch Logs
-    ↓
-CW Logs Subscription Filter
-    ↓
-agentis-eval-packager Lambda
-  (parses scores, reads current prompt, packages context)
-    ↓
-agentis_fleet_improver Runtime Agent
-  (root-cause analysis → writes PRD to S3)
-    ↓
-S3 PutObject (fleet-imp-agent/prd/*.json)
-    ↓
-EventBridge rule
-    ↓
-agentis-prd-submitter Lambda
-  (reads PRD, submits to Workflow API with [SI] prefix)
-    ↓
-14-agent development pipeline produces a PR
+CloudWatch Logs → eval-packager Lambda → DynamoDB buffer → S3 batch → improver agent
 ```
 
-## Prerequisites
+### Pipeline Stages
 
-1. Agent fleet deployed (`deploy/runtime-agent/deploy-fleet.sh`)
-2. `agentcore` CLI installed and configured
-3. App Runner service deployed and running (for the Workflow API endpoint)
-4. S3 bucket exists: `agentis-artifacts-{ACCOUNT_ID}-{REGION}`
+1. **CW Logs Ingestion**: Bedrock AgentCore evaluation harnesses emit results to CloudWatch Logs groups following the pattern:
+   ```
+   /aws/bedrock-agentcore/evaluations/results/eval_<harnessName>
+   ```
 
-## Deploy (One Command)
+2. **Eval Packager Lambda** (`lambda/eval-packager/index.mjs`):
+   - Triggered by CW Logs subscription filters
+   - Resolves agent identity from the log group harness name
+   - Parses evaluator results (scores, evidence, evaluator name) from log event messages
+   - Applies per-agent controls (enabled flag, sample rate)
+   - Atomically appends enriched session data to a DynamoDB buffer
 
-```bash
-cd deploy/continuous-improvement
-./deploy-all.sh
-```
+3. **DynamoDB Buffer** (`agentis-eval-config` table):
+   - Keyed by canonical `agentId` (e.g., `team-frontend-dev`)
+   - Accumulates sessions in `sessionBuffer` list attribute
+   - Flushes when buffer reaches configured `batchSize`
 
-This script:
-1. Sets XRay sampling to 100% (creates `AgentCore100Percent` rule) + indexing to 100%
-2. Adds XRay IAM permissions to the agent runtime role
-3. Creates online eval configs for all 14 agents (if not already present)
-4. Deploys the eval-packager and prd-submitter Lambdas
-5. Sets up CW Logs subscription filters (eval results → packager)
-6. Creates EventBridge rule (S3 PRD → submitter)
-7. Syncs `agents.json` config + agent prompts to S3
+4. **S3 Batch Output** (`fleet-imp-agent/prd/`):
+   - JSON files containing enriched evaluator results
+   - Each batch includes `sessions[]` with parsed evaluator scores, evidence, and metadata
+   - Named: `batch-<agentId>-<timestamp>.json`
 
-### Environment Variables
+5. **Improver Agent**:
+   - Consumes S3 batch files
+   - Synthesizes actionable improvement recommendations from evaluator scores and evidence
 
-Set these before running (or rely on `deploy/config.sh` defaults):
+## Agent ID Resolution
 
-| Variable | Required | Default | Purpose |
-|----------|----------|---------|---------|
-| `AWS_PROFILE` | Yes | — | AWS credentials profile |
-| `DEPLOYMENT_URL` | Yes | — | App Runner URL (workflow API) |
-| `GITHUB_OWNER` | Yes | — | GitHub org/user for fleet repo |
-| `ARTIFACT_BUCKET` | No | `agentis-artifacts-{ACCOUNT}-{REGION}` | S3 bucket |
-| `IMPROVEMENT_AGENT_ID` | No | `agentis_fleet_improver-k5W5Vb9GhE` | Fleet improver runtime ID |
+The packager Lambda resolves agent identity dynamically from `config/agents.json` stored in the artifacts S3 bucket:
 
-## IAM Requirements
+1. On cold start, loads `s3://<ARTIFACTS_BUCKET>/config/agents.json`
+2. Builds a `harnessName → id` lookup map (cached for warm starts)
+3. Extracts harness name from the CW Logs log group (substring after `eval_`)
+4. Resolves to canonical agent ID (e.g., `team_frontend_dev` → `team-frontend-dev`)
 
-### Agent Runtime Role (`agentis-agentcore-role`)
+This replaces the previously hardcoded `CONFIG_TO_AGENT` map, ensuring the packager stays in sync with the canonical agent registry.
 
-The agent runtime role **must** include XRay permissions for traces to be indexed:
+### Agents Config Source of Truth
+
+The file `src/config/agents.json` defines all agents with their:
+- `id`: Canonical agent identifier (kebab-case, e.g., `team-frontend-dev`)
+- `harnessName`: Evaluation harness identifier (snake_case, e.g., `team_frontend_dev`)
+
+## Enriched Batch Payloads
+
+Each session in the S3 batch `sessions[]` array contains **parsed evaluator results**, not raw CW Logs event envelopes:
 
 ```json
 {
-  "Effect": "Allow",
-  "Action": [
-    "xray:PutTraceSegments",
-    "xray:PutTelemetryRecords",
-    "xray:GetSamplingRules",
-    "xray:GetSamplingTargets"
-  ],
-  "Resource": "*"
-}
-```
-
-Without these, the OTEL collector in the AgentCore runtime cannot export traces to XRay, and the evaluation system will find "No spans" for any session.
-
-### Lambda Role (`agentis-lambda-role`)
-
-The eval-packager and prd-submitter Lambdas need:
-
-```json
-{
-  "Effect": "Allow",
-  "Action": [
-    "s3:GetObject",
-    "s3:PutObject"
-  ],
-  "Resource": [
-    "arn:aws:s3:::agentis-artifacts-{ACCOUNT}-{REGION}/*"
+  "agentId": "team-frontend-dev",
+  "batchSize": 10,
+  "flushedAt": "2025-01-15T10:30:00.000Z",
+  "sessions": [
+    {
+      "logGroup": "/aws/bedrock-agentcore/evaluations/results/eval_team_frontend_dev",
+      "logStream": "stream-id",
+      "timestamp": "2025-01-15T10:29:55.000Z",
+      "evaluatorResults": [
+        {
+          "timestamp": 1705312195000,
+          "evaluatorName": "code-quality",
+          "score": 0.85,
+          "evidence": "Clean component structure, proper prop typing",
+          "metadata": { "category": "maintainability" },
+          "result": "pass"
+        }
+      ]
+    }
   ]
-},
-{
-  "Effect": "Allow",
-  "Action": "bedrock-agentcore:InvokeAgentRuntime",
-  "Resource": "arn:aws:bedrock-agentcore:*:*:runtime/agentis_fleet_improver*"
 }
 ```
 
-### XRay Sampling + Indexing (Both Required)
+This structure enables the improver agent to directly synthesize insights without re-parsing raw log data.
 
-XRay has **two separate percentage settings** that both must be 100%:
+## Deployment
 
-1. **Sampling Rule** — controls what % of traces are *captured* by XRay in the first place. The Default rule is only 5%. You need a custom rule at priority 1 with 100% rate:
+### Prerequisites
 
-```bash
-aws xray create-sampling-rule --cli-input-json '{
-  "SamplingRule": {
-    "RuleName": "AgentCore100Percent",
-    "ResourceARN": "*",
-    "Priority": 1,
-    "FixedRate": 1.0,
-    "ReservoirSize": 100,
-    "ServiceName": "*",
-    "ServiceType": "*",
-    "Host": "*",
-    "HTTPMethod": "*",
-    "URLPath": "*",
-    "Version": 1,
-    "Attributes": {"cloud.platform": "aws_bedrock_agentcore"}
-  }
-}'
-```
+- AWS CLI configured with appropriate credentials
+- `jq` installed
+- Access to the target AWS account
 
-2. **Indexing Rule** — controls what % of captured traces are *indexed* into Transaction Search (which online evals query). Must also be 100%:
+### Running
 
 ```bash
-aws xray update-indexing-rule --name "Default" \
-  --rule '{"Probabilistic": {"DesiredSamplingPercentage": 100}}'
+# Deploy with default region (us-east-1)
+./deploy-all.sh
+
+# Deploy to a specific region
+./deploy-all.sh --region us-west-2
 ```
 
-**If either is below 100%, online evals will miss sessions.** The Default sampling rule at 5% was the root cause of "No spans found" in our initial deployment — traces simply weren't being captured.
+### What it does
 
-The `deploy-all.sh` script configures both automatically.
+1. **Creates DynamoDB table** (`agentis-eval-config`) with on-demand billing if it doesn't exist
+2. **Seeds 14 agent rows** from `src/config/agents.json` with default eval configuration:
+   - `enabled: true`
+   - `sampleRate: 100` (100%)
+   - `batchSize: 10`
+   - Empty `sessionBuffer`
 
-## Verification
+The seed is idempotent — existing rows are not overwritten (`attribute_not_exists(agentId)` condition).
 
-After deployment, verify the full chain:
+### DDB Rows Created
 
-```bash
-./verify.sh
-```
-
-This invokes an agent, waits for the span to appear in `aws/spans`, and confirms the online eval system can evaluate it.
-
-## Toggling the Loop On/Off
-
-The UI provides a toggle on the Evaluations page. Under the hood, this sets the eval-packager Lambda's reserved concurrency to 0 (off) or removes it (on):
-
-- **Off**: `aws lambda put-function-concurrency --function-name agentis-eval-packager --reserved-concurrent-executions 0`
-- **On**: `aws lambda delete-function-concurrency --function-name agentis-eval-packager`
-
-When off, eval results still accumulate in CloudWatch Logs but aren't processed. Turning it back on resumes processing.
-
-## Evaluators
-
-Each agent is evaluated by 10 evaluators (9 built-in + 1 custom):
-
-| Evaluator | What It Measures |
-|-----------|-----------------|
-| ToolSelectionAccuracy | Did the agent pick the right tool? |
-| ToolParameterAccuracy | Were tool arguments correct? |
-| InstructionFollowing | Did it follow system prompt instructions? |
-| GoalSuccessRate | Did it accomplish the stated goal? |
-| Correctness | Is the output factually correct? |
-| Coherence | Is the response logically coherent? |
-| Faithfulness | Does it stay true to source material? |
-| TrajectoryInOrderMatch | Did it follow the expected step sequence? |
-| Helpfulness | How useful is the response? |
-| dependency_chain_compliance | Are ticket dependencies set correctly? |
+| agentId | Source |
+|---------|--------|
+| team-requirements-analyst | agents.json |
+| team-ios-designer | agents.json |
+| team-backend-designer | agents.json |
+| team-frontend-designer | agents.json |
+| team-android-designer | agents.json |
+| team-security-reviewer | agents.json |
+| team-legal-compliance | agents.json |
+| team-localization | agents.json |
+| team-analytics-designer | agents.json |
+| team-backend-dev | agents.json |
+| team-api-dev | agents.json |
+| team-frontend-dev | agents.json |
+| team-qa-verifier | agents.json |
+| team-ci-agent | agents.json |
 
 ## Troubleshooting
 
-### Evals show "No spans found"
-
-**Cause:** Traces aren't reaching XRay, or aren't being indexed.
-
-1. Check XRay **sampling** rule exists with 100% rate:
-   ```bash
-   aws xray get-sampling-rules --query 'SamplingRuleRecords[?SamplingRule.RuleName==`AgentCore100Percent`]'
-   ```
-   If missing, the Default rule only captures 5% of traces. Create the AgentCore100Percent rule (see IAM section above).
-
-2. Check XRay **indexing** is at 100%:
-   ```bash
-   aws xray get-indexing-rules
-   ```
-
-3. Check XRay permissions on the agent runtime role:
-   ```bash
-   aws iam get-role-policy --role-name agentis-agentcore-role --policy-name agentcore-permissions \
-     | grep -A2 xray
-   ```
-   If missing, add the XRay statement (see IAM section above).
-
-4. Verify spans appear after an invocation:
-   ```bash
-   # Invoke an agent, wait 60s, then:
-   aws logs filter-log-events --log-group-name "aws/spans" \
-     --start-time $(python3 -c "import time; print(int((time.time()-120)*1000))") \
-     --query 'events | length(@)'
-   ```
-
-### Eval-packager not firing
-
-**Cause:** Subscription filter isn't connected, or Lambda concurrency is 0.
-
-```bash
-# Check concurrency (0 = off)
-aws lambda get-function-concurrency --function-name agentis-eval-packager
-
-# Check subscription filter exists
-aws logs describe-subscription-filters \
-  --log-group-name "/aws/bedrock-agentcore/evaluations/results/eval_agentis_qa_verifier-PwVe4ADk1U"
-```
-
-### Eval-packager logs "Unknown log group"
-
-**Cause:** The `CONFIG_TO_AGENT` map in `lambda/eval-packager/index.mjs` doesn't match the eval config naming convention. Log group names use the full pattern `eval_agentis_{role}` (e.g., `eval_agentis_qa_verifier-PwVe4ADk1U`), so the keys in the map must also use `eval_agentis_` prefix.
-
-```bash
-# Check what log groups exist
-aws logs describe-log-groups --log-group-name-prefix /aws/bedrock-agentcore/evaluations/results/eval_agentis_ \
-  --query 'logGroups[].logGroupName' --output table
-```
-
-If new agents are added to the fleet, add matching entries to both `setup-evaluations.sh` and the `CONFIG_TO_AGENT` map in `eval-packager/index.mjs`.
-
-### PRD-submitter can't reach workflow API
-
-**Cause:** `WORKFLOW_API_URL` env var is stale (App Runner URL changed after redeploy).
-
-```bash
-# Check current value
-aws lambda get-function-configuration --function-name agentis-prd-submitter \
-  --query 'Environment.Variables.WORKFLOW_API_URL'
-
-# Update to current App Runner URL
-aws lambda update-function-configuration --function-name agentis-prd-submitter \
-  --environment "Variables={ARTIFACT_BUCKET=...,WORKFLOW_API_URL=https://NEW-URL.awsapprunner.com,FLEET_REPO_URL=...}"
-```
-
-### S3 AccessDenied on prompts
-
-**Cause:** Agent role's S3 policy references the old bucket name.
-
-The bucket is `agentis-artifacts-{ACCOUNT_ID}-{REGION}` (with region suffix). Update the IAM policy's S3 Resource ARN.
-
-### Evaluations running but no workflow created
-
-The fleet improver agent may decide no action is needed (scores are acceptable). Check its output:
-
-```bash
-aws s3 ls s3://${ARTIFACT_BUCKET}/fleet-imp-agent/ --recursive
-```
-
-If packages exist but no PRDs, the agent determined the scores were fine.
-
-## Architecture Diagram
-
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                        AgentCore Runtime Platform                         │
-│                                                                          │
-│  ┌─────────────┐   OTEL    ┌──────┐   Index    ┌───────────┐           │
-│  │ Agent Fleet │──traces──→│ XRay │──────────→│ aws/spans │           │
-│  │ (14 agents) │           └──────┘            └─────┬─────┘           │
-│  └─────────────┘                                     │                  │
-│                                                      │ query            │
-│  ┌─────────────────────┐                    ┌────────┴────────┐        │
-│  │ Online Eval Configs  │───schedules───→│ Evaluation Engine │        │
-│  │ (14 configs, 100%)   │                    └────────┬────────┘        │
-│  └─────────────────────┘                             │                  │
-│                                                      │ results          │
-│                                              ┌───────┴───────┐          │
-│                                              │ CW Logs (eval) │          │
-│                                              └───────┬───────┘          │
-└──────────────────────────────────────────────────────┼──────────────────┘
-                                                       │
-                         ┌─────────────────────────────┘
-                         │ Subscription Filter
-                         ▼
-               ┌──────────────────┐        ┌─────────────────────┐
-               │ eval-packager λ  │──────→│ fleet_improver agent │
-               │ (parse + package)│        │ (root-cause → PRD)   │
-               └──────────────────┘        └──────────┬──────────┘
-                                                      │ S3 PutObject
-                                                      ▼
-                                           ┌──────────────────┐
-                                           │ fleet-imp-agent/  │
-                                           │ prd/*.json        │
-                                           └────────┬─────────┘
-                                                    │ EventBridge
-                                                    ▼
-                                           ┌──────────────────┐
-                                           │ prd-submitter λ   │
-                                           │ → Workflow API     │
-                                           └────────┬─────────┘
-                                                    │
-                                                    ▼
-                                           ┌──────────────────┐
-                                           │ [SI] Workflow Run │
-                                           │ (14 agents → PR)  │
-                                           └──────────────────┘
-```
-
-## File Structure
-
-```
-deploy/
-├── continuous-improvement/
-│   ├── README.md           ← this file
-│   ├── deploy-all.sh       ← one-command deploy (evals + lambdas + wiring)
-│   ├── deploy.sh           ← SI infrastructure only (lambdas + subscriptions)
-│   └── verify.sh           ← post-deploy validation
-├── evaluations/
-│   ├── setup-evaluations.sh         ← creates 14 online eval configs
-│   ├── eval-config-ids.json         ← config registry
-│   └── dependency_chain_evaluator.json  ← custom evaluator definition
-└── config.sh               ← central env config (sourced by all scripts)
-
-src/config/
-└── agents.json             ← single source of truth for agent roster
-                              (synced to s3://{BUCKET}/config/agents.json by deploy-all.sh)
-
-lambda/
-├── orchestrator/
-│   └── index.mjs           ← loads roster from S3, routes tickets to agents
-├── agentis-tickets/
-│   └── index.mjs           ← loads roster from S3, validates assignees
-├── agentis-jira/
-│   └── index.mjs           ← loads roster from S3, validates assignees
-├── eval-packager/
-│   └── index.mjs           ← parses eval results, invokes fleet improver
-└── prd-submitter/
-    └── index.mjs           ← reads PRD from S3, submits to workflow API
-```
+- **"Agents config file not found"**: Ensure you're running from the repo root or that the path `src/config/agents.json` is accessible relative to the script.
+- **Agent not resolving**: Verify the agent's `harnessName` in `src/config/agents.json` matches the CW Logs group suffix.
+- **Stale agent map**: The Lambda caches `agents.json` for warm starts. A cold start (redeploy or timeout) will reload it.
