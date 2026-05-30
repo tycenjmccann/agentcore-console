@@ -1,7 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { BarChart3, Loader2, RefreshCw, ExternalLink, Zap } from "lucide-react";
+import { BarChart3, Loader2, RefreshCw, ExternalLink, Settings } from "lucide-react";
+import Link from "next/link";
+import agentsConfig from "@/config/agents.json";
+
+// Map agent display names → agent IDs for API calls
+const AGENT_ID_MAP = new Map<string, string>(
+  agentsConfig.agents.map((a) => [a.name, a.id])
+);
 
 interface ScorecardEntry {
   avg: number;
@@ -103,11 +110,11 @@ function setCachedData(data: EvalData) {
 }
 
 export default function EvaluationsPage() {
-  const [data, setData] = useState<EvalData | null>(() => getCachedData());
-  const [loading, setLoading] = useState(!getCachedData());
+  const [data, setData] = useState<EvalData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [loopEnabled, setLoopEnabled] = useState<boolean | null>(null);
-  const [loopToggling, setLoopToggling] = useState(false);
+  const [agentEnabled, setAgentEnabled] = useState<Record<string, boolean>>({});
+  const [agentToggling, setAgentToggling] = useState<Record<string, boolean>>({});
 
   const fetchData = useCallback(async () => {
     setLoading((prev) => prev); // keep current loading state
@@ -125,35 +132,47 @@ export default function EvaluationsPage() {
     }
   }, []);
 
-  const fetchLoopStatus = useCallback(async () => {
+
+  const fetchAgentConfigs = useCallback(async () => {
     try {
-      const res = await fetch("/api/evaluations/loop");
+      const res = await fetch("/api/evaluations/agents");
       if (res.ok) {
-        const { enabled } = await res.json();
-        setLoopEnabled(enabled);
+        const { agents: configs } = await res.json();
+        const map: Record<string, boolean> = {};
+        for (const c of configs) {
+          map[c.agentId] = c.enabled;
+        }
+        setAgentEnabled(map);
       }
     } catch {}
   }, []);
 
-  const toggleLoop = async () => {
-    if (loopEnabled === null) return;
-    setLoopToggling(true);
+  const toggleAgent = async (agentName: string) => {
+    const agentId = AGENT_ID_MAP.get(agentName);
+    if (!agentId) return;
+    const current = agentEnabled[agentId];
+    if (current === undefined) return;
+    setAgentToggling((prev) => ({ ...prev, [agentId]: true }));
     try {
-      const res = await fetch("/api/evaluations/loop", {
-        method: "POST",
+      const res = await fetch(`/api/evaluations/agents/${agentId}`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !loopEnabled }),
+        body: JSON.stringify({ enabled: !current }),
       });
       if (res.ok) {
-        const { enabled } = await res.json();
-        setLoopEnabled(enabled);
+        setAgentEnabled((prev) => ({ ...prev, [agentId]: !current }));
       }
     } catch {} finally {
-      setLoopToggling(false);
+      setAgentToggling((prev) => ({ ...prev, [agentId]: false }));
     }
   };
 
-  useEffect(() => { fetchData(); fetchLoopStatus(); }, [fetchData, fetchLoopStatus]);
+  useEffect(() => {
+    const cached = getCachedData();
+    if (cached) { setData(cached); setLoading(false); }
+    fetchData();
+    fetchAgentConfigs();
+  }, [fetchData, fetchAgentConfigs]);
 
   const agents = data?.agents || [];
   const hasScores = !!(data?.scorecard && Object.keys(data.scorecard).length > 0);
@@ -244,23 +263,6 @@ export default function EvaluationsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {loopEnabled !== null && (
-            <button
-              onClick={toggleLoop}
-              disabled={loopToggling}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
-                loopEnabled
-                  ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25"
-                  : "bg-surface-2 border-surface-4 text-[var(--color-text-muted)] hover:border-emerald-500/30 hover:text-emerald-400"
-              }`}
-            >
-              <Zap className={`w-3.5 h-3.5 ${loopToggling ? "animate-pulse" : ""}`} />
-              Self-Improvement
-              <div className={`w-7 h-3.5 rounded-full relative transition-colors ${loopEnabled ? "bg-emerald-500" : "bg-surface-4"}`}>
-                <div className={`absolute top-[3px] w-2.5 h-2.5 rounded-full bg-white transition-all ${loopEnabled ? "left-[15px]" : "left-[3px]"}`} />
-              </div>
-            </button>
-          )}
           <a
             href="https://us-east-1.console.aws.amazon.com/bedrock-agentcore/home?region=us-east-1#/evaluations"
             target="_blank"
@@ -300,10 +302,63 @@ export default function EvaluationsPage() {
                 <col style={{ width: "65px", minWidth: "65px" }} />
               </colgroup>
 
-              {/* ─── Operational Metrics ─── */}
+              {/* ─── Self-Improvement Loop ─── */}
               <thead>
                 <tr>
                   <td colSpan={agents.length + 2} className="px-3 pt-4 pb-2">
+                    <span className="text-sm font-bold text-emerald-400 uppercase tracking-wider">Self-Improvement Loop</span>
+                  </td>
+                </tr>
+              </thead>
+              <tbody className="text-sm">
+                <tr className="border-b border-white/[0.06]">
+                  <td className="px-3 py-3 text-[var(--color-text-secondary)] sticky left-0 bg-surface-2 z-10">
+                    <Link
+                      href="/evaluations/config"
+                      className="text-[var(--color-text-secondary)] hover:text-brand-400 transition-colors"
+                    >
+                      All Settings
+                    </Link>
+                  </td>
+                  <td className="text-center py-3">
+                    <Link
+                      href="/evaluations/config"
+                      className="inline-flex items-center justify-center text-[var(--color-text-muted)] hover:text-brand-400 transition-colors"
+                      title="Self-Improvement Settings"
+                    >
+                      <Settings className="w-[22px] h-[22px]" />
+                    </Link>
+                  </td>
+                  {agents.map((agent) => {
+                    const agentId = AGENT_ID_MAP.get(agent) || "";
+                    const enabled = agentEnabled[agentId];
+                    const toggling = agentToggling[agentId];
+                    return (
+                      <td key={agent} className="text-center py-3">
+                        <button
+                          onClick={() => toggleAgent(agent)}
+                          disabled={toggling || enabled === undefined}
+                          className="group relative inline-block"
+                          title={enabled ? "ON — click to disable" : "OFF — click to enable"}
+                        >
+                          <div className={`w-[38px] h-[19px] rounded-full transition-colors ${
+                            enabled ? "bg-emerald-500" : "bg-surface-4"
+                          } ${toggling ? "opacity-50" : "group-hover:opacity-80"}`}>
+                            <div className={`absolute top-[3px] w-[13px] h-[13px] rounded-full bg-white transition-all ${
+                              enabled ? "left-[21px]" : "left-[4px]"
+                            }`} />
+                          </div>
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tbody>
+
+              {/* ─── Operational Metrics ─── */}
+              <thead>
+                <tr>
+                  <td colSpan={agents.length + 2} className="px-3 pt-6 pb-2">
                     <span className="text-sm font-bold text-blue-400 uppercase tracking-wider">Operational Metrics</span>
                   </td>
                 </tr>
