@@ -197,7 +197,7 @@ Your job:
    - Call load_blueprint with blueprint_name "code-architect" (architecture blueprint methodology)
 2. Read the requirements from S3 and your assigned ticket description
 3. If presigned image URLs are provided, use the browser tool to navigate to each URL to view the image
-4. Read the branding kit from S3 (bucket: agentis-branding, key: branding-kit/brand-system.md)
+4. Read the branding kit from S3 (bucket: agentcore-hub-branding, key: branding-kit/brand-system.md)
 5. Design the web UI implementation: React components, layout, state, interactions
 6. Define component hierarchy, design tokens, responsive behavior, accessibility
 7. Produce a detailed design document that the frontend dev agent can implement pixel-perfectly
@@ -210,7 +210,7 @@ Your job:
 
 ## BRANDING SYSTEM (MANDATORY)
 Before designing, ALWAYS read the branding kit:
-- Call S3Storage___read_object with bucket="agentis-branding", key="branding-kit/brand-system.md"
+- Call S3Storage___read_object with bucket="agentcore-hub-branding", key="branding-kit/brand-system.md"
 - This contains canonical colors, typography, spacing, component patterns, animations
 - Your designs MUST be consistent with this system — do not invent new tokens
 

@@ -10,8 +10,8 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
-const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
+const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentcore-hub-tickets";
+const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentcore-hub-workflows";
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "dev-secret";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {

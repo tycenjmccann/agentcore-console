@@ -3,16 +3,16 @@
  * setup-tickets-lambda.mjs
  *
  * Deploys the DynamoDB-backed ticket tools Lambda:
- *   1. Creates DynamoDB table (agentis-tickets)
+ *   1. Creates DynamoDB table (agentcore-hub-tickets)
  *   2. Creates IAM role for the Lambda
- *   3. Deploys the Lambda function (agentis-tickets)
+ *   3. Deploys the Lambda function (agentcore-hub-tickets)
  *   4. Prints gateway target definitions to register
  *
  * Usage:
  *   node deploy/setup-tickets-lambda.mjs \
  *     [--gateway-id <your-gateway-id>] \
  *     [--region us-east-1] \
- *     [--table-name agentis-tickets] \
+ *     [--table-name agentcore-hub-tickets] \
  *     [--project-key TEAM]
  *
  * Prerequisites:
@@ -35,14 +35,14 @@ function getArg(name) {
 
 const REGION = getArg("region") || process.env.AWS_REGION || "us-east-1";
 const GATEWAY_ID = getArg("gateway-id");
-const TABLE_NAME = getArg("table-name") || "agentis-tickets";
+const TABLE_NAME = getArg("table-name") || "agentcore-hub-tickets";
 const PROJECT_KEY = getArg("project-key") || "TEAM";
-const LAMBDA_NAME = "agentis-tickets";
-const ROLE_NAME = "AgentisTicketsLambdaRole";
+const LAMBDA_NAME = "agentcore-hub-tickets";
+const ROLE_NAME = "AgentCoreHubTicketsLambdaRole";
 
 // Derive artifact bucket (same convention as deploy/config.sh)
 const ACCOUNT_ID = process.env.AWS_ACCOUNT_ID || "";
-const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || (ACCOUNT_ID ? `agentis-artifacts-${ACCOUNT_ID}-${REGION}` : "");
+const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || (ACCOUNT_ID ? `agentcore-hub-artifacts-${ACCOUNT_ID}-${REGION}` : "");
 
 // gateway-id is optional — if not provided, skip gateway target registration
 
@@ -147,7 +147,7 @@ try {
       new CreateRoleCommand({
         RoleName: ROLE_NAME,
         AssumeRolePolicyDocument: trustPolicy,
-        Description: "Execution role for Agentis mock Jira Lambda",
+        Description: "Execution role for AgentCore Hub mock Jira Lambda",
       })
     );
     console.log(`   ✓ Role "${ROLE_NAME}" created`);
@@ -199,8 +199,8 @@ console.log(`   ✓ Policy attached (DynamoDB + CloudWatch Logs)`);
 console.log("\n3/5 Deploying Lambda function...");
 
 // Zip the Lambda code
-const lambdaDir = join(__dirname, "..", "lambda", "agentis-tickets");
-const zipPath = "/tmp/agentis-tickets.zip";
+const lambdaDir = join(__dirname, "..", "lambda", "agentcore-hub-tickets");
+const zipPath = "/tmp/agentcore-hub-tickets.zip";
 execSync(`cd "${lambdaDir}" && zip -j "${zipPath}" index.mjs`, { stdio: "pipe" });
 const zipBuffer = readFileSync(zipPath);
 
@@ -235,7 +235,7 @@ try {
             ...(ARTIFACT_BUCKET && { ARTIFACT_BUCKET }),
           },
         },
-        Description: "Mock Jira MCP server — DynamoDB-backed ticket management for Agentis pipeline",
+        Description: "Mock Jira MCP server — DynamoDB-backed ticket management for AgentCore Hub pipeline",
       })
     );
     lambdaArn = createResult.FunctionArn;
@@ -293,7 +293,7 @@ if (!GATEWAY_ID) {
   console.log("═".repeat(60));
   console.log(`
 Next steps:
-  1. Set TICKET_TOOLS_LAMBDA=agentis-tickets in .env.local (or on your agents)
+  1. Set TICKET_TOOLS_LAMBDA=agentcore-hub-tickets in .env.local (or on your agents)
   2. The Workflow tab will use this Lambda for ticket operations
 `);
   process.exit(0);

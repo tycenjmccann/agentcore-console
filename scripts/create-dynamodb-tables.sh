@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Creates the DynamoDB tables required by Agentis Hub.
+# Creates the DynamoDB tables required by AgentCore Hub.
 # Run once per account/region. Safe to re-run (will skip existing tables).
 #
 # Usage:
@@ -7,9 +7,9 @@
 #   ./scripts/create-dynamodb-tables.sh --with-tickets       # Also creates tickets table (for TICKET_PROVIDER=dynamodb)
 #
 # Tables:
-#   agentis-workflows  — PK: workflowId (S), GSI: epicId-index
-#   agentis-events     — PK: workflowId (S), SK: eventId (S), TTL: ttl
-#   agentis-tickets    — PK: ticketId (S), GSIs: parentId-index, assignee-index (only with --with-tickets)
+#   agentcore-hub-workflows  — PK: workflowId (S), GSI: epicId-index
+#   agentcore-hub-events     — PK: workflowId (S), SK: eventId (S), TTL: ttl
+#   agentcore-hub-tickets    — PK: ticketId (S), GSIs: parentId-index, assignee-index (only with --with-tickets)
 
 set -euo pipefail
 REGION="${AWS_REGION:-us-east-1}"
@@ -24,10 +24,10 @@ done
 
 echo "=== Creating DynamoDB tables in $REGION ==="
 
-# ─── agentis-workflows ───────────────────────────────────────────────────────
-echo "Creating agentis-workflows (PK=workflowId, GSI=epicId-index)..."
+# ─── agentcore-hub-workflows ───────────────────────────────────────────────────────
+echo "Creating agentcore-hub-workflows (PK=workflowId, GSI=epicId-index)..."
 aws dynamodb create-table \
-  --table-name agentis-workflows \
+  --table-name agentcore-hub-workflows \
   --attribute-definitions \
     AttributeName=workflowId,AttributeType=S \
     AttributeName=epicId,AttributeType=S \
@@ -42,10 +42,10 @@ aws dynamodb create-table \
   --billing-mode PAY_PER_REQUEST \
   --region "$REGION" 2>&1 || echo "  (table may already exist)"
 
-# ─── agentis-events ──────────────────────────────────────────────────────────
-echo "Creating agentis-events (PK=workflowId, SK=eventId, TTL=ttl)..."
+# ─── agentcore-hub-events ──────────────────────────────────────────────────────────
+echo "Creating agentcore-hub-events (PK=workflowId, SK=eventId, TTL=ttl)..."
 aws dynamodb create-table \
-  --table-name agentis-events \
+  --table-name agentcore-hub-events \
   --attribute-definitions \
     AttributeName=workflowId,AttributeType=S \
     AttributeName=eventId,AttributeType=S \
@@ -57,15 +57,15 @@ aws dynamodb create-table \
 
 # Enable TTL on events table
 aws dynamodb update-time-to-live \
-  --table-name agentis-events \
+  --table-name agentcore-hub-events \
   --time-to-live-specification Enabled=true,AttributeName=ttl \
   --region "$REGION" 2>&1 || echo "  (TTL may already be enabled)"
 
-# ─── agentis-tickets (optional) ─────────────────────────────────────────────
+# ─── agentcore-hub-tickets (optional) ─────────────────────────────────────────────
 if [ "$WITH_TICKETS" = true ]; then
-  echo "Creating agentis-tickets (PK=ticketId, Stream=NEW_AND_OLD_IMAGES)..."
+  echo "Creating agentcore-hub-tickets (PK=ticketId, Stream=NEW_AND_OLD_IMAGES)..."
   aws dynamodb create-table \
-    --table-name agentis-tickets \
+    --table-name agentcore-hub-tickets \
     --attribute-definitions \
       AttributeName=ticketId,AttributeType=S \
       AttributeName=parentId,AttributeType=S \
@@ -87,7 +87,7 @@ if [ "$WITH_TICKETS" = true ]; then
     --stream-specification StreamEnabled=true,StreamViewType=NEW_AND_OLD_IMAGES \
     --region "$REGION" 2>&1 || echo "  (table may already exist)"
 else
-  echo "Skipping agentis-tickets (pass --with-tickets to create it for TICKET_PROVIDER=dynamodb)"
+  echo "Skipping agentcore-hub-tickets (pass --with-tickets to create it for TICKET_PROVIDER=dynamodb)"
 fi
 
 echo ""

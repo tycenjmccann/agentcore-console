@@ -89,7 +89,7 @@ async function processUrl(url: string): Promise<{ content: string; contentType: 
   try {
     const response = await fetch(url, {
       headers: {
-        "User-Agent": "AgentisWorkflow/1.0 (content-intake)",
+        "User-Agent": "AgentCoreHubWorkflow/1.0 (content-intake)",
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
       signal: AbortSignal.timeout(30000),
@@ -460,7 +460,7 @@ export async function validateIntakeSources(
           return `Invalid S3 URI format: ${value}`;
         }
         const [, bucket, key] = match;
-        const ownBucket = process.env.ARTIFACT_BUCKET || process.env.AGENTIS_ARTIFACT_BUCKET || "";
+        const ownBucket = process.env.ARTIFACT_BUCKET || process.env.AGENTCORE_HUB_ARTIFACT_BUCKET || "";
         if (bucket === ownBucket) {
           return null; // Trust internal references — agent can read at runtime
         }

@@ -19,7 +19,7 @@ export AWS_PROFILE=your-profile
 export GATEWAY_ARN="arn:aws:bedrock-agentcore:${AWS_REGION}:${ACCOUNT_ID}:gateway/your-gateway-id"
 
 # Deploy all agents
-for agent in agentis_requirements_analyst agentis_frontend_designer agentis_ios_designer agentis_backend_designer agentis_android_designer agentis_security_reviewer agentis_legal_compliance agentis_localization agentis_analytics_designer agentis_backend_dev agentis_api_dev agentis_frontend_dev agentis_qa_verifier agentis_ci_agent; do
+for agent in agentcore_hub_requirements_analyst agentcore_hub_frontend_designer agentcore_hub_ios_designer agentcore_hub_backend_designer agentcore_hub_android_designer agentcore_hub_security_reviewer agentcore_hub_legal_compliance agentcore_hub_localization agentcore_hub_analytics_designer agentcore_hub_backend_dev agentcore_hub_api_dev agentcore_hub_frontend_dev agentcore_hub_qa_verifier agentcore_hub_ci_agent; do
   echo "--- $agent ---"
   bash deploy-one.sh "$agent"
 done
@@ -48,8 +48,8 @@ python3 verify-fleet-invoke.py --fleet-file fleet-runtime-ids.json --timeout 600
 | Variable | Example | Purpose |
 |----------|---------|---------|
 | `AWS_PROFILE` | your-profile | AWS credentials profile |
-| `AGENTCORE_ROLE_ARN` | `arn:aws:iam::${ACCOUNT_ID}:role/agentis-agentcore-role` | Runtime execution role |
-| `ARTIFACT_BUCKET` | `agentis-artifacts-${ACCOUNT_ID}-${REGION}` | S3 bucket for prompts & artifacts |
+| `AGENTCORE_ROLE_ARN` | `arn:aws:iam::${ACCOUNT_ID}:role/agentcore-hub-agentcore-role` | Runtime execution role |
+| `ARTIFACT_BUCKET` | `agentcore-hub-artifacts-${ACCOUNT_ID}-${REGION}` | S3 bucket for prompts & artifacts |
 | `GATEWAY_ARN` | `arn:aws:bedrock-agentcore:us-east-1:${ACCOUNT_ID}:gateway/...` | AgentCore MCP gateway |
 | `AWS_REGION` | `us-east-1` | Deployment region |
 | `GITHUB_PAT` | *(from .env.local)* | GitHub MCP authentication |
@@ -60,12 +60,12 @@ These are passed via `--env` in deploy-one.sh and available inside the runtime a
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `AGENTIS_ARTIFACT_BUCKET` | `agentis-artifacts-${ACCOUNT_ID}-${REGION}` | S3 bucket for agent file ops |
+| `AGENTCORE_HUB_ARTIFACT_BUCKET` | `agentcore-hub-artifacts-${ACCOUNT_ID}-${REGION}` | S3 bucket for agent file ops |
 | `GATEWAY_ARN` | *(gateway ARN)* | AgentCore gateway reference |
 | `MODEL_ID` | `us.anthropic.claude-opus-4-6-v1` | Default model for agents |
 | `READ_TIMEOUT` | `600` | Bedrock invoke timeout (seconds) |
-| `EVENTS_TABLE` | `agentis-events` | DynamoDB table for streaming events |
-| `TICKET_TOOLS_LAMBDA` | `agentis-tickets` or `agentis-jira` | Lambda for ticket operations (matches your TICKET_PROVIDER) |
+| `EVENTS_TABLE` | `agentcore-hub-events` | DynamoDB table for streaming events |
+| `TICKET_TOOLS_LAMBDA` | `agentcore-hub-tickets` or `agentcore-hub-jira` | Lambda for ticket operations (matches your TICKET_PROVIDER) |
 | `SYSTEM_PROMPT_S3_KEY` | `prompts/{agent_name}.txt` | S3 key for agent system prompt |
 | `BYPASS_TOOL_CONSENT` | `true` | Non-interactive tool execution |
 | `CLAUDE_CODE_USE_BEDROCK` | `1` | Claude Code uses Bedrock |
@@ -79,9 +79,9 @@ These are passed via `--env` in deploy-one.sh and available inside the runtime a
 
 AgentCore CLI injects a system env var called `ARTIFACT_BUCKET` pointing to its internal CodeBuild source bucket (`agentcore-artifacts-{account}-{region}`). This OVERRIDES any value you pass.
 
-**Solution:** We use `AGENTIS_ARTIFACT_BUCKET` instead. In main.py:
+**Solution:** We use `AGENTCORE_HUB_ARTIFACT_BUCKET` instead. In main.py:
 ```python
-ARTIFACT_BUCKET = os.getenv("AGENTIS_ARTIFACT_BUCKET", os.getenv("ARTIFACT_BUCKET", ""))
+ARTIFACT_BUCKET = os.getenv("AGENTCORE_HUB_ARTIFACT_BUCKET", os.getenv("ARTIFACT_BUCKET", ""))
 ```
 
 ### 2. Do NOT source .env.local fully

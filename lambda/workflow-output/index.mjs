@@ -19,8 +19,8 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
 const BUCKET = process.env.ARTIFACT_BUCKET || "";
 const TICKET_PROVIDER = process.env.TICKET_PROVIDER || "jira";
 const TICKET_TOOLS_LAMBDA = process.env.TICKET_TOOLS_LAMBDA ||
-  (TICKET_PROVIDER === "jira" ? "agentis-jira" : "agentis-tickets");
-const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
+  (TICKET_PROVIDER === "jira" ? "agentcore-hub-jira" : "agentcore-hub-tickets");
+const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentcore-hub-events";
 
 async function publishJourneyEvent(workflowId, type, detail) {
   if (!EVENTS_TABLE || !workflowId) return;

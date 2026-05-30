@@ -5,8 +5,8 @@ test.describe("Dashboard Tab", () => {
     await page.goto("/");
   });
 
-  test("renders header with Agentis branding", async ({ page }) => {
-    await expect(page.locator("h1")).toContainText("Agentis");
+  test("renders header with AgentCore Hub branding", async ({ page }) => {
+    await expect(page.locator("h1")).toContainText("AgentCore Hub");
     await expect(page.getByText("Hub")).toBeVisible();
   });
 

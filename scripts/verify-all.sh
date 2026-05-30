@@ -17,7 +17,7 @@ REPO_DIR="$SCRIPT_DIR/.."
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  Agentis Hub — Full Verification"
+echo "  AgentCore Hub — Full Verification"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 

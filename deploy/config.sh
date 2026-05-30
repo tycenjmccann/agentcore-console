@@ -16,19 +16,19 @@ export DEPLOYMENT_URL="${DEPLOYMENT_URL:-}"
 
 # GitHub
 export GITHUB_OWNER="${GITHUB_OWNER:-}"
-export FLEET_REPO_URL="${FLEET_REPO_URL:-https://github.com/${GITHUB_OWNER}/agentis-fleet.git}"
+export FLEET_REPO_URL="${FLEET_REPO_URL:-https://github.com/${GITHUB_OWNER}/agentcore-hub-fleet.git}"
 
 # IAM roles (convention-based defaults)
-export AGENTCORE_ROLE_ARN="${AGENTCORE_ROLE_ARN:-arn:aws:iam::${ACCOUNT_ID}:role/agentis-agentcore-role}"
-export LAMBDA_ROLE_ARN="${LAMBDA_ROLE_ARN:-arn:aws:iam::${ACCOUNT_ID}:role/agentis-lambda-role}"
+export AGENTCORE_ROLE_ARN="${AGENTCORE_ROLE_ARN:-arn:aws:iam::${ACCOUNT_ID}:role/agentcore-hub-agentcore-role}"
+export LAMBDA_ROLE_ARN="${LAMBDA_ROLE_ARN:-arn:aws:iam::${ACCOUNT_ID}:role/agentcore-hub-lambda-role}"
 
 # S3 — single bucket shared by App Runner, Lambdas, and runtime agents
-export ARTIFACT_BUCKET="${ARTIFACT_BUCKET:-agentis-artifacts-${ACCOUNT_ID}-${AWS_REGION}}"
+export ARTIFACT_BUCKET="${ARTIFACT_BUCKET:-agentcore-hub-artifacts-${ACCOUNT_ID}-${AWS_REGION}}"
 
 # DynamoDB tables
-export EVENTS_TABLE="${EVENTS_TABLE:-agentis-events}"
-export TICKETS_TABLE="${TICKETS_TABLE:-agentis-tickets}"
-export WORKFLOWS_TABLE="${WORKFLOWS_TABLE:-agentis-workflows}"
+export EVENTS_TABLE="${EVENTS_TABLE:-agentcore-hub-events}"
+export TICKETS_TABLE="${TICKETS_TABLE:-agentcore-hub-tickets}"
+export WORKFLOWS_TABLE="${WORKFLOWS_TABLE:-agentcore-hub-workflows}"
 
 # Validation
 if [ -z "$ACCOUNT_ID" ] || [ "$ACCOUNT_ID" = "None" ]; then

@@ -24,7 +24,7 @@
                                                                  │
                               DynamoDB                            │
                          ┌─────────────────┐                     │
-                         │  agentis-events  │ ◄──── polled ──────┘
+                         │  agentcore-hub-events  │ ◄──── polled ──────┘
                          └────────┬────────┘
                                   │ written by:
                     ┌─────────────┼─────────────────┐
@@ -39,13 +39,13 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                          FRONTEND (Next.js) — READ ONLY                       │
-│  WorkflowBoard.tsx ─── polls agentis-events table (1s) ───────────────────┐  │
-│  /api/workflow/start ─── creates skeletons + writes to agentis-workflows   │  │
+│  WorkflowBoard.tsx ─── polls agentcore-hub-events table (1s) ───────────────────┐  │
+│  /api/workflow/start ─── creates skeletons + writes to agentcore-hub-workflows   │  │
 └────────────────────────────────────────────────────────────────────────────┼──┘
                                                                              │
          ┌───────────── DynamoDB ────────────────┐                           │
          │                                        │                           │
-         │  agentis-tickets (+ Stream enabled)    │                           │
+         │  agentcore-hub-tickets (+ Stream enabled)    │                           │
          │  ┌──────────────────────────────────┐  │                           │
          │  │ TEAM-1 epic (in_progress)         │  │                           │
          │  │ TEAM-2 requirements (todo) ─────────────► Stream fires           │
@@ -54,12 +54,12 @@
          │  │ ...                               │  │         ▼                 │
          │  └──────────────────────────────────┘  │  ┌──────────────────┐     │
          │                                        │  │ Orchestrator      │     │
-         │  agentis-workflows                     │  │ Lambda (index.mjs)│     │
+         │  agentcore-hub-workflows                     │  │ Lambda (index.mjs)│     │
          │  ┌──────────────────────────────────┐  │  │                  │     │
          │  │ wf_xxx: epicId, agentTasks, ...   │  │  │ • handleTicketDone│     │
          │  └──────────────────────────────────┘  │  │ • handleTicketReady    │
          │                                        │  │ • unblock deps    │     │
-         │  agentis-events ◄───────────────────────────── publish events─┼─────┘
+         │  agentcore-hub-events ◄───────────────────────────── publish events─┼─────┘
          │  ┌──────────────────────────────────┐  │  └────────┬─────────┘
          │  │ agent.started, agent.complete,    │  │           │
          │  │ workflow.phase_change, ...        │  │           │ async invoke
@@ -98,7 +98,7 @@ All orchestration decisions happen in the Lambda, triggered by DynamoDB Streams.
                                                                      │
                               DynamoDB                                │
                          ┌─────────────────┐                         │
-                         │  agentis-events  │ ◄──── one-shot fetch ──┘
+                         │  agentcore-hub-events  │ ◄──── one-shot fetch ──┘
                          │  (all events     │       (paginated, no SSE)
                          │   for workflow)  │
                          └─────────────────┘
@@ -174,7 +174,7 @@ All orchestration decisions happen in the Lambda, triggered by DynamoDB Streams.
 ### DL-002: DynamoDB Events Table for State Persistence
 
 **Date**: 2026-05-14
-**Decision**: Add `agentis-events` DynamoDB table as the single source of truth for all pipeline events
+**Decision**: Add `agentcore-hub-events` DynamoDB table as the single source of truth for all pipeline events
 **Status**: ACTIVE
 
 **Context**: Original architecture used in-memory SSE subscribers (see `route-in-process.ts`). If the browser disconnected or the Next.js server restarted, all event history was lost. Users closing their laptop and reopening would see a blank state.
@@ -526,7 +526,7 @@ Switch: disable Streams, point Jira webhooks at `/api/workflow/webhook`, set `TI
 **Current state**: Phase advancement is still in the orchestrator (acceptable for now — it's a UI metadata write). Feature branch creation needs to be moved to agents.
 
 **Target state**: Orchestrator does exactly two things:
-1. Ticket goes `todo` (no blockers) → async invoke `agentis-agent-invoker`
+1. Ticket goes `todo` (no blockers) → async invoke `agentcore-hub-agent-invoker`
 2. Ticket goes `done` → remove from siblings' `blockedBy`, flip unblocked to `todo`
 
 **TODO**: Move branch creation to requirements agent prompt.
@@ -789,7 +789,7 @@ Each event includes `eventId` (DynamoDB sort key) used as a cursor for SSE catch
 ### DL-013: Skills System — Dynamic System Prompt Injection via Tool Call
 
 **Date**: 2026-05-19
-**Decision**: Implement a custom skills system using `agentis-skill-loader` Lambda for dynamic prompt injection at agent runtime
+**Decision**: Implement a custom skills system using `agentcore-hub-skill-loader` Lambda for dynamic prompt injection at agent runtime
 **Status**: ACTIVE
 
 **Context**: Agents need domain-specific expertise (e.g., code architecture patterns, code review checklists, test coverage strategies) that shouldn't bloat the base system prompt. Neither Strands SDK nor AgentCore has a native skills/plugins mechanism — validated against both official docs.
@@ -807,7 +807,7 @@ Agent prompt says "load skill X"
   ↓
 Agent calls SkillLoader___load_skill tool (MCP tool on the agent's Runtime)
   ↓
-Lambda (agentis-skill-loader) looks up skill name in SKILLS map
+Lambda (agentcore-hub-skill-loader) looks up skill name in SKILLS map
   ↓
 Lambda returns markdown instructions as tool response
   ↓
@@ -859,9 +859,9 @@ Agent proceeds with skill-augmented behavior
 - **Composable**: Agents load multiple skills per invocation
 - **Auditable**: Tool call appears in agent trace events (DL-003)
 
-**Also deployed**: New Runtime agent `agentis_frontend_designer` for design-phase web UI architecture work.
+**Also deployed**: New Runtime agent `agentcore_hub_frontend_designer` for design-phase web UI architecture work.
 
-**Branding system**: S3 bucket `agentis-branding` stores `brand-system.md` (design tokens, component library, color palette). The `frontend-designer` agent reads it via `S3Storage___read_object` tool at invocation start — separate from skills (branding is project-specific data, not reusable expertise).
+**Branding system**: S3 bucket `agentcore-hub-branding` stores `brand-system.md` (design tokens, component library, color palette). The `frontend-designer` agent reads it via `S3Storage___read_object` tool at invocation start — separate from skills (branding is project-specific data, not reusable expertise).
 
 **Files created/modified**:
 - `lambda/skill-loader/index.mjs` — Skill loader Lambda (SKILLS map + handler)
@@ -880,10 +880,10 @@ After the 2026-05-19 changes, all 14 Runtime agents need redeployment:
 
 ```bash
 # Required env vars (added):
-EVENTS_TABLE=agentis-events
+EVENTS_TABLE=agentcore-hub-events
 
 # Required IAM permissions (verify on role):
-dynamodb:PutItem on arn:aws:dynamodb:${AWS_REGION}:${ACCOUNT_ID}:table/agentis-events
+dynamodb:PutItem on arn:aws:dynamodb:${AWS_REGION}:${ACCOUNT_ID}:table/agentcore-hub-events
 
 # Deploy command:
 cd deploy/runtime-agent && ./deploy-fleet.sh
@@ -895,13 +895,13 @@ To enable Lambda orchestration mode:
 
 ```bash
 # 0. Create DynamoDB tables (run ONCE per account — skip if tables exist)
-#    CRITICAL: agentis-workflows PK MUST be "workflowId" (NOT "id")
+#    CRITICAL: agentcore-hub-workflows PK MUST be "workflowId" (NOT "id")
 #    See scripts/create-dynamodb-tables.sh for full table definitions
 ./scripts/create-dynamodb-tables.sh
 
-# 1. Enable DynamoDB Streams on agentis-tickets table (if not already)
+# 1. Enable DynamoDB Streams on agentcore-hub-tickets table (if not already)
 aws dynamodb update-table \
-  --table-name agentis-tickets \
+  --table-name agentcore-hub-tickets \
   --stream-specification StreamEnabled=true,StreamViewType=NEW_AND_OLD_IMAGES \
   --region us-east-1
 
@@ -913,26 +913,26 @@ aws dynamodb update-table \
 # Alternative: SAM deploy (creates functions + event source mapping from scratch)
 # cd lambda/orchestrator && sam build && sam deploy --guided
 
-# 3. Set env vars on BOTH Lambdas (agentis-orchestrator AND agentis-agent-invoker):
-#    TICKETS_TABLE=agentis-tickets    (NOT "UNUSED" or any placeholder!)
-#    WORKFLOWS_TABLE=agentis-workflows
-#    EVENTS_TABLE=agentis-events
+# 3. Set env vars on BOTH Lambdas (agentcore-hub-orchestrator AND agentcore-hub-agent-invoker):
+#    TICKETS_TABLE=agentcore-hub-tickets    (NOT "UNUSED" or any placeholder!)
+#    WORKFLOWS_TABLE=agentcore-hub-workflows
+#    EVENTS_TABLE=agentcore-hub-events
 #    JIRA_API_TOKEN=<your-token>      (must match App Runner token)
 #    JIRA_SITE_URL=<your-site>.atlassian.net
 #    JIRA_EMAIL=<your-email>
 #    TICKET_PROVIDER=jira              (or "dynamodb")
-#    RUNTIME_ARN_AGENTIS_*=<arns>     (orchestrator only — one per agent)
+#    RUNTIME_ARN_AGENTCORE_HUB_*=<arns>     (orchestrator only — one per agent)
 
 # 3. Set env vars on Next.js app:
 TICKET_PROVIDER=dynamodb
 TICKET_PROVIDER=dynamodb
-WORKFLOWS_TABLE=agentis-workflows
-TICKETS_TABLE=agentis-tickets
+WORKFLOWS_TABLE=agentcore-hub-workflows
+TICKETS_TABLE=agentcore-hub-tickets
 
 # 4. Set Runtime agent ARNs as env vars on orchestrator Lambda:
-# (one per agent — format: RUNTIME_ARN_AGENTIS_{AGENT_NAME_UPPER})
-RUNTIME_ARN_AGENTIS_REQUIREMENTS_ANALYST=arn:aws:bedrock-agentcore:${REGION}:${ACCOUNT_ID}:runtime/xxx
-RUNTIME_ARN_AGENTIS_BACKEND_DESIGNER=arn:aws:bedrock-agentcore:${REGION}:${ACCOUNT_ID}:runtime/xxx
+# (one per agent — format: RUNTIME_ARN_AGENTCORE_HUB_{AGENT_NAME_UPPER})
+RUNTIME_ARN_AGENTCORE_HUB_REQUIREMENTS_ANALYST=arn:aws:bedrock-agentcore:${REGION}:${ACCOUNT_ID}:runtime/xxx
+RUNTIME_ARN_AGENTCORE_HUB_BACKEND_DESIGNER=arn:aws:bedrock-agentcore:${REGION}:${ACCOUNT_ID}:runtime/xxx
 # ... etc for all 13 agents
 ```
 
@@ -941,7 +941,7 @@ RUNTIME_ARN_AGENTIS_BACKEND_DESIGNER=arn:aws:bedrock-agentcore:${REGION}:${ACCOU
 ```bash
 # 1. Disable DynamoDB Streams
 aws dynamodb update-table \
-  --table-name agentis-tickets \
+  --table-name agentcore-hub-tickets \
   --stream-specification StreamEnabled=false
 
 # 2. Configure Jira webhook to POST to /api/workflow/webhook
@@ -995,7 +995,7 @@ TICKET_PROVIDER=jira
 
 **Issue 1 — report_completion DynamoDB Write Fix**
 
-**Problem**: `agentis-workflow-output` Lambda saved completion reports to S3 but never wrote `status: "done"` to the `agentis-tickets` DynamoDB table. The orchestrator's Stream trigger only fires on DynamoDB changes, so ticket completions were invisible — the cascade never continued past the first agent.
+**Problem**: `agentcore-hub-workflow-output` Lambda saved completion reports to S3 but never wrote `status: "done"` to the `agentcore-hub-tickets` DynamoDB table. The orchestrator's Stream trigger only fires on DynamoDB changes, so ticket completions were invisible — the cascade never continued past the first agent.
 
 **Fix**: Lambda now writes `status: "done"` to the tickets table after S3 write. This fires the DynamoDB Stream → orchestrator sees completion → unblocks downstream tickets.
 
@@ -1005,7 +1005,7 @@ TICKET_PROVIDER=jira
 
 **Issue 2 — Event TTL Removed**
 
-**Problem**: Events in `agentis-events` table had a 1-hour TTL (`expiresAt`). Replay data expired before users could watch completed workflows (DL-007 relies on all events being available indefinitely for timeline replay).
+**Problem**: Events in `agentcore-hub-events` table had a 1-hour TTL (`expiresAt`). Replay data expired before users could watch completed workflows (DL-007 relies on all events being available indefinitely for timeline replay).
 
 **Fix**: Removed TTL entirely. Events persist forever. Cost is negligible (small JSON objects, single-digit KB per event, workflows produce ~1000-2000 events total).
 
@@ -1046,7 +1046,7 @@ TICKET_PROVIDER=jira
 
 **Files modified**:
 - `lambda/workflow-output/index.mjs` — Added DynamoDB `status: "done"` write
-- `agentis-events` table — TTL attribute removed (no code change, infra-level)
+- `agentcore-hub-events` table — TTL attribute removed (no code change, infra-level)
 - `src/components/workflow/WorkflowBoard.tsx` — Auto-nudge logic (90s idle detection)
 - `src/app/api/workflow/[id]/nudge/route.ts` — Nudge endpoint (status fix logic)
 
@@ -1101,7 +1101,7 @@ Navigate to `http://localhost:3000/workflow` → click "New Workflow" → fill t
 
 ### What NOT to do
 
-- Do NOT write directly to the `agentis-workflows` DynamoDB table
+- Do NOT write directly to the `agentcore-hub-workflows` DynamoDB table
 - Do NOT invoke agents without going through the workflow start route
 - Do NOT use inline curl/scripts that bypass `/api/workflow/start`
 
@@ -1139,13 +1139,13 @@ Any workflow created without the start route will be missing `startedAt`, `epicI
 
 ---
 
-### DL-016: Eliminate `agentis-workflows` Table (PLANNED)
+### DL-016: Eliminate `agentcore-hub-workflows` Table (PLANNED)
 
 **Date**: 2026-05-20
-**Decision**: Consolidate all workflow state into the epic ticket on `agentis-tickets`. Delete `agentis-workflows` table.
+**Decision**: Consolidate all workflow state into the epic ticket on `agentcore-hub-tickets`. Delete `agentcore-hub-workflows` table.
 **Status**: PLANNED (backlog)
 
-**Context**: The `agentis-workflows` table stores:
+**Context**: The `agentcore-hub-workflows` table stores:
 - `workflowId`, `epicId`, `repoConfig`, `startedAt`, `status`, `phase`
 - `agentTasks` map (output, branch, status per agent — powers UI output panel)
 
@@ -1162,7 +1162,7 @@ All of this data either already exists on the epic ticket + children, or can tri
 2. UI state endpoint: query epic + children via `parentId-index` instead of reading workflows table
 3. Remove `agentTasks` map — derive from children tickets
 4. Update orchestrator to read/write epic ticket instead of workflows table
-5. Delete `agentis-workflows` table
+5. Delete `agentcore-hub-workflows` table
 
 **~5 places to update**: orchestrator Lambda, workflow-output Lambda, dynamo-read.ts, start route, state route.
 
@@ -1195,7 +1195,7 @@ Image pushed to ECR, deployed via `update_agent_runtime` API with `container_uri
 ### DL-018: Dual-Write Ticket Lambda — Jira-First, Same ID in DynamoDB
 
 **Date**: 2026-05-20
-**Decision**: The agent tool Lambda (`agentis-tickets`) ALWAYS writes tickets to BOTH Jira Cloud AND DynamoDB, using Jira's auto-generated key as the canonical ID in both systems.
+**Decision**: The agent tool Lambda (`agentcore-hub-tickets`) ALWAYS writes tickets to BOTH Jira Cloud AND DynamoDB, using Jira's auto-generated key as the canonical ID in both systems.
 **Status**: ACTIVE (deployed 2026-05-20)
 
 **Context**: The system supports two deployment modes via `TICKET_PROVIDER` flag on the orchestrator Lambda:
@@ -1246,7 +1246,7 @@ Both systems have the ticket under the same ID
 
 | Mode | Listens to | Reads tickets from | DDB Stream mapping | Webhook route |
 |------|-----------|-------------------|-------------------|---------------|
-| `dynamodb` | DDB Stream (agentis-tickets) | DynamoDB | Enabled | Ignored |
+| `dynamodb` | DDB Stream (agentcore-hub-tickets) | DynamoDB | Enabled | Ignored |
 | `jira` | Jira webhooks (via App Runner) | Jira API | Disabled/ignored | Active |
 
 **CRITICAL**: These are mutually exclusive at runtime. ONE orchestrator Lambda, ONE `TICKET_PROVIDER` value. Deploy-time choice. You cannot run both modes simultaneously on the same Lambda.
@@ -1258,15 +1258,15 @@ Both systems have the ticket under the same ID
 4. Ticket IDs are consistent — no cross-reference mapping needed
 
 **Files**:
-- `lambda/agentis-jira/index.mjs` — The dual-write tool Lambda (source of truth)
+- `lambda/agentcore-hub-jira/index.mjs` — The dual-write tool Lambda (source of truth)
 - `lambda/jira-unified/index.mjs` — DEPRECATED (old approach: DDB-first with Jira mirror, different IDs). Scheduled for deletion in cleanup.
 
-**Env vars on `agentis-tickets` Lambda**:
-- `JIRA_SITE_URL` — Jira Cloud site (e.g., agentis-demo.atlassian.net)
+**Env vars on `agentcore-hub-tickets` Lambda**:
+- `JIRA_SITE_URL` — Jira Cloud site (e.g., your-domain.atlassian.net)
 - `JIRA_EMAIL` — Auth email
 - `JIRA_API_TOKEN` — API token
 - `JIRA_PROJECT_KEY` — Project key (TEAM)
-- `TICKETS_TABLE` — DynamoDB table (agentis-tickets)
+- `TICKETS_TABLE` — DynamoDB table (agentcore-hub-tickets)
 - `AWS_REGION` — Region (us-east-1)
 
 **DO NOT**:
@@ -1296,7 +1296,7 @@ Without guards, the orchestrator processes BOTH triggers, invoking agents twice 
 - 7509 events, 15 tickets (should be ~5-6), workflow stuck
 
 **Root cause timeline**:
-1. `agentis-tickets` dual-write deployed (DL-018) — writes to Jira + DDB for every ticket operation
+1. `agentcore-hub-tickets` dual-write deployed (DL-018) — writes to Jira + DDB for every ticket operation
 2. In DDB mode: DDB stream fires → orchestrator invokes agent ✓
 3. Jira issue_created webhook ALSO fires → App Runner route invokes orchestrator → agent invoked AGAIN ✗
 4. Two requirements agents run simultaneously, interleave output, create duplicate/wrong tickets
@@ -1428,7 +1428,7 @@ A simple `if (ticket.status === "in_progress") return` has a TOCTOU race: two La
 
 The manual nudge button still exists for human-initiated recovery. The key difference: humans can judge "this has been stuck for 20 minutes" — the auto-nudge (15s interval) cannot.
 
-**Future enhancement (not implemented)**: Add a timestamp-guarded auto-recovery for truly crashed agents (e.g., `in_progress` for > 10 minutes with no events in agentis-events table for that ticket). This is a better signal than "15 seconds with no UI activity."
+**Future enhancement (not implemented)**: Add a timestamp-guarded auto-recovery for truly crashed agents (e.g., `in_progress` for > 10 minutes with no events in agentcore-hub-events table for that ticket). This is a better signal than "15 seconds with no UI activity."
 
 **Relationship to other DLs**:
 - DL-014 added Case 3 — **superseded by this DL**
@@ -1448,7 +1448,7 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 **Decision**: Add interactive S3 artifact browsing, dynamic header title, and pipeline visual cleanup
 **Status**: ACTIVE (merged to main, commit `b4f0f6b`)
 
-**Context**: The pipeline phases all write artifacts to S3 (`workflows/{workflowId}/agents/{agentId}/`) but there was no way to browse or download them from the UI. Additionally, the pipeline header ("Agentis Hub") was static and didn't reflect which workflow was being viewed.
+**Context**: The pipeline phases all write artifacts to S3 (`workflows/{workflowId}/agents/{agentId}/`) but there was no way to browse or download them from the UI. Additionally, the pipeline header ("AgentCore Hub") was static and didn't reflect which workflow was being viewed.
 
 **Changes implemented**:
 
@@ -1502,8 +1502,8 @@ The manual nudge button still exists for human-initiated recovery. The key diffe
 
 **Context**: The agent roster was hardcoded in 3 separate Lambda files:
 - `lambda/orchestrator/index.mjs` → `AGENT_ROSTER` array (id, phase, harnessName)
-- `lambda/agentis-tickets/index.mjs` → `VALID_AGENTS` Set (id only)
-- `lambda/agentis-jira/index.mjs` → `VALID_ASSIGNEES` Set (id only)
+- `lambda/agentcore-hub-tickets/index.mjs` → `VALID_AGENTS` Set (id only)
+- `lambda/agentcore-hub-jira/index.mjs` → `VALID_ASSIGNEES` Set (id only)
 
 These drifted independently and didn't match the canonical source (`src/config/agents.json`). When a new agent was added to the frontend config, the Lambdas silently rejected it. Root cause of TEAM-73 stuck workflow: requirements agent assigned to `team-ios-dev` which existed in no roster.
 
@@ -1528,17 +1528,17 @@ If S3 read fails → falls back to hardcoded FALLBACK_ROSTER (no outage)
 
 | Lambda | Loader function | Cache variable | What it extracts |
 |--------|----------------|---------------|-----------------|
-| `agentis-orchestrator` | `loadAgentRoster()` | `_agentRoster` | `{id, phase, harnessName}` per agent |
-| `agentis-tickets` | `loadValidAgents()` | `VALID_AGENTS` | `Set` of agent IDs |
-| `agentis-jira-real` | `loadValidAssignees()` | `VALID_ASSIGNEES` | `Set` of agent IDs |
+| `agentcore-hub-orchestrator` | `loadAgentRoster()` | `_agentRoster` | `{id, phase, harnessName}` per agent |
+| `agentcore-hub-tickets` | `loadValidAgents()` | `VALID_AGENTS` | `Set` of agent IDs |
+| `agentcore-hub-jira-real` | `loadValidAssignees()` | `VALID_ASSIGNEES` | `Set` of agent IDs |
 
 **S3 path**: `config/agents.json` (synced by `deploy-all.sh` alongside prompts)
 
 **Bucket**: `agentcore-artifacts-<ACCOUNT_ID>-us-east-1` (same bucket used for prompts, eval packages, agent output)
 
-**IAM**: All three Lambdas need `s3:GetObject` on `arn:aws:s3:::{BUCKET}/config/*`. The orchestrator's role already had this. The ticket Lambdas' shared role (`agentis-jira-JiraFunctionRole-*`) got an inline policy `s3-config-read` added.
+**IAM**: All three Lambdas need `s3:GetObject` on `arn:aws:s3:::{BUCKET}/config/*`. The orchestrator's role already had this. The ticket Lambdas' shared role (`agentcore-hub-jira-JiraFunctionRole-*`) got an inline policy `s3-config-read` added.
 
-**Env var**: `ARTIFACT_BUCKET` added to `agentis-tickets` and `agentis-jira-real` Lambda configurations.
+**Env var**: `ARTIFACT_BUCKET` added to `agentcore-hub-tickets` and `agentcore-hub-jira-real` Lambda configurations.
 
 **Multi-fleet path**: When running multiple fleets, use different S3 keys per fleet (e.g., `config/fleet-a/agents.json`) and pass `FLEET_ID` env var to select the right config path.
 
@@ -1554,14 +1554,14 @@ aws s3 cp src/config/agents.json s3://agentcore-artifacts-<ACCOUNT_ID>-us-east-1
 
 **Verified**:
 - Orchestrator logs: `[orchestrator] Loaded 14 agents from S3 config`
-- agentis-tickets logs: `[agentis-tickets] Loaded 14 agents from S3 config`
+- agentcore-hub-tickets logs: `[agentcore-hub-tickets] Loaded 14 agents from S3 config`
 - Invalid assignee correctly rejected from S3-loaded roster
 - Fallback works when S3 is unreachable (tested before IAM fix)
 
 **Files modified**:
 - `lambda/orchestrator/index.mjs` — `AGENT_ROSTER` → `FALLBACK_ROSTER` + `loadAgentRoster()`
-- `lambda/agentis-tickets/index.mjs` — Added S3Client, `loadValidAgents()`, `ARTIFACT_BUCKET` env var
-- `lambda/agentis-jira/index.mjs` — Added S3Client, `loadValidAssignees()`, `ARTIFACT_BUCKET` env var
+- `lambda/agentcore-hub-tickets/index.mjs` — Added S3Client, `loadValidAgents()`, `ARTIFACT_BUCKET` env var
+- `lambda/agentcore-hub-jira/index.mjs` — Added S3Client, `loadValidAssignees()`, `ARTIFACT_BUCKET` env var
 - `deploy/continuous-improvement/deploy-all.sh` — Step 7 now syncs `agents.json` to S3
 - `deploy/setup-tickets-lambda.mjs` — Adds `ARTIFACT_BUCKET` env var on Lambda creation
 
@@ -1584,7 +1584,7 @@ Frontend (`src/lib/pipeline-config.ts`) imports `agents.json` directly at build 
 
 | # | What | Why | File(s) |
 |---|------|-----|---------|
-| 1 | Deployed dual-write `agentis-tickets` Lambda | Agents always write to BOTH Jira + DDB with same ticket ID (DL-018) | `lambda/agentis-jira/index.mjs` |
+| 1 | Deployed dual-write `agentcore-hub-tickets` Lambda | Agents always write to BOTH Jira + DDB with same ticket ID (DL-018) | `lambda/agentcore-hub-jira/index.mjs` |
 | 2 | Added symmetric webhook guard to orchestrator | Prevents double agent invocation when dual-write fires both event sources (DL-019) | `lambda/orchestrator/index.mjs` |
 | 3 | Documented DL-018 (dual-write architecture) | Cement the decision — never revisit | This file |
 | 4 | Documented DL-019 (symmetric guards) | Explain the double-invocation root cause and fix | This file |
@@ -1594,8 +1594,8 @@ Frontend (`src/lib/pipeline-config.ts`) imports `agents.json` directly at build 
 
 | Lambda | Version | What Changed |
 |--------|---------|-------------|
-| `agentis-tickets` | 2026-05-21T02:02:35Z | Dual-write: Jira-first → DDB with same key |
-| `agentis-orchestrator` | 2026-05-21T05:54:49Z | Webhook guard: reject when TICKET_PROVIDER≠jira |
+| `agentcore-hub-tickets` | 2026-05-21T02:02:35Z | Dual-write: Jira-first → DDB with same key |
+| `agentcore-hub-orchestrator` | 2026-05-21T05:54:49Z | Webhook guard: reject when TICKET_PROVIDER≠jira |
 
 ### Current State (as of 2026-05-23)
 
@@ -1606,9 +1606,9 @@ Frontend (`src/lib/pipeline-config.ts`) imports `agents.json` directly at build 
 | `TICKET_PROVIDER` on orchestrator Lambda | `jira` | Reads/writes via Jira API |
 | DDB Stream mapping | Enabled | Fires orchestrator on ticket status changes |
 | App Runner URL | *(set DEPLOYMENT_URL in deploy/config.sh)* | Your deployed instance |
-| `agentis-tickets` | Writes to Jira (primary). DDB writes are best-effort — no tickets table is provisioned, so they silently fail. This is expected. |
+| `agentcore-hub-tickets` | Writes to Jira (primary). DDB writes are best-effort — no tickets table is provisioned, so they silently fail. This is expected. |
 
-**DynamoDB tables required:** `agentis-workflows`, `agentis-events` only. No tickets table needed — Jira is the sole ticket store.
+**DynamoDB tables required:** `agentcore-hub-workflows`, `agentcore-hub-events` only. No tickets table needed — Jira is the sole ticket store.
 
 ---
 
@@ -1691,14 +1691,14 @@ Frontend (`src/lib/pipeline-config.ts`) imports `agents.json` directly at build 
 |---------|-----------|-------------------|---------------------|
 | `TICKET_PROVIDER` | `jira` | `jira` | Engine falls into legacy text-parsing path, creates duplicate broken tickets |
 | `TICKET_PROVIDER` | Must match on App Runner AND orchestrator Lambda | Mismatch causes missed events | App reads tickets from one source while orchestrator writes to another |
-| `TICKETS_TABLE` | Not set (or any value) | N/A | Not needed in Jira mode. The `agentis-tickets` Lambda may attempt DDB writes which silently fail — this is expected. |
+| `TICKETS_TABLE` | Not set (or any value) | N/A | Not needed in Jira mode. The `agentcore-hub-tickets` Lambda may attempt DDB writes which silently fail — this is expected. |
 | `MODEL_ID` (on agents) | N/A | N/A | Must be valid Bedrock model ID. Opus has `-v1`, Sonnet does NOT |
 
 ### The Flow (authoritative)
 
 ```
 1. User submits workflow via UI → POST /api/workflow/start
-2. App Runner creates epic in Jira (via agentis-tickets Lambda)
+2. App Runner creates epic in Jira (via agentcore-hub-tickets Lambda)
 3. App Runner creates requirements ticket (status=todo, no blockers)
 4. Jira webhook fires → Orchestrator Lambda receives it
 5. Orchestrator invokes reqs agent (Runtime) with task context

@@ -36,8 +36,8 @@ repl_state
 traces/
 
 # Lambda zips (built artifacts)
-lambda/agentis-jira/function.zip
-lambda/agentis-tickets/function.zip
+lambda/agentcore-hub-jira/function.zip
+lambda/agentcore-hub-tickets/function.zip
 
 # Test results
 test-results/

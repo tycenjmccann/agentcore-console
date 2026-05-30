@@ -5,7 +5,7 @@
  * Set TICKET_PROVIDER=jira and configure JIRA_* env vars to use.
  *
  * Required environment variables:
- *   JIRA_SITE_URL   — e.g., "agentis-demo.atlassian.net"
+ *   JIRA_SITE_URL   — e.g., "your-domain.atlassian.net"
  *   JIRA_EMAIL      — admin email for Basic auth
  *   JIRA_API_TOKEN  — API token from id.atlassian.com
  *   JIRA_PROJECT_KEY — e.g., "TEAM"
@@ -69,7 +69,7 @@ export class JiraCloudProvider implements TicketProvider {
         summary: input.title,
         description: this.toADF(input.description),
         issuetype: { name: "Epic" },
-        labels: ["agentis-workflow"],
+        labels: ["agentcore-hub-workflow"],
       },
     };
 
@@ -86,7 +86,7 @@ export class JiraCloudProvider implements TicketProvider {
         description: this.toADF(input.description),
         issuetype: { name: "Task" },
         parent: { key: input.parentId },
-        labels: workflowId ? ["agentis-workflow", `wf:${workflowId}`] : ["agentis-workflow"],
+        labels: workflowId ? ["agentcore-hub-workflow", `wf:${workflowId}`] : ["agentcore-hub-workflow"],
       },
     };
 

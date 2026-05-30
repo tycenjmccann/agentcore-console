@@ -1,4 +1,4 @@
-# Agentis Hub
+# AgentCore Hub
 
 A web console for Amazon Bedrock AgentCore that dynamically discovers and interacts with your deployed agents. Clone, configure your AWS credentials, and it works — no hardcoded ARNs, memory IDs, or account numbers.
 
@@ -38,17 +38,17 @@ Choose your ticket provider and edit `.env.local`:
 | Variable | Description |
 |----------|-------------|
 | `TICKET_PROVIDER` | `jira` or `dynamodb` |
-| `WORKFLOWS_TABLE` | DynamoDB table for workflow metadata (default: `agentis-workflows`) |
-| `EVENTS_TABLE` | DynamoDB table for real-time events (default: `agentis-events`) |
-| `ARTIFACT_BUCKET` | S3 bucket for agent outputs (convention: `agentis-artifacts-<ACCOUNT_ID>`) |
+| `WORKFLOWS_TABLE` | DynamoDB table for workflow metadata (default: `agentcore-hub-workflows`) |
+| `EVENTS_TABLE` | DynamoDB table for real-time events (default: `agentcore-hub-events`) |
+| `ARTIFACT_BUCKET` | S3 bucket for agent outputs (convention: `agentcore-hub-artifacts-<ACCOUNT_ID>`) |
 | `GITHUB_PAT` | GitHub Personal Access Token for MCP tools (code push, PRs) |
 
 **For DynamoDB mode, also set:**
 
 | Variable | Description |
 |----------|-------------|
-| `TICKETS_TABLE` | DynamoDB tickets table (default: `agentis-tickets`) |
-| `TICKET_TOOLS_LAMBDA` | Set to `agentis-tickets` (the DynamoDB-backed Lambda) |
+| `TICKETS_TABLE` | DynamoDB tickets table (default: `agentcore-hub-tickets`) |
+| `TICKET_TOOLS_LAMBDA` | Set to `agentcore-hub-tickets` (the DynamoDB-backed Lambda) |
 
 **For Jira mode, also set:**
 
@@ -58,7 +58,7 @@ Choose your ticket provider and edit `.env.local`:
 | `JIRA_EMAIL` | Jira account email |
 | `JIRA_API_TOKEN` | Jira API token |
 | `JIRA_PROJECT_KEY` | Project key (e.g., `TEAM`) |
-| `TICKET_TOOLS_LAMBDA` | Set to `agentis-jira` (the Jira Cloud Lambda) |
+| `TICKET_TOOLS_LAMBDA` | Set to `agentcore-hub-jira` (the Jira Cloud Lambda) |
 
 ### Stage 2: Infrastructure (DynamoDB + S3)
 
@@ -69,7 +69,7 @@ Choose your ticket provider and edit `.env.local`:
 ./scripts/create-dynamodb-tables.sh --with-tickets
 
 # Create S3 artifacts bucket
-aws s3 mb s3://agentis-artifacts-<ACCOUNT_ID> --region us-east-1
+aws s3 mb s3://agentcore-hub-artifacts-<ACCOUNT_ID> --region us-east-1
 ```
 
 **Verify:**
@@ -81,8 +81,8 @@ aws s3 mb s3://agentis-artifacts-<ACCOUNT_ID> --region us-east-1
 
 Deploys the Lambda that agents call to create/update/query tickets. The script reads your `TICKET_PROVIDER` setting and deploys the correct Lambda:
 
-- `TICKET_PROVIDER=jira` → deploys `lambda/agentis-jira/` (calls Jira Cloud REST API)
-- `TICKET_PROVIDER=dynamodb` → deploys `lambda/agentis-tickets/` (reads/writes DynamoDB)
+- `TICKET_PROVIDER=jira` → deploys `lambda/agentcore-hub-jira/` (calls Jira Cloud REST API)
+- `TICKET_PROVIDER=dynamodb` → deploys `lambda/agentcore-hub-tickets/` (reads/writes DynamoDB)
 
 Both expose the identical tool interface to agents (`Tickets___create_ticket`, `Tickets___transition_ticket`, etc.) — agents don't know or care which backend is in use.
 
@@ -113,7 +113,7 @@ Expected output: `✓ Builder agent responded (XXX chars)`
 
 Add the output to `.env.local`:
 ```bash
-BUILDER_AGENT_ID=agentis_builder-xxxxxxxxxx
+BUILDER_AGENT_ID=agentcore_hub_builder-xxxxxxxxxx
 ```
 
 ### Stage 6: Agent Fleet (14 Agents)
@@ -265,11 +265,11 @@ node deploy/setup-builder-agent.mjs \
 ```
 
 **What this creates:**
-1. **Builder Agent harness** (`agentis_builder`) with code_interpreter + any MCP servers you specify
+1. **Builder Agent harness** (`agentcore_hub_builder`) with code_interpreter + any MCP servers you specify
 
 **Output:**
 ```bash
-BUILDER_AGENT_ID=agentis_builder-xxxxxxxxxx
+BUILDER_AGENT_ID=agentcore_hub_builder-xxxxxxxxxx
 ```
 
 Add to `.env.local` — the Build page will use the real harness agent instead of direct Converse.
@@ -283,7 +283,7 @@ Add to `.env.local` — the Build page will use the real harness agent instead o
 ### How It Works
 
 ```
-User (Build page) → InvokeHarness(agentis_builder)
+User (Build page) → InvokeHarness(agentcore_hub_builder)
                          ↓
               Builder Agent (Claude Sonnet 4.5)
                     ↓ tool calls ↓
@@ -378,13 +378,13 @@ To configure:
 3. **Jira-native bug** — file a `Bug` issue in Jira directly. The `issue_created` webhook bootstraps a workflow keyed off the Bug, creates a requirements-analyst sub-task under it, and the analyst loads the `bug-fix-requirements` blueprint to produce a 3-subtask chain (Fix → QA → CI).
 
 **Agent Jira Lambda** (separate infra, agents call Jira through this):
-- Function: `agentis-jira` — SAM-deployed Lambda (for Jira mode) or `agentis-tickets` (for DynamoDB mode)
+- Function: `agentcore-hub-jira` — SAM-deployed Lambda (for Jira mode) or `agentcore-hub-tickets` (for DynamoDB mode)
 - Only invocable by `bedrock-agentcore.amazonaws.com`
-- Deploy: see `lambda/agentis-jira/` for Jira mode or `lambda/agentis-tickets/` for DynamoDB mode
+- Deploy: see `lambda/agentcore-hub-jira/` for Jira mode or `lambda/agentcore-hub-tickets/` for DynamoDB mode
 
 ### Agent Roster (Config-Driven)
 
-The roster of valid agents is defined in `src/config/agents.json` — the single source of truth. This file is synced to S3 during deployment, and all Lambdas (orchestrator, agentis-tickets, agentis-jira-real) load it on cold start.
+The roster of valid agents is defined in `src/config/agents.json` — the single source of truth. This file is synced to S3 during deployment, and all Lambdas (orchestrator, agentcore-hub-tickets, agentcore-hub-jira-real) load it on cold start.
 
 **To add/remove agents:**
 1. Edit `src/config/agents.json`
@@ -400,7 +400,7 @@ The orchestrator uses this to resolve agent ID → Runtime ARN mapping. The tick
 - `ARTIFACT_BUCKET` set in `.env.local` (prompts and config are uploaded to S3 for each agent)
 - `GITHUB_PAT` set in `.env.local` — agents need this for GitHub MCP tools (PRs, code push, file reads). Without it, agents can still run but cannot interact with GitHub.
 
-The script automatically creates the IAM execution role (`agentis-agentcore-role`) if it doesn't exist. It also configures:
+The script automatically creates the IAM execution role (`agentcore-hub-agentcore-role`) if it doesn't exist. It also configures:
 - `CLAUDE_CODE_USE_BEDROCK=1` — enables the Claude Code SDK tool to authenticate via Bedrock (no API key needed)
 - `GITHUB_PAT` — read from `.env.local` and passed to each agent for GitHub MCP access
 
@@ -499,10 +499,10 @@ Each agent calls `load_skill` at runtime to get detailed instructions before pro
 ```bash
 node deploy/setup-routing-agents.mjs \
   --gateway-id <your-gateway-id> \
-  --harness-role-arn arn:aws:iam::ACCOUNT:role/agentis-harness-role
+  --harness-role-arn arn:aws:iam::ACCOUNT:role/agentcore-hub-harness-role
 ```
 
-> **Note:** If you ran `setup-builder-agent.mjs` first (Stage 5), the `agentis-harness-role` already exists and can be reused here.
+> **Note:** If you ran `setup-builder-agent.mjs` first (Stage 5), the `agentcore-hub-harness-role` already exists and can be reused here.
 
 This creates:
 1. **Skill-loader Lambda** — serves skill instructions (ios-architecture, backend-systems, etc.)
@@ -558,9 +558,9 @@ Create the required DynamoDB tables before deploying (run once per account — *
 ```
 
 This creates:
-- `agentis-workflows` — PK: `workflowId` (S), GSI: `epicId-index`
-- `agentis-events` — PK: `workflowId` (S), SK: `eventId` (S)
-- `agentis-tickets` *(only with `--with-tickets`)* — PK: `ticketId` (S), with DynamoDB Streams enabled for orchestration
+- `agentcore-hub-workflows` — PK: `workflowId` (S), GSI: `epicId-index`
+- `agentcore-hub-events` — PK: `workflowId` (S), SK: `eventId` (S)
+- `agentcore-hub-tickets` *(only with `--with-tickets`)* — PK: `ticketId` (S), with DynamoDB Streams enabled for orchestration
 
 **Which mode should I use?**
 - `TICKET_PROVIDER=jira` — Jira Cloud is the ticket store. No tickets table needed.
@@ -574,32 +574,32 @@ This is the default deployment method — no load balancer config, auto-scaling 
 
 ```bash
 # 1. Create ECR repository (once)
-aws ecr create-repository --repository-name agentis-hub --region us-east-1
+aws ecr create-repository --repository-name agentcore-hub-hub --region us-east-1
 
 # 2. Authenticate Docker to ECR
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
 
 # 3. Build and push
-docker build --platform linux/amd64 -t agentis-hub:latest .
-docker tag agentis-hub:latest <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/agentis-hub:latest
-docker push <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/agentis-hub:latest
+docker build --platform linux/amd64 -t agentcore-hub-hub:latest .
+docker tag agentcore-hub-hub:latest <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/agentcore-hub-hub:latest
+docker push <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/agentcore-hub-hub:latest
 
 # 4. Create App Runner service (first time — or use AWS Console)
 aws apprunner create-service \
-  --service-name agentis-hub \
+  --service-name agentcore-hub-hub \
   --source-configuration '{
     "ImageRepository": {
-      "ImageIdentifier": "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/agentis-hub:latest",
+      "ImageIdentifier": "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/agentcore-hub-hub:latest",
       "ImageConfiguration": {"Port": "8080"},
       "ImageRepositoryType": "ECR"
     },
     "AutoDeploymentsEnabled": false,
     "AuthenticationConfiguration": {
-      "AccessRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/AgentisAppRunnerECRAccess"
+      "AccessRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/AgentCoreHubAppRunnerECRAccess"
     }
   }' \
-  --instance-configuration '{"InstanceRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/AgentisAppRunnerInstanceRole"}' \
+  --instance-configuration '{"InstanceRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/AgentCoreHubAppRunnerInstanceRole"}' \
   --region us-east-1
 
 # 5. Subsequent deploys — build, push, then:
@@ -636,16 +636,16 @@ Without this, Next.js cannot write its ISR/fetch cache at runtime, which causes 
 | Deployment succeeds in ~4 min | Normal | — |
 
 **Required IAM roles:**
-- `AgentisAppRunnerECRAccess` — allows App Runner to pull from ECR (trust: `build.apprunner.amazonaws.com`)
-- `AgentisAppRunnerInstanceRole` — runtime permissions (DynamoDB, Bedrock, Lambda invoke, S3, CloudWatch Logs, BedrockAgentCore)
+- `AgentCoreHubAppRunnerECRAccess` — allows App Runner to pull from ECR (trust: `build.apprunner.amazonaws.com`)
+- `AgentCoreHubAppRunnerInstanceRole` — runtime permissions (DynamoDB, Bedrock, Lambda invoke, S3, CloudWatch Logs, BedrockAgentCore)
 
 Set environment variables on the App Runner service (via Console or `update-service`):
 - `TICKET_PROVIDER=jira` (or `dynamodb`)
-- `WORKFLOWS_TABLE=agentis-workflows`
-- `EVENTS_TABLE=agentis-events`
-- `ARTIFACT_BUCKET=agentis-artifacts-<ACCOUNT_ID>-<REGION>` (e.g. `agentis-artifacts-123456789012-us-east-1`)
+- `WORKFLOWS_TABLE=agentcore-hub-workflows`
+- `EVENTS_TABLE=agentcore-hub-events`
+- `ARTIFACT_BUCKET=agentcore-hub-artifacts-<ACCOUNT_ID>-<REGION>` (e.g. `agentcore-hub-artifacts-123456789012-us-east-1`)
 - `GITHUB_PAT=ghp_xxx` (for MCP tools)
-- `TICKET_TOOLS_LAMBDA=agentis-jira` (or `agentis-tickets` for DynamoDB mode)
+- `TICKET_TOOLS_LAMBDA=agentcore-hub-jira` (or `agentcore-hub-tickets` for DynamoDB mode)
 
 For Jira mode, also set:
 - `JIRA_SITE_URL=your-site.atlassian.net`
@@ -653,7 +653,7 @@ For Jira mode, also set:
 - `JIRA_API_TOKEN=your-api-token`
 - `JIRA_PROJECT_KEY=TEAM`
 
-**Note:** When using `TICKET_PROVIDER=jira`, deploy the `agentis-jira` Lambda. When using `TICKET_PROVIDER=dynamodb`, deploy the `agentis-tickets` Lambda. Set `TICKET_TOOLS_LAMBDA` on your agents to match whichever you deploy.
+**Note:** When using `TICKET_PROVIDER=jira`, deploy the `agentcore-hub-jira` Lambda. When using `TICKET_PROVIDER=dynamodb`, deploy the `agentcore-hub-tickets` Lambda. Set `TICKET_TOOLS_LAMBDA` on your agents to match whichever you deploy.
 
 #### Option B: AWS Amplify Hosting
 
@@ -785,7 +785,7 @@ To restrict to specific agents or regions:
 - The `PassRoleForHarnessCreation` statement is only needed if using the Deploy button on the Build page. Scope the `Resource` to your specific harness execution role ARN for tighter security.
 - The `BedrockModelAccess` is only needed if using the Builder feature (agent creation via Converse API)
 
-### Agent Runtime Role (`agentis-agentcore-role`)
+### Agent Runtime Role (`agentcore-hub-agentcore-role`)
 
 The 14 pipeline agents run on AgentCore Runtime with their own execution role. This role needs:
 
@@ -795,10 +795,10 @@ The 14 pipeline agents run on AgentCore Runtime with their own execution role. T
   "Statement": [
     {"Effect": "Allow", "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], "Resource": "*"},
     {"Effect": "Allow", "Action": ["bedrock-agentcore:*"], "Resource": "*"},
-    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"], "Resource": ["arn:aws:s3:::agentis-artifacts-ACCOUNT-REGION", "arn:aws:s3:::agentis-artifacts-ACCOUNT-REGION/*"]},
+    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"], "Resource": ["arn:aws:s3:::agentcore-hub-artifacts-ACCOUNT-REGION", "arn:aws:s3:::agentcore-hub-artifacts-ACCOUNT-REGION/*"]},
     {"Effect": "Allow", "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"], "Resource": "*"},
-    {"Effect": "Allow", "Action": ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchWriteItem"], "Resource": "arn:aws:dynamodb:*:*:table/agentis-*"},
-    {"Effect": "Allow", "Action": ["lambda:InvokeFunction"], "Resource": "arn:aws:lambda:*:*:function:agentis-*"},
+    {"Effect": "Allow", "Action": ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchWriteItem"], "Resource": "arn:aws:dynamodb:*:*:table/agentcore-hub-*"},
+    {"Effect": "Allow", "Action": ["lambda:InvokeFunction"], "Resource": "arn:aws:lambda:*:*:function:agentcore-hub-*"},
     {"Effect": "Allow", "Action": ["xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets"], "Resource": "*"}
   ]
 }
@@ -891,7 +891,7 @@ python3 verify-fleet-invoke.py \
 # Test a single agent (faster iteration)
 python3 verify-fleet-invoke.py \
   --fleet-file fleet-runtime-ids.json \
-  --agent agentis_requirements_analyst \
+  --agent agentcore_hub_requirements_analyst \
   --timeout 540 --verbose
 ```
 

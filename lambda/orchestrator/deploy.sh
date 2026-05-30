@@ -32,7 +32,7 @@ SIZE=$(ls -lh function.zip | awk '{print $5}')
 echo "  Zip size: $SIZE"
 
 echo "=== Deploying to Lambda functions ==="
-for FUNC in agentis-orchestrator agentis-agent-invoker; do
+for FUNC in agentcore-hub-orchestrator agentcore-hub-agent-invoker; do
   echo "  Deploying $FUNC..."
   aws lambda update-function-code \
     --function-name "$FUNC" \
@@ -45,5 +45,5 @@ echo ""
 echo "=== Done. Both Lambdas updated. ==="
 echo ""
 echo "IMPORTANT: If env vars need updating (e.g. JIRA_API_TOKEN), do that separately:"
-echo "  aws lambda update-function-configuration --function-name agentis-orchestrator \\"
+echo "  aws lambda update-function-configuration --function-name agentcore-hub-orchestrator \\"
 echo "    --environment '{\"Variables\":{...}}' --region $REGION"

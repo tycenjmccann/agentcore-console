@@ -11,10 +11,10 @@ set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-LAMBDA_NAME="agentis-token-aggregator"
-LAMBDA_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/agentis-lambda-role"
-TABLE_NAME="agentis-eval-config"
-BUCKET="agentis-artifacts-${ACCOUNT_ID}"
+LAMBDA_NAME="agentcore-hub-token-aggregator"
+LAMBDA_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/agentcore-hub-lambda-role"
+TABLE_NAME="agentcore-hub-eval-config"
+BUCKET="agentcore-hub-artifacts-${ACCOUNT_ID}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAMBDA_DIR="${SCRIPT_DIR}/../../lambda/token-aggregator"
 
@@ -91,7 +91,7 @@ echo ""
 echo "--- Step 3: Subscription filters ---"
 
 RUNTIME_GROUPS=$(aws logs describe-log-groups \
-  --log-group-name-prefix "/aws/bedrock-agentcore/runtimes/agentis_" \
+  --log-group-name-prefix "/aws/bedrock-agentcore/runtimes/agentcore_hub_" \
   --query 'logGroups[].logGroupName' \
   --output json --region "${REGION}")
 
@@ -122,7 +122,7 @@ echo "✓ Subscription filters created"
 echo ""
 echo "--- Step 4: Weekly reset cron ---"
 
-RULE_NAME="agentis-token-reset-weekly"
+RULE_NAME="agentcore-hub-token-reset-weekly"
 aws events put-rule \
   --name "${RULE_NAME}" \
   --schedule-expression "cron(0 0 ? * MON *)" \

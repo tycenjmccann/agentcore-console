@@ -2,7 +2,7 @@
 # deploy/continuous-improvement/backfill-metrics.sh
 #
 # One-time backfill: reads historical token usage + eval scores from CW Logs
-# and writes aggregated results to the agentis-eval-config DDB table.
+# and writes aggregated results to the agentcore-hub-eval-config DDB table.
 #
 # Run ONCE after deploying the subscription filter pipeline to populate
 # historical data so the dashboard has immediate content.
@@ -13,7 +13,7 @@ set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
 DAYS=7
-TABLE_NAME="agentis-eval-config"
+TABLE_NAME="agentcore-hub-eval-config"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}/../.."
 AGENTS_FILE="${REPO_ROOT}/src/config/agents.json"

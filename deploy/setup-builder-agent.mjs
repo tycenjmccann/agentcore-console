@@ -64,7 +64,7 @@ let HARNESS_ROLE_ARN = getArg("harness-role-arn");
 const MEMORY_ID = getArg("memory-id");
 const MCP_URLS = getAllArgs("mcp-url");
 const MODEL_ID = getArg("model-id") || "us.anthropic.claude-sonnet-4-6";
-const ROLE_NAME = "agentis-harness-role";
+const ROLE_NAME = "agentcore-hub-harness-role";
 
 // --- Resolve account ID ---
 const sts = new STSClient({ region: REGION });
@@ -99,7 +99,7 @@ if (!HARNESS_ROLE_ARN) {
       await iam.send(new CreateRoleCommand({
         RoleName: ROLE_NAME,
         AssumeRolePolicyDocument: trustPolicy,
-        Description: "Execution role for Agentis harness agents (builder, routing)",
+        Description: "Execution role for AgentCore Hub harness agents (builder, routing)",
       }));
       HARNESS_ROLE_ARN = `arn:aws:iam::${accountId}:role/${ROLE_NAME}`;
       console.log(`   ✓ Role "${ROLE_NAME}" created`);
@@ -228,7 +228,7 @@ console.log("  " + "=".repeat(50) + "\n");
 // --- Check if already exists ---
 const list = await agentcore.send(new ListHarnessesCommand({}));
 const existingReady = (list.harnesses || []).find(
-  (h) => h.harnessName === "agentis_builder" && h.status === "READY"
+  (h) => h.harnessName === "agentcore_hub_builder" && h.status === "READY"
 );
 
 if (existingReady) {
@@ -240,10 +240,10 @@ if (existingReady) {
 
 // Check if one exists but is still being created or deleted
 const existingOther = (list.harnesses || []).find(
-  (h) => h.harnessName === "agentis_builder" && h.status !== "READY"
+  (h) => h.harnessName === "agentcore_hub_builder" && h.status !== "READY"
 );
 if (existingOther) {
-  console.log(`  Found existing agentis_builder in state: ${existingOther.status}`);
+  console.log(`  Found existing agentcore_hub_builder in state: ${existingOther.status}`);
   if (existingOther.status === "CREATING") {
     console.log(`  Waiting for it to become READY...`);
     for (let i = 0; i < 30; i++) {
@@ -265,7 +265,7 @@ if (existingOther) {
       await sleep(5000);
       const refreshed = await agentcore.send(new ListHarnessesCommand({}));
       const still = (refreshed.harnesses || []).find(
-        (h) => h.harnessName === "agentis_builder"
+        (h) => h.harnessName === "agentcore_hub_builder"
       );
       if (!still) {
         console.log(`  Deletion complete. Proceeding with creation.`);
@@ -364,7 +364,7 @@ print(f"Created: {response['harness']['harnessId']}")
 console.log("  Creating builder agent harness...");
 
 const harnessConfig = {
-  harnessName: "agentis_builder",
+  harnessName: "agentcore_hub_builder",
   executionRoleArn: HARNESS_ROLE_ARN,
   model: { bedrockModelConfig: { modelId: MODEL_ID } },
   systemPrompt: [{ text: SYSTEM_PROMPT }],
@@ -390,7 +390,7 @@ console.log(`  Tools: ${tools.map(t => t.name).join(", ")}`);
 
 const res = await agentcore.send(new CreateHarnessCommand(harnessConfig));
 const harnessId = res.harness?.harnessId;
-console.log(`  Creating agentis_builder (${harnessId})...`);
+console.log(`  Creating agentcore_hub_builder (${harnessId})...`);
 
 // Poll until ready
 for (let i = 0; i < 30; i++) {
@@ -398,7 +398,7 @@ for (let i = 0; i < 30; i++) {
   const status = await agentcore.send(new GetHarnessCommand({ harnessId }));
   const s = status.harness?.status;
   if (s === "READY") {
-    console.log(`  agentis_builder is READY`);
+    console.log(`  agentcore_hub_builder is READY`);
     await verifyHarness(harnessId);
     printDone(harnessId);
     process.exit(0);

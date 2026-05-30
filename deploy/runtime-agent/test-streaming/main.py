@@ -18,7 +18,7 @@ logger = logging.getLogger("test-streaming")
 app = BedrockAgentCoreApp()
 
 # DDB config
-EVENTS_TABLE = os.environ.get("EVENTS_TABLE", "agentis-events")
+EVENTS_TABLE = os.environ.get("EVENTS_TABLE", "agentcore-hub-events")
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 _ddb = boto3.client("dynamodb", region_name=REGION)
 

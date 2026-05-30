@@ -11,7 +11,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    // Workflow metadata always lives in DDB (agentis-workflows table)
+    // Workflow metadata always lives in DDB (agentcore-hub-workflows table)
     const state = await getWorkflowFromDynamo(params.id);
     if (!state) {
       return NextResponse.json({ error: "Workflow not found" }, { status: 404 });

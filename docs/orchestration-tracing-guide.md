@@ -11,21 +11,21 @@
 │ STEP 1: Workflow Start                                                       │
 │ Who:   App Runner (Next.js)                                                  │
 │ What:  POST /api/workflow/start                                              │
-│ Does:  Creates Jira epic + requirements ticket via agentis-tickets Lambda  │
-│ Logs:  App Runner stdout (CloudWatch: /aws/apprunner/agentis-hub/...)        │
+│ Does:  Creates Jira epic + requirements ticket via agentcore-hub-tickets Lambda  │
+│ Logs:  App Runner stdout (CloudWatch: /aws/apprunner/agentcore-hub-hub/...)        │
 │ IDs:   Returns { workflowId, epicId }                                        │
 └───────────────────────────────────┬─────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ STEP 2: Ticket Creation (agentis-tickets Lambda)                           │
-│ Who:   Lambda function agentis-tickets                                     │
+│ STEP 2: Ticket Creation (agentcore-hub-tickets Lambda)                           │
+│ Who:   Lambda function agentcore-hub-tickets                                     │
 │ What:  Creates issue in Jira + writes to DDB (dual-write)                    │
 │ Does:  1. POST /rest/api/3/issue → gets TEAM-XXX key                         │
 │         2. POST /rest/api/3/issueLink (if blocked_by provided)               │
 │         3. POST /rest/api/3/issue/{id}/transitions → "Blocked" or "Ready"    │
 │         4. DDB PutItem with same TEAM-XXX key                                │
-│ Logs:  CloudWatch: /aws/lambda/agentis-tickets                             │
+│ Logs:  CloudWatch: /aws/lambda/agentcore-hub-tickets                             │
 │ Key log patterns:                                                            │
 │   - "tool=Tickets___create_ticket params={...}"  (input)             │
 │   - "Created TEAM-XXX in Jira + DDB. Status: blocked|todo"  (result)         │
@@ -52,14 +52,14 @@
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ STEP 4: Orchestrator Lambda Processes Webhook                                │
-│ Who:   Lambda function agentis-orchestrator                                  │
+│ Who:   Lambda function agentcore-hub-orchestrator                                  │
 │ What:  Routes ticket status changes to appropriate handler                   │
 │ Does:                                                                        │
 │   - "todo": Logs and waits (Jira mode — ticket tools Lambda will transition)           │
 │   - "ready": Calls handleTicketReadyUnified → invokes agent                  │
 │   - "in_progress": Publishes agent.started event                             │
 │   - "done": Calls handleTicketDoneUnified → unblocks dependents              │
-│ Logs:  CloudWatch: /aws/lambda/agentis-orchestrator                          │
+│ Logs:  CloudWatch: /aws/lambda/agentcore-hub-orchestrator                          │
 │ Key log patterns:                                                            │
 │   - "[orchestrator] Jira webhook: TEAM-XXX → {status}"                       │
 │   - "[orchestrator] TEAM-XXX: {old} → {new}"                                │
@@ -91,13 +91,13 @@
 │ Who:   Bedrock AgentCore Runtime (Python main.py)                            │
 │ What:  Agent runs with tools, publishes events, produces output              │
 │ Does:                                                                        │
-│   1. Publishes agent.started event to agentis-events (DDB direct)            │
+│   1. Publishes agent.started event to agentcore-hub-events (DDB direct)            │
 │   2. Calls tools (Jira, GitHub, S3, SkillLoader) — each publishes tool_use   │
 │   3. Buffers text output, publishes agent.streaming events periodically      │
 │   4. On completion: calls WorkflowOutput___report_completion tool            │
 │ Logs:  CloudWatch: /aws/bedrock-agentcore/{runtime-name}/session logs         │
 │        (Not easily queryable by workflow ID — use session ID from step 5)    │
-│ Events written to: agentis-events DDB table                                  │
+│ Events written to: agentcore-hub-events DDB table                                  │
 │   - type: agent.started, agent.streaming, tool_use                           │
 │   - Each has workflowId + agentId + timestamp                                │
 └───────────────────────────────────┬─────────────────────────────────────────┘
@@ -105,13 +105,13 @@
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ STEP 7: Agent Completion (report_completion)                                 │
-│ Who:   Agent calls WorkflowOutput tool → agentis-workflow-output Lambda      │
+│ Who:   Agent calls WorkflowOutput tool → agentcore-hub-workflow-output Lambda      │
 │ What:  Writes output to S3 + marks ticket "done" in DDB + publishes event    │
 │ Does:                                                                        │
 │   1. Writes full output to S3: workflows/{wfId}/agents/{agentId}/output.md   │
-│   2. Updates agentis-tickets DDB: status → "done"                            │
-│   3. Publishes agent.completed event to agentis-events                       │
-│ Logs:  CloudWatch: /aws/lambda/agentis-workflow-output                        │
+│   2. Updates agentcore-hub-tickets DDB: status → "done"                            │
+│   3. Publishes agent.completed event to agentcore-hub-events                       │
+│ Logs:  CloudWatch: /aws/lambda/agentcore-hub-workflow-output                        │
 │ Key log patterns:                                                            │
 │   - "Writing output to S3: ..."                                              │
 │   - "Marking ticket TEAM-XXX done in DDB"                                    │
@@ -155,13 +155,13 @@
 
 | Component | CloudWatch Log Group | Correlation ID |
 |-----------|---------------------|----------------|
-| App Runner (Next.js) | `/aws/apprunner/agentis-hub/application` | workflowId in URL params |
-| Jira Tool Lambda | `/aws/lambda/agentis-tickets` | Ticket IDs (TEAM-XXX) in log messages |
-| Orchestrator Lambda | `/aws/lambda/agentis-orchestrator` | Ticket IDs + "workflowId=" in handleTicketReady |
-| Agent Invoker | `/aws/lambda/agentis-agent-invoker` | Session ID (contains workflowId) |
-| Workflow Output | `/aws/lambda/agentis-workflow-output` | ticketId + workflowId in payload |
+| App Runner (Next.js) | `/aws/apprunner/agentcore-hub-hub/application` | workflowId in URL params |
+| Jira Tool Lambda | `/aws/lambda/agentcore-hub-tickets` | Ticket IDs (TEAM-XXX) in log messages |
+| Orchestrator Lambda | `/aws/lambda/agentcore-hub-orchestrator` | Ticket IDs + "workflowId=" in handleTicketReady |
+| Agent Invoker | `/aws/lambda/agentcore-hub-agent-invoker` | Session ID (contains workflowId) |
+| Workflow Output | `/aws/lambda/agentcore-hub-workflow-output` | ticketId + workflowId in payload |
 | Runtime Agents | `/aws/bedrock-agentcore/...` | Session ID from orchestrator invoke |
-| Events Table | DynamoDB `agentis-events` | workflowId (partition key) |
+| Events Table | DynamoDB `agentcore-hub-events` | workflowId (partition key) |
 
 ---
 
@@ -171,7 +171,7 @@
 **Symptom**: Dev/QA/CI agents start before design agents finish
 **Root cause**: `blocked_by` not set, OR Jira "Blocked" transition failed silently
 **How to trace**:
-1. Check `agentis-tickets` logs for the `create_ticket` call — was `blocked_by` in params?
+1. Check `agentcore-hub-tickets` logs for the `create_ticket` call — was `blocked_by` in params?
 2. Check the result — does it say `Status: blocked` or `Status: todo`?
 3. If `blocked`, check orchestrator logs — did a "ready" webhook arrive anyway?
 4. If yes → the "Blocked" transition in Jira failed (Jira workflow may not have that status)

@@ -22,7 +22,7 @@ source "${REPO_ROOT}/deploy/config.sh"
 CUSTOM_EVALUATOR="dependency_chain_compliance_online-mbLh2kEFhw"
 
 # Agents that create/reassign tickets (need the custom evaluator)
-TICKET_AGENTS="agentis_requirements_analyst agentis_qa_verifier agentis_ci_agent"
+TICKET_AGENTS="agentcore_hub_requirements_analyst agentcore_hub_qa_verifier agentcore_hub_ci_agent"
 
 # Read agent IDs dynamically from fleet-runtime-ids.json
 FLEET_FILE="${REPO_ROOT}/deploy/runtime-agent/fleet-runtime-ids.json"

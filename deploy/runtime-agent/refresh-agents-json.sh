@@ -74,11 +74,11 @@ for page in paginator.paginate():
     for rt in page.get("agentRuntimes", []):
         name = rt.get("agentRuntimeName", "")
         arn = rt.get("agentRuntimeArn", "")
-        if name.startswith("agentis_"):
+        if name.startswith("agentcore_hub_"):
             deployed[name] = arn
 
 if not deployed:
-    print(f"ERROR: No agentis_* runtimes found in {region}. Check your AWS_PROFILE.")
+    print(f"ERROR: No agentcore_hub_* runtimes found in {region}. Check your AWS_PROFILE.")
     sys.exit(1)
 
 print(f"  Found {len(deployed)} deployed runtimes.")
@@ -184,8 +184,8 @@ config = json.loads(text)
 plans = []
 missing = []
 for agent in config["agents"]:
-    runtime_name = "agentis_" + agent["id"].replace("team-", "").replace("-", "_")
-    # Eval config name uses the same short id (no "agentis_" prefix), e.g.
+    runtime_name = "agentcore_hub_" + agent["id"].replace("team-", "").replace("-", "_")
+    # Eval config name uses the same short id (no "agentcore_hub_" prefix), e.g.
     # team-requirements-analyst -> eval_requirements_analyst.
     eval_short = "eval_" + agent["id"].replace("team-", "").replace("-", "_")
     eval_name = eval_configs.get(eval_short)

@@ -2,7 +2,7 @@
  * GET /api/workflow/[id]/agent-output?agentId=team-frontend-dev
  *
  * Returns ALL text output for a specific agent in a workflow.
- * Streaming chunks: agentis-events table
+ * Streaming chunks: agentcore-hub-events table
  * Summary: S3 completions/${ticketId}.json (written by report_completion)
  */
 
@@ -14,7 +14,7 @@ import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 export const dynamic = "force-dynamic";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
+const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentcore-hub-events";
 const BUCKET = process.env.ARTIFACT_BUCKET || "";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
@@ -108,7 +108,7 @@ async function fetchStreamingChunks(workflowId: string, agentId: string): Promis
 async function fetchSummaryFromS3(workflowId: string, agentId: string): Promise<string> {
   try {
     // Get ticket IDs for this agent from the workflow state (agentTasks map)
-    const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
+    const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentcore-hub-workflows";
     const wfResult = await ddb.send(new QueryCommand({
       TableName: WORKFLOWS_TABLE,
       KeyConditionExpression: "workflowId = :wid",

@@ -17,9 +17,9 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 REGION="${AWS_REGION:-us-east-1}"
-WORKFLOWS_TABLE="${WORKFLOWS_TABLE:-agentis-workflows}"
-EVENTS_TABLE="${EVENTS_TABLE:-agentis-events}"
-TICKETS_TABLE="${TICKETS_TABLE:-agentis-tickets}"
+WORKFLOWS_TABLE="${WORKFLOWS_TABLE:-agentcore-hub-workflows}"
+EVENTS_TABLE="${EVENTS_TABLE:-agentcore-hub-events}"
+TICKETS_TABLE="${TICKETS_TABLE:-agentcore-hub-tickets}"
 ARTIFACT_BUCKET="${ARTIFACT_BUCKET:-}"
 CHECK_TICKETS=false
 
@@ -93,7 +93,7 @@ check_schema() {
 }
 
 echo ""
-echo "  Verifying Agentis Infrastructure"
+echo "  Verifying AgentCore Hub Infrastructure"
 echo "  ═══════════════════════════════════"
 echo "  Region: $REGION"
 echo ""
@@ -118,8 +118,8 @@ else
 fi
 
 # Lambda
-check "Lambda: agentis-tickets" \
-  "aws lambda get-function --function-name agentis-tickets --region $REGION"
+check "Lambda: agentcore-hub-tickets" \
+  "aws lambda get-function --function-name agentcore-hub-tickets --region $REGION"
 
 echo ""
 echo "  ───────────────────────────────────"

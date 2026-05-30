@@ -48,7 +48,7 @@ echo ""
 
 if [ -z "$BUCKET" ]; then
   echo "  [1/5] Auto-detecting artifact bucket..."
-  BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'agentis-artifacts-[^ ]*' | head -1)
+  BUCKET=$(aws s3 ls 2>/dev/null | grep -o 'agentcore-hub-artifacts-[^ ]*' | head -1)
   if [ -z "$BUCKET" ]; then
     echo "  ERROR: Could not find artifact bucket. Set ARTIFACT_BUCKET env var."
     exit 1
@@ -63,9 +63,9 @@ echo ""
 
 echo "  [2/5] Discovering deployed agents..."
 
-# List all agentis runtime log groups to find agent IDs
+# List all agentcore-hub runtime log groups to find agent IDs
 AGENT_ARNS=$(aws logs describe-log-groups \
-  --log-group-name-prefix "/aws/bedrock-agentcore/runtimes/agentis_" \
+  --log-group-name-prefix "/aws/bedrock-agentcore/runtimes/agentcore_hub_" \
   --region "$REGION" \
   --query 'logGroups[*].logGroupName' \
   --output json 2>/dev/null | python3 -c "
@@ -74,7 +74,7 @@ log_groups = json.load(sys.stdin)
 fleet = {}
 for lg in log_groups:
     # Pattern: /aws/bedrock-agentcore/runtimes/{name}-{id}-DEFAULT
-    match = re.search(r'/runtimes/(agentis_[a-z_]+)-([a-zA-Z0-9]+)-DEFAULT', lg)
+    match = re.search(r'/runtimes/(agentcore_hub_[a-z_]+)-([a-zA-Z0-9]+)-DEFAULT', lg)
     if match:
         name = match.group(1)
         runtime_id = f'{name}-{match.group(2)}'
@@ -84,7 +84,7 @@ print(json.dumps(fleet, indent=2))
 ")
 
 if [ -z "$AGENT_ARNS" ] || [ "$AGENT_ARNS" = "{}" ]; then
-  echo "  ERROR: No agentis agents found in $REGION."
+  echo "  ERROR: No agentcore-hub agents found in $REGION."
   echo "         Deploy agents first: ./deploy-fleet.sh"
   exit 1
 fi
@@ -167,7 +167,7 @@ cat > "$FIXTURES_DIR/test-page.html" << 'HTML'
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Agentis Fleet Status</title>
+  <title>AgentCore Hub Fleet Status</title>
   <style>
     body { font-family: system-ui; background: #0f172a; color: #e2e8f0; padding: 40px; }
     h1 { color: #0ea5e9; }
@@ -176,7 +176,7 @@ cat > "$FIXTURES_DIR/test-page.html" << 'HTML'
   </style>
 </head>
 <body>
-  <h1 id="title">Agentis Fleet Status</h1>
+  <h1 id="title">AgentCore Hub Fleet Status</h1>
   <p class="status" id="message">All systems operational</p>
   <p class="version" id="version">v2.1.0</p>
   <ul>
@@ -190,7 +190,7 @@ cat > "$FIXTURES_DIR/test-page.html" << 'HTML'
 </html>
 HTML
 
-# test-logo.png — Generate a simple blue circle with "AGENTIS" text using Python
+# test-logo.png — Generate a simple blue circle with "AGENTCORE" text using Python
 python3 << 'PYIMG'
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -198,12 +198,12 @@ try:
     draw = ImageDraw.Draw(img)
     # Blue circle
     draw.ellipse([100, 50, 300, 250], fill=(14, 165, 233), outline=(56, 189, 248), width=3)
-    # Text "AGENTIS" below
+    # Text "AGENTCORE" below
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
     except (OSError, IOError):
         font = ImageFont.load_default()
-    draw.text((120, 280), "AGENTIS", fill=(226, 232, 240), font=font)
+    draw.text((120, 280), "AGENTCORE", fill=(226, 232, 240), font=font)
     img.save("/tmp/healthcheck-fixtures/test-logo.png")
     print("        Generated test-logo.png (PIL)")
 except ImportError:
@@ -346,7 +346,7 @@ echo "  ─────────────────────"
 echo "  BEDROCK_KB_ID=$BEDROCK_KB_ID GITHUB_OWNER=\$GITHUB_OWNER GITHUB_REPO=agentcore-console \\"
 echo "  python3 $SCRIPT_DIR/verify-fleet-invoke.py \\"
 echo "    --fleet-file $FLEET_FILE \\"
-echo "    --agent agentis_requirements_analyst \\"
+echo "    --agent agentcore_hub_requirements_analyst \\"
 echo "    --timeout 540 --verbose"
 echo ""
 echo "═══════════════════════════════════════════════════════════════"

@@ -5,7 +5,7 @@
 # Usage:
 #   ./deploy.sh                     # Deploy all 14 agents
 #   ./deploy.sh backend_dev         # Deploy one agent (prefix optional)
-#   ./deploy.sh 10                  # Deploy agent #10 (agentis_backend_dev)
+#   ./deploy.sh 10                  # Deploy agent #10 (agentcore_hub_backend_dev)
 #   ./deploy.sh 10 11 12            # Deploy agents #10, #11, #12
 #   ./deploy.sh backend_dev api_dev # Deploy by name
 #
@@ -24,20 +24,20 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Agent list — numbered 1-14
 AGENTS=(
-  "agentis_requirements_analyst"   # 1
-  "agentis_frontend_designer"      # 2
-  "agentis_ios_designer"           # 3
-  "agentis_backend_designer"       # 4
-  "agentis_android_designer"       # 5
-  "agentis_security_reviewer"      # 6
-  "agentis_legal_compliance"       # 7
-  "agentis_localization"           # 8
-  "agentis_analytics_designer"     # 9
-  "agentis_backend_dev"            # 10
-  "agentis_api_dev"                # 11
-  "agentis_frontend_dev"           # 12
-  "agentis_qa_verifier"            # 13
-  "agentis_ci_agent"               # 14
+  "agentcore_hub_requirements_analyst"   # 1
+  "agentcore_hub_frontend_designer"      # 2
+  "agentcore_hub_ios_designer"           # 3
+  "agentcore_hub_backend_designer"       # 4
+  "agentcore_hub_android_designer"       # 5
+  "agentcore_hub_security_reviewer"      # 6
+  "agentcore_hub_legal_compliance"       # 7
+  "agentcore_hub_localization"           # 8
+  "agentcore_hub_analytics_designer"     # 9
+  "agentcore_hub_backend_dev"            # 10
+  "agentcore_hub_api_dev"                # 11
+  "agentcore_hub_frontend_dev"           # 12
+  "agentcore_hub_qa_verifier"            # 13
+  "agentcore_hub_ci_agent"               # 14
 )
 
 # --- Handle --list and --help early (no AWS creds needed) ---
@@ -53,14 +53,14 @@ for arg in "$@"; do
     echo ""
     echo "  No args        Deploy all 14 agents"
     echo "  <number>       Deploy by index (1-14)"
-    echo "  <name>         Deploy by name (agentis_ prefix optional)"
+    echo "  <name>         Deploy by name (agentcore_hub_ prefix optional)"
     echo "  --list, -l     Show numbered agent list"
     echo ""
     echo "Examples:"
     echo "  ./deploy.sh 10              # backend_dev"
     echo "  ./deploy.sh 10 11 12        # backend_dev, api_dev, frontend_dev"
     echo "  ./deploy.sh backend_dev     # by name"
-    echo "  ./deploy.sh ios_designer    # agentis_ prefix is optional"
+    echo "  ./deploy.sh ios_designer    # agentcore_hub_ prefix is optional"
     exit 0
   fi
 done
@@ -81,7 +81,7 @@ try:
     resp = client.list_gateways()
     gws = resp.get('items', resp.get('gateways', []))
     for gw in gws:
-        if 'agentis' in gw.get('name','') and gw['status'] == 'READY':
+        if 'agentcore-hub' in gw.get('name','') and gw['status'] == 'READY':
             print(gw['gatewayId']); sys.exit(0)
     for gw in gws:
         if gw['status'] == 'READY':
@@ -116,9 +116,9 @@ else
       fi
       TARGETS+=("${AGENTS[$idx]}")
     else
-      # Name — add agentis_ prefix if missing
+      # Name — add agentcore_hub_ prefix if missing
       name="$arg"
-      [[ "$name" != agentis_* ]] && name="agentis_${name}"
+      [[ "$name" != agentcore_hub_* ]] && name="agentcore_hub_${name}"
       # Validate
       found=false
       for agent in "${AGENTS[@]}"; do

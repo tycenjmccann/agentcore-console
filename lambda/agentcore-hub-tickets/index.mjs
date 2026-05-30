@@ -1,5 +1,5 @@
 /**
- * agentis-tickets — Ticket tools Lambda backed by DynamoDB.
+ * agentcore-hub-tickets — Ticket tools Lambda backed by DynamoDB.
  *
  * Deploy this when TICKET_PROVIDER=dynamodb.
  * Agents call this Lambda to create/update/transition tickets stored in DynamoDB.
@@ -34,7 +34,7 @@ import {
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TABLE_NAME = process.env.TICKETS_TABLE || "agentis-tickets";
+const TABLE_NAME = process.env.TICKETS_TABLE || "agentcore-hub-tickets";
 const PROJECT_KEY = process.env.PROJECT_KEY || "TEAM";
 const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || "";
 
@@ -69,7 +69,7 @@ let VALID_AGENTS = null;
 async function loadValidAgents() {
   if (VALID_AGENTS) return VALID_AGENTS;
   if (!ARTIFACT_BUCKET) {
-    console.warn("[agentis-tickets] No ARTIFACT_BUCKET — using fallback roster");
+    console.warn("[agentcore-hub-tickets] No ARTIFACT_BUCKET — using fallback roster");
     VALID_AGENTS = FALLBACK_AGENTS;
     return VALID_AGENTS;
   }
@@ -80,9 +80,9 @@ async function loadValidAgents() {
     }));
     const config = JSON.parse(await res.Body.transformToString());
     VALID_AGENTS = new Set(config.agents.map((a) => a.id));
-    console.log(`[agentis-tickets] Loaded ${VALID_AGENTS.size} agents from S3 config`);
+    console.log(`[agentcore-hub-tickets] Loaded ${VALID_AGENTS.size} agents from S3 config`);
   } catch (err) {
-    console.warn(`[agentis-tickets] Failed to load roster from S3: ${err.message} — using fallback`);
+    console.warn(`[agentcore-hub-tickets] Failed to load roster from S3: ${err.message} — using fallback`);
     VALID_AGENTS = FALLBACK_AGENTS;
   }
   return VALID_AGENTS;
@@ -206,7 +206,7 @@ async function createTicket(args) {
 
   return {
     key: ticketId,
-    self: `https://agentis.atlassian.net/browse/${ticketId}`,
+    self: `https://your-domain.atlassian.net/browse/${ticketId}`,
     status: "created",
     ticket: {
       key: ticketId,
@@ -236,7 +236,7 @@ async function getIssue(args) {
   const t = result.Item;
   return {
     key: t.ticketId,
-    self: `https://agentis.atlassian.net/browse/${t.ticketId}`,
+    self: `https://your-domain.atlassian.net/browse/${t.ticketId}`,
     fields: {
       summary: t.title,
       description: t.description || "",
@@ -576,7 +576,7 @@ async function listProjects() {
     projects: [
       {
         key: PROJECT_KEY,
-        name: "Agentis Team",
+        name: "AgentCore Hub Team",
         description: "Agentic development pipeline project",
         issueTypes: ["Epic", "Story", "Task", "Bug"],
       },
@@ -624,7 +624,7 @@ async function lookupUser(args) {
     users: matches.map((a) => ({
       accountId: a.id,
       displayName: a.name,
-      emailAddress: `${a.id}@agentis.dev`,
+      emailAddress: `${a.id}@agentcore-hub.example.com`,
       active: true,
     })),
   };
@@ -652,7 +652,7 @@ function formatSearchResults(items) {
     total: items.length,
     issues: items.map((t) => ({
       key: t.ticketId,
-      self: `https://agentis.atlassian.net/browse/${t.ticketId}`,
+      self: `https://your-domain.atlassian.net/browse/${t.ticketId}`,
       fields: {
         summary: t.title,
         status: { name: t.status },

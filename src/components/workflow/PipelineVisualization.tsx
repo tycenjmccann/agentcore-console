@@ -404,7 +404,7 @@ export default function PipelineVisualization({ workflowState, onStepClick }: Pi
 
   return (
     <div className={`pipeline-container${celebrating ? " celebrate" : ""}`}>
-      <div className="pipeline-title">Agentis Hub</div>
+      <div className="pipeline-title">AgentCore Hub</div>
       <div className="pipeline-subtitle">Autonomous Multi-Agent Development Pipeline</div>
 
       {/* Legend with all 5 AWS icons */}

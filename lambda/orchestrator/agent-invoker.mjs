@@ -22,8 +22,8 @@ import { DynamoDBDocumentClient, UpdateCommand, GetCommand, QueryCommand } from 
 import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
-const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
+const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentcore-hub-tickets";
+const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentcore-hub-workflows";
 const EVENT_BUS = process.env.EVENT_BUS || "default";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
@@ -443,7 +443,7 @@ async function publishAgentEvent(workflowId, agentId, detailType, detail) {
   try {
     await events.send(new PutEventsCommand({
       Entries: [{
-        Source: "agentis.agent-invoker",
+        Source: "agentcore-hub.agent-invoker",
         DetailType: detailType,
         Detail: JSON.stringify({ workflowId, agentId, ...detail, timestamp: new Date().toISOString() }),
         EventBusName: EVENT_BUS,

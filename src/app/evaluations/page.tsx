@@ -90,7 +90,7 @@ function shortModelName(modelId: string): string {
 }
 
 // Client-side cache key for sessionStorage
-const EVAL_CACHE_KEY = "agentis-eval-cache";
+const EVAL_CACHE_KEY = "agentcore-hub-eval-cache";
 const EVAL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function getCachedData(): EvalData | null {

@@ -1,7 +1,7 @@
 /**
  * Orchestration Lambda — Event-Driven Workflow Engine
  *
- * Triggered by DynamoDB Streams on the `agentis-tickets` table.
+ * Triggered by DynamoDB Streams on the `agentcore-hub-tickets` table.
  * Reacts to ticket status changes and drives the workflow forward:
  *
  *   ticket → "done"  → unblock dependents, check QA gate, check completion
@@ -31,11 +31,11 @@ import {
 // ─── Config ────────────────────────────────────────────────────────────────────
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
-const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
-const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
+const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentcore-hub-tickets";
+const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentcore-hub-workflows";
+const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentcore-hub-events";
 const ARTIFACT_BUCKET = process.env.ARTIFACT_BUCKET || "";
-const GITHUB_LAMBDA = process.env.GITHUB_LAMBDA || "agentis-github-mcp";
+const GITHUB_LAMBDA = process.env.GITHUB_LAMBDA || "agentcore-hub-github-mcp";
 const EVENT_BUS = process.env.EVENT_BUS || "default";
 const MAX_QA_RETRIES = 3;
 const TICKET_PROVIDER = process.env.TICKET_PROVIDER || "dynamodb";
@@ -59,20 +59,20 @@ const bedrockAgent = new BedrockAgentRuntimeClient({ region: REGION });
 // ─── Agent Roster (config-driven from S3, falls back to hardcoded) ────────────
 
 const FALLBACK_ROSTER = [
-  { id: "team-requirements-analyst", phase: "requirements", harnessName: "agentis_requirements_analyst" },
-  { id: "team-frontend-designer", phase: "design", harnessName: "agentis_frontend_designer" },
-  { id: "team-ios-designer", phase: "design", harnessName: "agentis_ios_designer" },
-  { id: "team-backend-designer", phase: "design", harnessName: "agentis_backend_designer" },
-  { id: "team-android-designer", phase: "design", harnessName: "agentis_android_designer" },
-  { id: "team-security-reviewer", phase: "design", harnessName: "agentis_security_reviewer" },
-  { id: "team-legal-compliance", phase: "design", harnessName: "agentis_legal_compliance" },
-  { id: "team-localization", phase: "design", harnessName: "agentis_localization" },
-  { id: "team-analytics-designer", phase: "design", harnessName: "agentis_analytics_designer" },
-  { id: "team-backend-dev", phase: "development", harnessName: "agentis_backend_dev" },
-  { id: "team-api-dev", phase: "development", harnessName: "agentis_api_dev" },
-  { id: "team-frontend-dev", phase: "development", harnessName: "agentis_frontend_dev" },
-  { id: "team-qa-verifier", phase: "verification", harnessName: "agentis_qa_verifier" },
-  { id: "team-ci-agent", phase: "review", harnessName: "agentis_ci_agent" },
+  { id: "team-requirements-analyst", phase: "requirements", harnessName: "agentcore_hub_requirements_analyst" },
+  { id: "team-frontend-designer", phase: "design", harnessName: "agentcore_hub_frontend_designer" },
+  { id: "team-ios-designer", phase: "design", harnessName: "agentcore_hub_ios_designer" },
+  { id: "team-backend-designer", phase: "design", harnessName: "agentcore_hub_backend_designer" },
+  { id: "team-android-designer", phase: "design", harnessName: "agentcore_hub_android_designer" },
+  { id: "team-security-reviewer", phase: "design", harnessName: "agentcore_hub_security_reviewer" },
+  { id: "team-legal-compliance", phase: "design", harnessName: "agentcore_hub_legal_compliance" },
+  { id: "team-localization", phase: "design", harnessName: "agentcore_hub_localization" },
+  { id: "team-analytics-designer", phase: "design", harnessName: "agentcore_hub_analytics_designer" },
+  { id: "team-backend-dev", phase: "development", harnessName: "agentcore_hub_backend_dev" },
+  { id: "team-api-dev", phase: "development", harnessName: "agentcore_hub_api_dev" },
+  { id: "team-frontend-dev", phase: "development", harnessName: "agentcore_hub_frontend_dev" },
+  { id: "team-qa-verifier", phase: "verification", harnessName: "agentcore_hub_qa_verifier" },
+  { id: "team-ci-agent", phase: "review", harnessName: "agentcore_hub_ci_agent" },
 ];
 
 let _agentRoster = null;
@@ -177,7 +177,7 @@ async function processStatusChange(ticketId, newStatus, oldStatus) {
       await trackTicketCreation(ticketId, todoTicket.assignee, todoTicket.workflowId, todoTicket.parentId);
 
       if (TICKET_PROVIDER === "jira") {
-        // Jira mode: the agentis-jira Lambda handles initial routing by transitioning
+        // Jira mode: the agentcore-hub-jira Lambda handles initial routing by transitioning
         // to "Ready" (no blockers) or "Blocked" (has blockers) AFTER creating links.
         // We do NOT auto-transition here — doing so races with the Lambda's link creation.
         // The "ready" webhook will arrive when the Lambda transitions the ticket.
@@ -970,7 +970,7 @@ async function invokeAgent(agentDef, context, workflow) {
     // Note: In production, we'd use the AgentCore Harness SDK's invokeHarnessAgent
     // For now, invoke as a separate async Lambda that handles the streaming
     await lambda.send(new InvokeCommand({
-      FunctionName: "agentis-agent-invoker",
+      FunctionName: "agentcore-hub-agent-invoker",
       InvocationType: "Event", // async — don't wait for response
       Payload: JSON.stringify({
         harnessArn,
@@ -1175,10 +1175,10 @@ async function saveWorkflow(workflow) {
  * Steps:
  *   1. Idempotency check: if a workflow already exists for this bug key, do nothing.
  *   2. Create workflow row in DDB (epicId = bug.key).
- *   3. Label the Bug with `wf:<workflow_id>` and `agentis-workflow` so the analyst sub-task
+ *   3. Label the Bug with `wf:<workflow_id>` and `agentcore-hub-workflow` so the analyst sub-task
  *      will inherit the workflow context via the same labels.
  *   4. Create a requirements-analyst sub-task under the Bug.
- *   5. The analyst sub-task is created without blockers, so the agentis-jira Lambda
+ *   5. The analyst sub-task is created without blockers, so the agentcore-hub-jira Lambda
  *      transitions it to Ready on creation, which fires the orchestrator's normal
  *      "ready" path → invokes the analyst → bug-fix blueprint.
  */
@@ -1235,7 +1235,7 @@ async function bootstrapBugWorkflow(bugTicket) {
   try {
     await jiraFetch(`/rest/api/3/issue/${bugKey}`, "PUT", {
       update: {
-        labels: [{ add: `wf:${workflowId}` }, { add: "agentis-workflow" }],
+        labels: [{ add: `wf:${workflowId}` }, { add: "agentcore-hub-workflow" }],
       },
     });
   } catch (err) {
@@ -1251,7 +1251,7 @@ async function bootstrapBugWorkflow(bugTicket) {
     summary: analystSummary,
     issuetype: { name: "Subtask" },
     parent: { key: bugKey },
-    labels: ["agentis-workflow", `wf:${workflowId}`, "agent:team-requirements-analyst"],
+    labels: ["agentcore-hub-workflow", `wf:${workflowId}`, "agent:team-requirements-analyst"],
     description: {
       type: "doc",
       version: 1,
@@ -1565,7 +1565,7 @@ async function publishEvent(ticketId, detailType, detail) {
   try {
     await events.send(new PutEventsCommand({
       Entries: [{
-        Source: "agentis.orchestrator",
+        Source: "agentcore-hub.orchestrator",
         DetailType: detailType,
         Detail: JSON.stringify({ ...detail, ticketId, timestamp: new Date().toISOString() }),
         EventBusName: EVENT_BUS,

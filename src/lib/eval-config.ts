@@ -7,7 +7,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TABLE = process.env.EVAL_CONFIG_TABLE || "agentis-eval-config";
+const TABLE = process.env.EVAL_CONFIG_TABLE || "agentcore-hub-eval-config";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },

@@ -29,7 +29,7 @@ export default function Sidebar() {
           </div>
           {!isCollapsed && (
             <div>
-              <h1 className="text-lg font-bold text-[var(--color-text-primary)]">Agentis</h1>
+              <h1 className="text-lg font-bold text-[var(--color-text-primary)]">AgentCore Hub</h1>
               <p className="text-xs text-[var(--color-text-muted)]">Hub</p>
             </div>
           )}

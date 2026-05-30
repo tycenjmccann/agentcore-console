@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Deploy Routing Agents — one-command setup for the Agentis Hub routing demo.
+ * Deploy Routing Agents — one-command setup for the AgentCore Hub routing demo.
  *
  * Creates:
  *   1. IAM role for the skill-loader Lambda
@@ -68,11 +68,11 @@ const iam = new IAMClient({ region: REGION });
 const lambda = new LambdaClient({ region: REGION });
 const agentcore = new BedrockAgentCoreControlClient({ region: REGION });
 
-const LAMBDA_NAME = "agentis-skill-loader";
-const ROLE_NAME = "AgentisSkillLoaderRole";
+const LAMBDA_NAME = "agentcore-hub-skill-loader";
+const ROLE_NAME = "AgentCoreHubSkillLoaderRole";
 const GATEWAY_ARN_PREFIX = `arn:aws:bedrock-agentcore:${REGION}`;
 
-console.log("\n🚀 Deploying Agentis Routing Agents");
+console.log("\n🚀 Deploying AgentCore Hub Routing Agents");
 console.log(`   Region: ${REGION}`);
 console.log(`   Gateway: ${GATEWAY_ID}`);
 console.log(`   Harness Role: ${HARNESS_ROLE_ARN}\n`);
@@ -100,7 +100,7 @@ try {
   const role = await iam.send(new CreateRoleCommand({
     RoleName: ROLE_NAME,
     AssumeRolePolicyDocument: trustPolicy,
-    Description: "Execution role for agentis-skill-loader Lambda",
+    Description: "Execution role for agentcore-hub-skill-loader Lambda",
   }));
   lambdaRoleArn = role.Role.Arn;
 

@@ -10,7 +10,7 @@ Prioritized work items. Update status as items move through development.
 **Ref:** DL-009
 **Status:** TODO
 **Owner:** Application team
-**Description:** Merge `agentis-jira` and `agentis-tickets` into one Lambda with internal routing based on `TICKET_PROVIDER` env var. Eliminates the class of bugs where a service has the wrong `TICKET_TOOLS_LAMBDA` configured.
+**Description:** Merge `agentcore-hub-jira` and `agentcore-hub-tickets` into one Lambda with internal routing based on `TICKET_PROVIDER` env var. Eliminates the class of bugs where a service has the wrong `TICKET_TOOLS_LAMBDA` configured.
 **Acceptance:** All services invoke one Lambda name. Adding a new provider requires only a new adapter file.
 
 ### BL-002: Fix Orchestrator DynamoDB Writes in Jira Mode
@@ -19,7 +19,7 @@ Prioritized work items. Update status as items move through development.
 **Description:** `lambda/orchestrator/index.mjs` lines 755-762 and 847-854 unconditionally write to DDB tickets table in error paths even in Jira mode. Should branch on `TICKET_PROVIDER`.
 **Impact:** Errors in Jira mode try to write to a non-existent DDB table, causing secondary failures that mask the real error.
 
-### BL-003: Fix agentis-tickets Lambda Tool Name Mismatches
+### BL-003: Fix agentcore-hub-tickets Lambda Tool Name Mismatches
 **Status:** TODO
 **Owner:** Application team
 **Description:** The DynamoDB ticket Lambda has tool name/parameter mismatches vs what agents actually send:

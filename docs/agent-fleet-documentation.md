@@ -1,4 +1,4 @@
-# Agentis Pipeline — Agent Fleet Documentation
+# AgentCore Hub Pipeline — Agent Fleet Documentation
 
 ## Fleet Overview
 
@@ -6,20 +6,20 @@
 
 | Agent | Role | Phase | Skills Loaded |
 |-------|------|-------|---------------|
-| `agentis_requirements_analyst` | Analyzes inputs, creates tickets for relevant agents | Requirements | requirements-analysis |
-| `agentis_frontend_designer` | Designs UI/UX for web features | Design | frontend-design, ios-architecture |
-| `agentis_backend_designer` | Designs backend systems & APIs | Design | backend-systems |
-| `agentis_ios_designer` | Designs native iOS features | Design | ios-architecture |
-| `agentis_android_designer` | Designs Android features | Design | general-design |
-| `agentis_analytics_designer` | Designs analytics/tracking | Design | general-design |
-| `agentis_frontend_dev` | Implements web UI features | Development | full-stack, code-simplifier, feature-dev |
-| `agentis_backend_dev` | Implements backend services | Development | node-typescript, feature-dev |
-| `agentis_api_dev` | Implements API endpoints | Development | node-typescript, feature-dev |
-| `agentis_qa_verifier` | Runs builds, tests, static analysis | Verification | qa-verification |
-| `agentis_ci_agent` | CI pipeline validation | Verification | ci-verification |
-| `agentis_security_reviewer` | Security audit of code changes | Review | code-review |
-| `agentis_legal_compliance` | Privacy/compliance review | Review | privacy-compliance |
-| `agentis_localization` | i18n implementation | Development | localization, i18n-tooling |
+| `agentcore_hub_requirements_analyst` | Analyzes inputs, creates tickets for relevant agents | Requirements | requirements-analysis |
+| `agentcore_hub_frontend_designer` | Designs UI/UX for web features | Design | frontend-design, ios-architecture |
+| `agentcore_hub_backend_designer` | Designs backend systems & APIs | Design | backend-systems |
+| `agentcore_hub_ios_designer` | Designs native iOS features | Design | ios-architecture |
+| `agentcore_hub_android_designer` | Designs Android features | Design | general-design |
+| `agentcore_hub_analytics_designer` | Designs analytics/tracking | Design | general-design |
+| `agentcore_hub_frontend_dev` | Implements web UI features | Development | full-stack, code-simplifier, feature-dev |
+| `agentcore_hub_backend_dev` | Implements backend services | Development | node-typescript, feature-dev |
+| `agentcore_hub_api_dev` | Implements API endpoints | Development | node-typescript, feature-dev |
+| `agentcore_hub_qa_verifier` | Runs builds, tests, static analysis | Verification | qa-verification |
+| `agentcore_hub_ci_agent` | CI pipeline validation | Verification | ci-verification |
+| `agentcore_hub_security_reviewer` | Security audit of code changes | Review | code-review |
+| `agentcore_hub_legal_compliance` | Privacy/compliance review | Review | privacy-compliance |
+| `agentcore_hub_localization` | i18n implementation | Development | localization, i18n-tooling |
 
 ---
 
@@ -30,7 +30,7 @@
 │  AgentCore Runtime (us-east-1)                              │
 │                                                             │
 │  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │ agentis_frontend │  │ agentis_backend │  ... x14         │
+│  │ agentcore_hub_frontend │  │ agentcore_hub_backend │  ... x14         │
 │  │     _dev         │  │     _dev        │                  │
 │  │                  │  │                 │                  │
 │  │ main.py (shared) │  │ main.py (shared)│                  │
@@ -87,19 +87,19 @@
 | Tool | Lambda | Purpose |
 |------|--------|---------|
 | `download_s3_file` | direct boto3 | Download S3 files to /tmp |
-| `S3Storage___read_object` | agentis-s3-tools | Read text from S3 |
-| `S3Storage___write_object` | agentis-s3-tools | Write text to S3 |
-| `S3Storage___list_objects` | agentis-s3-tools | List S3 objects |
+| `S3Storage___read_object` | agentcore-hub-s3-tools | Read text from S3 |
+| `S3Storage___write_object` | agentcore-hub-s3-tools | Write text to S3 |
+| `S3Storage___list_objects` | agentcore-hub-s3-tools | List S3 objects |
 | `Tickets___create_ticket` | agentcore-hub-jira-mcp | Create tickets |
 | `Tickets___transition_ticket` | agentcore-hub-jira-mcp | Change ticket status |
 | `Tickets___update_ticket` | agentcore-hub-jira-mcp | Update ticket fields |
 | `Tickets___list_tickets` | agentcore-hub-jira-mcp | List child tickets |
 | `Tickets___add_comment` | agentcore-hub-jira-mcp | Comment on tickets |
 | `Tickets___search_issues` | agentcore-hub-jira-mcp | Search tickets |
-| `WorkflowOutput___report_completion` | agentis-workflow-output | Mark work done |
-| `WorkflowOutput___save_design_doc` | agentis-workflow-output | Save artifacts |
-| `WorkflowOutput___submit_ticket_plan` | agentis-workflow-output | Batch create tickets |
-| `SkillLoader___load_skill` | agentis-skill-loader | Load role instructions |
+| `WorkflowOutput___report_completion` | agentcore-hub-workflow-output | Mark work done |
+| `WorkflowOutput___save_design_doc` | agentcore-hub-workflow-output | Save artifacts |
+| `WorkflowOutput___submit_ticket_plan` | agentcore-hub-workflow-output | Batch create tickets |
+| `SkillLoader___load_skill` | agentcore-hub-skill-loader | Load role instructions |
 
 ### MCP Tools (GitHub)
 Connected via `GITHUB_PAT` env var to `https://api.githubcopilot.com/mcp/` (9 tools verified):
@@ -180,7 +180,7 @@ src/config/agents.json (repo)
     ↓ synced by deploy-all.sh
 s3://{ARTIFACT_BUCKET}/config/agents.json
     ↓ loaded on Lambda cold start
-orchestrator / agentis-tickets / agentis-jira-real
+orchestrator / agentcore-hub-tickets / agentcore-hub-jira-real
 ```
 
 All 3 Lambdas load the roster from S3 at cold start and cache it in memory. If S3 is unreachable, they fall back to a hardcoded copy (last known good).
@@ -205,7 +205,7 @@ All 3 Lambdas load the roster from S3 at cold start and cache it in memory. If S
       "name": "Frontend Developer",     // Display name
       "role": "Implement UI from...",   // Role description
       "phase": "development",           // Pipeline phase
-      "harnessName": "agentis_frontend_dev", // AgentCore Runtime name (deploy-fleet.sh writes this)
+      "harnessName": "agentcore_hub_frontend_dev", // AgentCore Runtime name (deploy-fleet.sh writes this)
       "tools": [...],                   // Tool list (used by frontend only)
       "canQueryAgents": [...],          // A2A query permissions
       "keywords": [...]                 // Search/routing keywords
@@ -224,8 +224,8 @@ All 3 Lambdas load the roster from S3 at cold start and cache it in memory. If S
 |----------|-------------|-------------|
 | Frontend (`pipeline-config.ts`) | Direct import at build time | All fields (renders UI) |
 | Orchestrator Lambda | S3 read at cold start | `id`, `phase`, `harnessName` |
-| agentis-tickets Lambda | S3 read at cold start | `id` only (validation Set) |
-| agentis-jira-real Lambda | S3 read at cold start | `id` only (validation Set) |
+| agentcore-hub-tickets Lambda | S3 read at cold start | `id` only (validation Set) |
+| agentcore-hub-jira-real Lambda | S3 read at cold start | `id` only (validation Set) |
 | `deploy/setup-team-agents.mjs` | Direct file read | All fields (deploys agents) |
 
 ---
@@ -240,8 +240,8 @@ All 3 Lambdas load the roster from S3 at cold start and cache it in memory. If S
 | `AWS_REGION` | `us-east-1` | AWS region |
 | `READ_TIMEOUT` | `600` | Boto3 read timeout (10 min) |
 | `GATEWAY_ARN` | `arn:aws:bedrock-agentcore:...` | AgentCore gateway |
-| `EVENTS_TABLE` | `agentis-events` | DynamoDB events table |
-| `TICKET_TOOLS_LAMBDA` | `agentis-tickets` or `agentis-jira` | Ticket operations Lambda (matches TICKET_PROVIDER) |
+| `EVENTS_TABLE` | `agentcore-hub-events` | DynamoDB events table |
+| `TICKET_TOOLS_LAMBDA` | `agentcore-hub-tickets` or `agentcore-hub-jira` | Ticket operations Lambda (matches TICKET_PROVIDER) |
 | `ARTIFACT_BUCKET` | `agentcore-artifacts-...` | S3 artifact bucket |
 | `SYSTEM_PROMPT` | (agent-specific) | Baked system prompt |
 | `BYPASS_TOOL_CONSENT` | `true` | Non-interactive tools |
@@ -355,7 +355,7 @@ python3 deploy/runtime-agent/local-ab-test.py --parallel
 ## Monitoring & Debugging
 
 ### Real-Time Events
-All agent activity writes to `agentis-events` DynamoDB table:
+All agent activity writes to `agentcore-hub-events` DynamoDB table:
 - `agent.started` — Agent invoked
 - `agent.streaming` (type=trace) — Tool use events
 - `agent.complete` — Agent finished
@@ -387,8 +387,8 @@ Full integration test: 40 tests × 14 agents (560 total assertions).
 | Agent | Result | Notes |
 |-------|--------|-------|
 | All 14 agents | 40/40 tools | All built-in, SDK, Lambda, and GitHub MCP tools verified |
-| `agentis_frontend_designer` | 39✓ 1✗ | `retrieve` KB threshold issue (non-blocking) |
-| `agentis_localization` | 39✓ 1✗ | `retrieve` KB threshold issue (non-blocking) |
+| `agentcore_hub_frontend_designer` | 39✓ 1✗ | `retrieve` KB threshold issue (non-blocking) |
+| `agentcore_hub_localization` | 39✓ 1✗ | `retrieve` KB threshold issue (non-blocking) |
 
 All agents have required role-based tools. Fleet is healthy.
 

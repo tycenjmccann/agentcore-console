@@ -3,7 +3,7 @@
 **Date:** 2026-05-24
 **Severity:** Critical (workflow-blocking, no auto-recovery)
 **Affected Workflow:** `wf_1779647270454_unblro` (TEAM-1017 "[TEST] Add /health endpoint")
-**Affected Agent:** `agentis_backend_dev` (Runtime ID: `agentis_backend_dev-UKXih09TYL`)
+**Affected Agent:** `agentcore_hub_backend_dev` (Runtime ID: `agentcore_hub_backend_dev-UKXih09TYL`)
 **Account:** <ACCOUNT_ID> (tycenj-prod)
 **Region:** us-east-1
 
@@ -45,7 +45,7 @@ When an AgentCore Runtime agent hits a Bedrock model read timeout during tool ex
 
 ### Error Log (Exact)
 
-**Log Group:** `/aws/bedrock-agentcore/runtimes/agentis_backend_dev-UKXih09TYL-DEFAULT`
+**Log Group:** `/aws/bedrock-agentcore/runtimes/agentcore_hub_backend_dev-UKXih09TYL-DEFAULT`
 **Log Stream:** `2026/05/24/[runtime-logs-TEAM-1048_wf_1779647270454_unblro-team-backend-dev-1779648663317]838d9da3-2c16-4812-9c49-4a20aeeb543c`
 **Filter:** Session ID `1779648663317`
 
@@ -161,26 +161,26 @@ The orchestrator only processes events via DynamoDB Streams. No event = no actio
 ```bash
 # 1. Find the session IDs from DynamoDB events
 AWS_PROFILE=tycenj-prod aws dynamodb query \
-  --table-name agentis-events \
+  --table-name agentcore-hub-events \
   --key-condition-expression "workflowId = :wf" \
   --expression-attribute-values '{":wf":{"S":"wf_1779647270454_unblro"}}' \
   --region us-east-1 | jq -r '.Items[] | select(.type.S == "orchestrator.agent_invoked") | "\(.timestamp.S) \(.detail.M.sessionId.S) \(.detail.M.ticketId.S)"'
 
 # 2. List log streams (session IDs are embedded in stream names)
 AWS_PROFILE=tycenj-prod aws logs describe-log-streams \
-  --log-group-name "/aws/bedrock-agentcore/runtimes/agentis_backend_dev-UKXih09TYL-DEFAULT" \
+  --log-group-name "/aws/bedrock-agentcore/runtimes/agentcore_hub_backend_dev-UKXih09TYL-DEFAULT" \
   --order-by LastEventTime --descending --limit 10 \
   --region us-east-1
 
 # 3. Search for the error by session ID
 AWS_PROFILE=tycenj-prod aws logs filter-log-events \
-  --log-group-name "/aws/bedrock-agentcore/runtimes/agentis_backend_dev-UKXih09TYL-DEFAULT" \
+  --log-group-name "/aws/bedrock-agentcore/runtimes/agentcore_hub_backend_dev-UKXih09TYL-DEFAULT" \
   --filter-pattern "1779648663317" \
   --region us-east-1
 
 # 4. Search for timeout errors across all backend-dev sessions
 AWS_PROFILE=tycenj-prod aws logs filter-log-events \
-  --log-group-name "/aws/bedrock-agentcore/runtimes/agentis_backend_dev-UKXih09TYL-DEFAULT" \
+  --log-group-name "/aws/bedrock-agentcore/runtimes/agentcore_hub_backend_dev-UKXih09TYL-DEFAULT" \
   --filter-pattern "Read timed out" \
   --region us-east-1
 ```
@@ -216,7 +216,7 @@ except (EventLoopException, ReadTimeoutError, Exception) as e:
 ### Option B: Orchestrator-Level Timeout (Server-Side Reaper)
 
 Add a scheduled Lambda (EventBridge rule, every 5 minutes) that:
-1. Scans `agentis-workflows` for tasks with `status: "running"` and `lastStreamingAt` older than X minutes
+1. Scans `agentcore-hub-workflows` for tasks with `status: "running"` and `lastStreamingAt` older than X minutes
 2. Transitions those tickets to `"blocked"` with error reason
 3. Emits `agent.complete` event with failure status so the orchestrator can decide to retry
 

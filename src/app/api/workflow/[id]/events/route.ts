@@ -13,7 +13,7 @@ import { transformEvent } from "@/lib/workflow/transform-event";
 export const dynamic = "force-dynamic";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
+const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentcore-hub-events";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },

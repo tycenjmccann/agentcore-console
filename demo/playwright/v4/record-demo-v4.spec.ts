@@ -1,5 +1,5 @@
 /**
- * V4 Demo Recording — Agentis Hub: Collapsible Sidebar + Intake Card
+ * V4 Demo Recording — AgentCore Hub: Collapsible Sidebar + Intake Card
  *
  * Records a REAL pipeline run. Agents implement collapsible sidebar + intake card.
  *
@@ -56,7 +56,7 @@ const FEATURE_REQUEST = {
 
 test.setTimeout(2400000); // 40 minutes max
 
-test("Record Agentis Hub demo v4", async ({ browser }) => {
+test("Record AgentCore Hub demo v4", async ({ browser }) => {
   fs.mkdirSync(RECORDING_DIR, { recursive: true });
 
   // ─── Pre-warm ─────────────────────────────────────────────────────
