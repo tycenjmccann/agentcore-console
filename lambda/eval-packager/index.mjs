@@ -29,7 +29,13 @@ const s3 = new S3Client({});
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 const TABLE = process.env.EVAL_CONFIG_TABLE || 'agentcore-hub-eval-config';
-const BUCKET = process.env.ARTIFACTS_BUCKET || process.env.ARTIFACT_BUCKET || 'agentcore-hub-artifacts';
+const BUCKET = process.env.ARTIFACTS_BUCKET || process.env.ARTIFACT_BUCKET;
+if (!BUCKET) {
+  throw new Error(
+    'ARTIFACTS_BUCKET (or ARTIFACT_BUCKET) env var is required. ' +
+      'Convention: agentcore-hub-artifacts-{ACCOUNT_ID}-{REGION}'
+  );
+}
 const S3_PREFIX = 'fleet-imp-agent/prd';
 const AGENTS_CONFIG_KEY = 'config/agents.json';
 

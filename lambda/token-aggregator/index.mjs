@@ -25,7 +25,13 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 const s3 = new S3Client({});
 
 const TABLE = process.env.EVAL_CONFIG_TABLE || 'agentcore-hub-eval-config';
-const BUCKET = process.env.ARTIFACTS_BUCKET || process.env.ARTIFACT_BUCKET || 'agentcore-hub-artifacts';
+const BUCKET = process.env.ARTIFACTS_BUCKET || process.env.ARTIFACT_BUCKET;
+if (!BUCKET) {
+  throw new Error(
+    'ARTIFACTS_BUCKET (or ARTIFACT_BUCKET) env var is required. ' +
+      'Convention: agentcore-hub-artifacts-{ACCOUNT_ID}-{REGION}'
+  );
+}
 const AGENTS_KEY = 'config/agents.json';
 
 // ─── Agent resolution (cached per warm start) ──────────────────────────────
