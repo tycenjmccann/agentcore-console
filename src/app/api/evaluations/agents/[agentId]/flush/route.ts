@@ -3,7 +3,7 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getEvalConfig, clearSessionBuffer } from "@/lib/eval-config";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const S3_BUCKET = "agentis-artifacts-838829463875-us-east-1";
+const S3_BUCKET = process.env.ARTIFACT_BUCKET || process.env.ARTIFACTS_BUCKET || "agentcore-hub-artifacts";
 
 const s3 = new S3Client({ region: REGION });
 

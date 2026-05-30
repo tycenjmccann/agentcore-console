@@ -4,7 +4,7 @@
 **Severity:** Critical (workflow-blocking, no auto-recovery)
 **Affected Workflow:** `wf_1779647270454_unblro` (TEAM-1017 "[TEST] Add /health endpoint")
 **Affected Agent:** `agentis_backend_dev` (Runtime ID: `agentis_backend_dev-UKXih09TYL`)
-**Account:** 838829463875 (tycenj-prod)
+**Account:** <ACCOUNT_ID> (tycenj-prod)
 **Region:** us-east-1
 
 ---

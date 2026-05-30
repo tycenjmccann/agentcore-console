@@ -90,12 +90,12 @@
 | `S3Storage___read_object` | agentis-s3-tools | Read text from S3 |
 | `S3Storage___write_object` | agentis-s3-tools | Write text to S3 |
 | `S3Storage___list_objects` | agentis-s3-tools | List S3 objects |
-| `Tickets___create_ticket` | datespark-jira-mcp | Create tickets |
-| `Tickets___transition_ticket` | datespark-jira-mcp | Change ticket status |
-| `Tickets___update_ticket` | datespark-jira-mcp | Update ticket fields |
-| `Tickets___list_tickets` | datespark-jira-mcp | List child tickets |
-| `Tickets___add_comment` | datespark-jira-mcp | Comment on tickets |
-| `Tickets___search_issues` | datespark-jira-mcp | Search tickets |
+| `Tickets___create_ticket` | agentcore-hub-jira-mcp | Create tickets |
+| `Tickets___transition_ticket` | agentcore-hub-jira-mcp | Change ticket status |
+| `Tickets___update_ticket` | agentcore-hub-jira-mcp | Update ticket fields |
+| `Tickets___list_tickets` | agentcore-hub-jira-mcp | List child tickets |
+| `Tickets___add_comment` | agentcore-hub-jira-mcp | Comment on tickets |
+| `Tickets___search_issues` | agentcore-hub-jira-mcp | Search tickets |
 | `WorkflowOutput___report_completion` | agentis-workflow-output | Mark work done |
 | `WorkflowOutput___save_design_doc` | agentis-workflow-output | Save artifacts |
 | `WorkflowOutput___submit_ticket_plan` | agentis-workflow-output | Batch create tickets |
@@ -190,7 +190,7 @@ All 3 Lambdas load the roster from S3 at cold start and cache it in memory. If S
 1. Edit `src/config/agents.json` — add or remove the agent entry
 2. Sync to S3:
    ```bash
-   aws s3 cp src/config/agents.json s3://agentcore-artifacts-023392223961-us-east-1/config/agents.json
+   aws s3 cp src/config/agents.json s3://agentcore-artifacts-<ACCOUNT_ID>-us-east-1/config/agents.json
    ```
 3. Lambdas pick up changes on next cold start (no code redeployment needed)
 4. To force immediate pickup, touch any env var on the Lambda to trigger a new execution environment

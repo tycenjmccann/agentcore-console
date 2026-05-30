@@ -29,7 +29,7 @@ const s3 = new S3Client({});
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 const TABLE = process.env.EVAL_CONFIG_TABLE || 'agentis-eval-config';
-const BUCKET = process.env.ARTIFACTS_BUCKET || 'agentis-artifacts-838829463875-us-east-1';
+const BUCKET = process.env.ARTIFACTS_BUCKET || process.env.ARTIFACT_BUCKET || 'agentcore-hub-artifacts';
 const S3_PREFIX = 'fleet-imp-agent/prd';
 const AGENTS_CONFIG_KEY = 'config/agents.json';
 

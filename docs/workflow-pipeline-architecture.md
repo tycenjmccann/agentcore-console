@@ -1534,7 +1534,7 @@ If S3 read fails → falls back to hardcoded FALLBACK_ROSTER (no outage)
 
 **S3 path**: `config/agents.json` (synced by `deploy-all.sh` alongside prompts)
 
-**Bucket**: `agentcore-artifacts-023392223961-us-east-1` (same bucket used for prompts, eval packages, agent output)
+**Bucket**: `agentcore-artifacts-<ACCOUNT_ID>-us-east-1` (same bucket used for prompts, eval packages, agent output)
 
 **IAM**: All three Lambdas need `s3:GetObject` on `arn:aws:s3:::{BUCKET}/config/*`. The orchestrator's role already had this. The ticket Lambdas' shared role (`agentis-jira-JiraFunctionRole-*`) got an inline policy `s3-config-read` added.
 
@@ -1546,7 +1546,7 @@ If S3 read fails → falls back to hardcoded FALLBACK_ROSTER (no outage)
 ```bash
 # Edit src/config/agents.json (add/remove agents)
 # Then sync to S3:
-aws s3 cp src/config/agents.json s3://agentcore-artifacts-023392223961-us-east-1/config/agents.json
+aws s3 cp src/config/agents.json s3://agentcore-artifacts-<ACCOUNT_ID>-us-east-1/config/agents.json
 
 # Lambdas pick up changes on next cold start (no redeployment needed)
 # To force immediate pickup: update any env var on the Lambda to trigger a new cold start

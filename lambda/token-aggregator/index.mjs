@@ -25,7 +25,7 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 const s3 = new S3Client({});
 
 const TABLE = process.env.EVAL_CONFIG_TABLE || 'agentis-eval-config';
-const BUCKET = process.env.ARTIFACTS_BUCKET || process.env.ARTIFACT_BUCKET || 'agentis-artifacts-023392223961';
+const BUCKET = process.env.ARTIFACTS_BUCKET || process.env.ARTIFACT_BUCKET || 'agentcore-hub-artifacts';
 const AGENTS_KEY = 'config/agents.json';
 
 // ─── Agent resolution (cached per warm start) ──────────────────────────────
