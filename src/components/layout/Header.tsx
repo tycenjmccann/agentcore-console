@@ -4,17 +4,8 @@ import { useState, useEffect } from "react";
 import { Globe, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { invalidateCachePrefix } from "@/lib/client-cache";
+import { PAGE_TITLES as pageTitles } from "@/config/modules";
 import ThemeToggle from "./ThemeToggle";
-
-const pageTitles: Record<string, string> = {
-  "/": "Dashboard",
-  "/agents": "Agents",
-  "/build": "Build",
-  "/workflow": "Workflow",
-  "/routing": "Routing",
-  "/tickets": "Ticket History",
-  "/invoke": "Invoke",
-};
 
 export default function Header() {
   const pathname = usePathname();
@@ -24,7 +15,7 @@ export default function Header() {
     ? "Agent Detail"
     : pathname.startsWith("/workflow/") && pathname !== "/workflow"
     ? "Workflow Detail"
-    : pageTitles[pathname] || "AgentCore Console";
+    : pageTitles[pathname] || "AgentCore Hub";
 
   // Listen for dynamic title updates (e.g. selected workflow name)
   useEffect(() => {

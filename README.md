@@ -10,6 +10,15 @@ A web console for Amazon Bedrock AgentCore that dynamically discovers and intera
 - **Builder** — Chat-based agent creation (harness with code_interpreter + MCP)
 - **Workflow** — Autonomous development pipeline: submit a feature request, 14 agents produce a PR. Real-time pipeline visualization with animated phases, timeline replay/scrubber, S3 artifact browsing, and dynamic header titles
 
+### Modular by design
+
+The console is a small always-on **core** (Dashboard, Agents, Invoke) plus
+optional **bolt-on modules** (Workflow, Evaluations, Builder, Routing). Each
+module's UI, API routes, Lambdas, and DynamoDB tables are namespaced, so you can
+deploy only what you need and cherry-pick the rest out. See
+[`docs/MODULES.md`](docs/MODULES.md) for the core-vs-optional breakdown, per-module
+deploy checklists, and exact removal steps.
+
 ## Prerequisites
 
 - Node.js 18+
