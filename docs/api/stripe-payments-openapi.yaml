@@ -1,0 +1,614 @@
+openapi: 3.0.1
+info:
+  title: Stripe Payment Processing Microservice
+  description: API for processing payments, refunds, and handling Stripe webhooks.
+  version: 1.0.0
+  contact:
+    name: Platform Team
+    email: platform@agentcore.io
+
+servers:
+  - url: https://api.agentcore.io/v1
+    description: Production
+  - url: https://api.staging.agentcore.io/v1
+    description: Staging
+
+security:
+  - BearerAuth: []
+
+paths:
+  /payments:
+    post:
+      summary: Initiate a payment intent
+      description: Creates a new payment intent via Stripe and returns the transaction record.
+      operationId: createPayment
+      tags:
+        - Payments
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+            example:
+              customer_id: "cus_abc123"
+              amount: 5000
+              currency: "usd"
+              description: "Order #1042"
+              metadata:
+                order_id: "ord_1042"
+                sku: "premium_plan"
+      responses:
+        '201':
+          description: Payment intent created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+              example:
+                id: "txn_7f3a9b2c"
+                customer_id: "cus_abc123"
+                amount: 5000
+                currency: "usd"
+                status: "pending"
+                stripe_payment_intent_id: "pi_3N1x2yABCdef"
+                description: "Order #1042"
+                metadata:
+                  order_id: "ord_1042"
+                  sku: "premium_plan"
+                created_at: "2026-05-30T14:22:00Z"
+                updated_at: "2026-05-30T14:22:00Z"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '422':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '502':
+          $ref: '#/components/responses/StripeUnavailable'
+
+    get:
+      summary: Query transactions
+      description: Retrieve a paginated list of transactions with optional filters.
+      operationId: listPayments
+      tags:
+        - Payments
+      parameters:
+        - name: customer_id
+          in: query
+          description: Filter by customer ID
+          required: false
+          schema:
+            type: string
+          example: "cus_abc123"
+        - name: start_date
+          in: query
+          description: Filter transactions created on or after this date (ISO 8601)
+          required: false
+          schema:
+            type: string
+            format: date-time
+          example: "2026-01-01T00:00:00Z"
+        - name: end_date
+          in: query
+          description: Filter transactions created on or before this date (ISO 8601)
+          required: false
+          schema:
+            type: string
+            format: date-time
+          example: "2026-05-30T23:59:59Z"
+        - name: status
+          in: query
+          description: Filter by transaction status
+          required: false
+          schema:
+            $ref: '#/components/schemas/TransactionStatus'
+        - name: limit
+          in: query
+          description: Number of results to return per page
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+          example: 25
+        - name: next_token
+          in: query
+          description: Cursor token for the next page of results
+          required: false
+          schema:
+            type: string
+          example: "eyJpZCI6InR4bl83ZjNhOWIyYyJ9"
+      responses:
+        '200':
+          description: Paginated list of transactions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentListResponse'
+              example:
+                items:
+                  - id: "txn_7f3a9b2c"
+                    customer_id: "cus_abc123"
+                    amount: 5000
+                    currency: "usd"
+                    status: "succeeded"
+                    stripe_payment_intent_id: "pi_3N1x2yABCdef"
+                    description: "Order #1042"
+                    metadata:
+                      order_id: "ord_1042"
+                    created_at: "2026-05-30T14:22:00Z"
+                    updated_at: "2026-05-30T14:23:15Z"
+                next_token: "eyJpZCI6InR4bl83ZjNhOWIyYyJ9"
+                has_more: true
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '502':
+          $ref: '#/components/responses/StripeUnavailable'
+
+  /payments/{id}/refund:
+    post:
+      summary: Initiate full or partial refund
+      description: Creates a refund for an existing payment. Omit amount for a full refund.
+      operationId: refundPayment
+      tags:
+        - Refunds
+      parameters:
+        - name: id
+          in: path
+          description: Transaction ID of the payment to refund
+          required: true
+          schema:
+            type: string
+          example: "txn_7f3a9b2c"
+        - name: Idempotency-Key
+          in: header
+          description: Unique key to ensure idempotent processing (UUID v4)
+          required: false
+          schema:
+            type: string
+            format: uuid
+          example: "b3d4c5e6-7f8a-4b9c-0d1e-2f3a4b5c6d7e"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+            example:
+              amount: 2500
+              reason: "requested_by_customer"
+      responses:
+        '200':
+          description: Refund initiated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+              example:
+                id: "txn_7f3a9b2c"
+                refund_id: "re_9k4b8c3d"
+                amount_refunded: 2500
+                status: "refund_pending"
+                original_amount: 5000
+                currency: "usd"
+                updated_at: "2026-05-30T15:10:30Z"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '502':
+          $ref: '#/components/responses/StripeUnavailable'
+
+  /webhooks/stripe:
+    post:
+      summary: Stripe webhook ingestion
+      description: |
+        Receives Stripe webhook events for asynchronous payment status updates.
+        Uses Stripe-Signature header for request verification instead of Bearer token auth.
+        The request body must be the raw Stripe event JSON for signature verification.
+      operationId: handleStripeWebhook
+      tags:
+        - Webhooks
+      security: []
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          description: Stripe webhook signature for payload verification
+          required: true
+          schema:
+            type: string
+          example: "t=1685000000,v1=abc123def456..."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StripeWebhookEvent'
+            example:
+              id: "evt_1N2x3yABCdef"
+              object: "event"
+              type: "payment_intent.succeeded"
+              data:
+                object:
+                  id: "pi_3N1x2yABCdef"
+                  amount: 5000
+                  currency: "usd"
+                  status: "succeeded"
+      responses:
+        '200':
+          description: Webhook received and processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSuccessResponse'
+              example:
+                received: true
+        '400':
+          description: Invalid signature or malformed payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: "INVALID_SIGNATURE"
+                  message: "Stripe signature verification failed"
+                  details: {}
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Bearer token authentication for API endpoints
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: Unique key to ensure idempotent processing (UUID v4). Required for payment creation.
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+
+  schemas:
+    CreatePaymentRequest:
+      type: object
+      required:
+        - customer_id
+        - amount
+        - currency
+      properties:
+        customer_id:
+          type: string
+          description: Unique identifier for the customer
+          example: "cus_abc123"
+        amount:
+          type: integer
+          description: Payment amount in smallest currency unit (cents)
+          minimum: 50
+          maximum: 99999999
+          example: 5000
+        currency:
+          type: string
+          description: Three-letter ISO 4217 currency code
+          minLength: 3
+          maxLength: 3
+          example: "usd"
+        description:
+          type: string
+          description: Optional description for the payment
+          example: "Order #1042"
+        metadata:
+          type: object
+          description: Optional key-value pairs for additional context
+          additionalProperties:
+            type: string
+          example:
+            order_id: "ord_1042"
+            sku: "premium_plan"
+
+    PaymentResponse:
+      type: object
+      required:
+        - id
+        - customer_id
+        - amount
+        - currency
+        - status
+        - stripe_payment_intent_id
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          description: Internal transaction ID
+          example: "txn_7f3a9b2c"
+        customer_id:
+          type: string
+          description: Customer identifier
+          example: "cus_abc123"
+        amount:
+          type: integer
+          description: Payment amount in cents
+          example: 5000
+        currency:
+          type: string
+          description: Three-letter ISO 4217 currency code
+          example: "usd"
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        stripe_payment_intent_id:
+          type: string
+          description: Stripe payment intent identifier
+          pattern: "^pi_"
+          example: "pi_3N1x2yABCdef"
+        description:
+          type: string
+          nullable: true
+          description: Payment description
+          example: "Order #1042"
+        metadata:
+          type: object
+          description: Key-value metadata pairs
+          additionalProperties:
+            type: string
+          example:
+            order_id: "ord_1042"
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp of payment creation (ISO 8601)
+          example: "2026-05-30T14:22:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of last update (ISO 8601)
+          example: "2026-05-30T14:22:00Z"
+
+    PaymentListResponse:
+      type: object
+      required:
+        - items
+        - has_more
+      properties:
+        items:
+          type: array
+          description: List of payment transaction objects
+          items:
+            $ref: '#/components/schemas/PaymentResponse'
+        next_token:
+          type: string
+          nullable: true
+          description: Cursor token for retrieving the next page of results
+          example: "eyJpZCI6InR4bl83ZjNhOWIyYyJ9"
+        has_more:
+          type: boolean
+          description: Whether additional results exist beyond this page
+          example: true
+
+    RefundRequest:
+      type: object
+      properties:
+        amount:
+          type: integer
+          description: Partial refund amount in cents. Omit for full refund.
+          minimum: 1
+          example: 2500
+        reason:
+          type: string
+          description: Reason for the refund
+          enum:
+            - duplicate
+            - fraudulent
+            - requested_by_customer
+          example: "requested_by_customer"
+
+    RefundResponse:
+      type: object
+      required:
+        - id
+        - refund_id
+        - amount_refunded
+        - status
+        - original_amount
+        - currency
+        - updated_at
+      properties:
+        id:
+          type: string
+          description: Internal transaction ID
+          example: "txn_7f3a9b2c"
+        refund_id:
+          type: string
+          description: Stripe refund identifier
+          pattern: "^re_"
+          example: "re_9k4b8c3d"
+        amount_refunded:
+          type: integer
+          description: Amount refunded in cents
+          example: 2500
+        status:
+          type: string
+          description: Current refund status
+          enum:
+            - refund_pending
+            - refunded
+            - partially_refunded
+          example: "refund_pending"
+        original_amount:
+          type: integer
+          description: Original payment amount in cents
+          example: 5000
+        currency:
+          type: string
+          description: Three-letter ISO 4217 currency code
+          example: "usd"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of the refund action (ISO 8601)
+          example: "2026-05-30T15:10:30Z"
+
+    TransactionStatus:
+      type: string
+      description: Current status of a payment transaction
+      enum:
+        - pending
+        - succeeded
+        - failed
+        - refund_pending
+        - refunded
+        - partially_refunded
+      example: "pending"
+
+    StripeWebhookEvent:
+      type: object
+      description: Raw Stripe event object received via webhook
+      required:
+        - id
+        - object
+        - type
+        - data
+      properties:
+        id:
+          type: string
+          description: Stripe event ID
+          example: "evt_1N2x3yABCdef"
+        object:
+          type: string
+          description: Object type (always "event")
+          example: "event"
+        type:
+          type: string
+          description: Stripe event type
+          example: "payment_intent.succeeded"
+        data:
+          type: object
+          description: Event data containing the relevant Stripe object
+          properties:
+            object:
+              type: object
+              description: The Stripe object associated with this event
+              additionalProperties: true
+
+    WebhookSuccessResponse:
+      type: object
+      required:
+        - received
+      properties:
+        received:
+          type: boolean
+          description: Acknowledgement that the webhook was received
+          example: true
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+            - details
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code
+              example: "VALIDATION_ERROR"
+            message:
+              type: string
+              description: Human-readable error description
+              example: "The 'amount' field must be at least 50"
+            details:
+              type: object
+              description: Additional error context
+              additionalProperties: true
+              example: {}
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "VALIDATION_ERROR"
+              message: "The 'amount' field must be at least 50"
+              details:
+                field: "amount"
+                constraint: "minimum"
+                value: 10
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "NOT_FOUND"
+              message: "Transaction 'txn_invalid' not found"
+              details: {}
+
+    Conflict:
+      description: Conflict with current resource state (e.g., refund on non-succeeded payment)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "CONFLICT"
+              message: "Cannot refund a payment with status 'pending'"
+              details:
+                current_status: "pending"
+                required_status: "succeeded"
+
+    IdempotencyConflict:
+      description: Idempotency conflict — same key used with different parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "IDEMPOTENCY_CONFLICT"
+              message: "Idempotency-Key has already been used with different request parameters"
+              details:
+                idempotency_key: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+
+    StripeUnavailable:
+      description: Stripe service unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "STRIPE_UNAVAILABLE"
+              message: "Unable to reach Stripe payment service. Please retry."
+              details:
+                retry_after_seconds: 5
+
+tags:
+  - name: Payments
+    description: Payment creation and transaction queries
+  - name: Refunds
+    description: Payment refund operations
+  - name: Webhooks
+    description: Stripe webhook event ingestion
