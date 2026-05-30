@@ -1,0 +1,9 @@
+{
+  "name": "stripe-payments",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Stripe Payment Processing Microservice",
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.600.0"
+  }
+}
