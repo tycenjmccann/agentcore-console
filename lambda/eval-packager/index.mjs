@@ -102,12 +102,15 @@ export const handler = async (event) => {
   // Extract session data from log events (enriched with parsed evaluator results)
   const sessionData = extractSessionData(parsed);
 
-  // 5. Atomic append to sessionBuffer with size guard
+  // 5. Aggregate eval scores into DDB (for instant dashboard loads)
+  await aggregateScoresToDdb(agentId, parsed);
+
+  // 6. Atomic append to sessionBuffer with size guard
   const batchSize = config.batchSize || 10;
   const appended = await appendToBuffer(agentId, sessionData, batchSize);
 
   if (appended.shouldFlush) {
-    // 6. Buffer is full → flush to S3
+    // 7. Buffer is full → flush to S3
     await flushBuffer(agentId, appended.buffer, batchSize);
   }
 
@@ -249,6 +252,73 @@ async function handleOverflow(agentId, sessionData, batchSize) {
       retryErr.message
     );
     throw retryErr;
+  }
+}
+
+/**
+ * Aggregate evaluation scores into DDB for instant dashboard reads.
+ * Maintains a rolling scorecard: { evaluatorName: { sum, count } }
+ * and a session count. Read-modify-write with low contention.
+ */
+async function aggregateScoresToDdb(agentId, parsed) {
+  const logEvents = parsed.logEvents || [];
+  const sessions = new Set();
+  const scoreDeltas = {}; // { evaluatorName: { sum, count } }
+
+  for (const event of logEvents) {
+    try {
+      const record = JSON.parse(event.message);
+      const attrs = record.attributes || {};
+      const evaluator = attrs['gen_ai.evaluation.name'];
+      const score = attrs['gen_ai.evaluation.score.value'];
+      const sessionId = attrs['session.id'] || '';
+      const hasError = attrs['error'] === 1 || attrs['error.type'];
+
+      if (sessionId) sessions.add(sessionId);
+      if (evaluator && score !== undefined && score !== null && !hasError) {
+        if (!scoreDeltas[evaluator]) scoreDeltas[evaluator] = { sum: 0, count: 0 };
+        scoreDeltas[evaluator].sum += Number(score);
+        scoreDeltas[evaluator].count += 1;
+      }
+    } catch { /* skip */ }
+  }
+
+  if (Object.keys(scoreDeltas).length === 0 && sessions.size === 0) return;
+
+  try {
+    // Read current scorecard
+    const { Item } = await ddb.send(new GetCommand({
+      TableName: TABLE,
+      Key: { agentId },
+      ProjectionExpression: 'evalScores, evalSessionCount',
+    }));
+
+    const existing = Item?.evalScores || {};
+    const existingSessions = Item?.evalSessionCount || 0;
+
+    // Merge deltas
+    for (const [evaluator, delta] of Object.entries(scoreDeltas)) {
+      if (!existing[evaluator]) existing[evaluator] = { sum: 0, count: 0 };
+      existing[evaluator].sum += delta.sum;
+      existing[evaluator].count += delta.count;
+    }
+
+    // Write merged scorecard
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE,
+      Key: { agentId },
+      UpdateExpression: 'SET evalScores = :scores, evalSessionCount = :sc, evalLastScoredAt = :now',
+      ExpressionAttributeValues: {
+        ':scores': existing,
+        ':sc': existingSessions + sessions.size,
+        ':now': new Date().toISOString(),
+      },
+    }));
+
+    console.log(`[eval-packager] ${agentId}: aggregated ${Object.keys(scoreDeltas).length} evaluators, ${sessions.size} sessions`);
+  } catch (err) {
+    // Non-fatal — don't break the buffer/flush pipeline
+    console.error(`[eval-packager] ${agentId} score aggregation failed:`, err.message);
   }
 }
 
