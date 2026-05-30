@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Activity,
+  ArrowLeft,
   ToggleLeft,
   ToggleRight,
   Loader2,
@@ -12,6 +13,7 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import agentsConfig from "@/config/agents.json";
 
@@ -316,14 +318,22 @@ export default function EvaluationsPage() {
 
       {/* Page Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Activity className="w-5 h-5 text-brand-400" />
-            Evaluations
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Configure per-agent evaluation settings for the improvement loop
-          </p>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/evaluations"
+            className="flex items-center justify-center w-8 h-8 rounded-lg bg-surface-2 border border-surface-4 hover:border-brand-500/50 hover:text-brand-400 transition-colors text-[var(--color-text-muted)]"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <div>
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Activity className="w-5 h-5 text-brand-400" />
+              Self-Improvement Settings
+            </h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Configure per-agent evaluation settings for the improvement loop
+            </p>
+          </div>
         </div>
         <button
           onClick={() => fetchAgents(false)}
@@ -357,7 +367,7 @@ export default function EvaluationsPage() {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-medium text-white">
-                Evaluation Loop
+                Self-Improvement Loop
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
                 Master toggle — enable or disable evaluations for all agents at
