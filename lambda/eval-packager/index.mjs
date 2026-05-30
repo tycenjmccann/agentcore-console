@@ -1,199 +1,297 @@
 /**
- * Eval Packager Lambda
+ * lambda/eval-packager/index.mjs
  *
- * Trigger: CloudWatch Logs Subscription Filter (on eval result log groups)
+ * Eval Packager Lambda — processes CloudWatch Logs events for fleet agents,
+ * applies per-agent evaluation controls (enabled flag, sample rate), buffers
+ * sessions in DynamoDB, and flushes batches to S3 when the buffer reaches
+ * the configured batchSize.
  *
- * When an evaluation result arrives:
- * 1. Parse eval scores from the CW log event
- * 2. Read the agent's current prompt from S3
- * 3. Include tools, skills, and recent git history
- * 4. Package everything into one report
- * 5. Write package to S3 (audit trail)
- * 6. Invoke the fleet improver agent with the package
- * 7. Write the agent's PRD response to S3 (triggers prd-submitter)
- *
- * Environment:
- *   ARTIFACT_BUCKET - S3 bucket
- *   IMPROVEMENT_AGENT_ID - AgentCore runtime ID for the fleet improver
+ * Environment Variables:
+ *   EVAL_CONFIG_TABLE  — DynamoDB table name (default: agentis-eval-config)
+ *   ARTIFACTS_BUCKET   — S3 bucket for batch output
  */
 
-import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import { BedrockAgentCoreClient, InvokeAgentRuntimeCommand } from "@aws-sdk/client-bedrock-agentcore";
-import { gunzipSync } from "zlib";
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { gunzipSync } from 'zlib';
 
-const REGION = process.env.AWS_REGION || "us-east-1";
-const BUCKET = process.env.ARTIFACT_BUCKET;
-const AGENT_ID = process.env.IMPROVEMENT_AGENT_ID;
-const ACCOUNT_ID = process.env.AWS_ACCOUNT_ID;
+// ─── Clients ────────────────────────────────────────────────────────────────
+const ddbRaw = new DynamoDBClient({});
+const ddb = DynamoDBDocumentClient.from(ddbRaw, {
+  marshallOptions: { removeUndefinedValues: true },
+});
+const s3 = new S3Client({});
 
-if (!BUCKET) throw new Error("ARTIFACT_BUCKET env var required");
-if (!AGENT_ID) throw new Error("IMPROVEMENT_AGENT_ID env var required");
-if (!ACCOUNT_ID) throw new Error("AWS_ACCOUNT_ID env var required");
+// ─── Config ─────────────────────────────────────────────────────────────────
+const TABLE = process.env.EVAL_CONFIG_TABLE || 'agentis-eval-config';
+const BUCKET = process.env.ARTIFACTS_BUCKET || 'agentis-artifacts-838829463875-us-east-1';
+const S3_PREFIX = 'fleet-imp-agent/prd';
+const AGENTS_CONFIG_KEY = 'config/agents.json';
 
-const s3 = new S3Client({ region: REGION });
-const agentcore = new BedrockAgentCoreClient({ region: REGION });
+// ─── Agent ID Resolution (loaded from S3, cached for warm starts) ───────────
+let agents = null;
 
-// Eval config name → harnessName, derived from agents.json (synced to S3 on deploy).
-// Loaded once on cold start; we identify the agent by which eval log group fired.
-let CONFIG_TO_AGENT_PROMISE = null;
+/**
+ * Load agents.json from S3 once per warm start.
+ */
+async function loadAgents() {
+  if (agents) return agents;
 
-async function loadConfigToAgent() {
-  if (CONFIG_TO_AGENT_PROMISE) return CONFIG_TO_AGENT_PROMISE;
-  CONFIG_TO_AGENT_PROMISE = (async () => {
-    const result = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: "config/agents.json" }));
-    const body = await result.Body.transformToString();
-    const parsed = JSON.parse(body);
-    const map = {};
-    for (const a of parsed.agents || []) {
-      if (a.evalConfigName && a.harnessName) map[a.evalConfigName] = a.harnessName;
-    }
-    console.log(`[eval-packager] Loaded ${Object.keys(map).length} agent eval mappings from S3`);
-    return map;
-  })();
-  return CONFIG_TO_AGENT_PROMISE;
+  const response = await s3.send(
+    new GetObjectCommand({ Bucket: BUCKET, Key: AGENTS_CONFIG_KEY })
+  );
+  const body = await response.Body.transformToString();
+  agents = JSON.parse(body).agents || [];
+  console.log(`[eval-packager] Loaded ${agents.length} agents from agents.json`);
+  return agents;
 }
 
-// All agents share the same tool set
-const AGENT_TOOLS = [
-  "code_interpreter (sandboxed Python/Node.js)",
-  "browser (cloud browser automation)",
-  "shell (command execution)",
-  "file_read, file_write, editor",
-  "http_request",
-  "image_reader",
-  "python_repl",
-  "S3Storage (read_object, write_object, list_objects)",
-  "JiraIntegration (create_ticket, transition_ticket, update_ticket, list_tickets, add_comment, search_issues)",
-  "WorkflowOutput (report_completion, save_design_doc, submit_ticket_plan)",
-  "SkillLoader (load_skill — role-specific instructions)",
-  "claude_code (delegate coding tasks to Claude Code CLI — dev agents only)",
-  "GitHub MCP (repos, PRs, issues, files — via GITHUB_PAT)",
-];
+/**
+ * Resolve canonical agent id by matching the log group against each agent's
+ * evalConfigName (e.g., "eval_requirements_analyst" appears as a substring
+ * of "/aws/bedrock-agentcore/evaluations/results/eval_requirements_analyst-FO0D1sFZfY").
+ */
+function resolveAgentId(logGroup, agentList) {
+  const match = agentList.find(
+    (a) => a.evalConfigName && logGroup.includes(a.evalConfigName)
+  );
+  return match?.id || null;
+}
 
-export async function handler(event) {
-  // CW Logs subscription delivers base64-encoded, gzipped data
-  const payload = Buffer.from(event.awslogs.data, "base64");
-  const json = JSON.parse(gunzipSync(payload).toString());
+// ─── Handler ────────────────────────────────────────────────────────────────
+export const handler = async (event) => {
+  // Decode CloudWatch Logs payload
+  const payload = Buffer.from(event.awslogs.data, 'base64');
+  const parsed = JSON.parse(gunzipSync(payload).toString());
+  const logGroup = parsed.logGroup || '';
 
-  const logGroup = json.logGroup || "";
-  const logEvents = json.logEvents || [];
-
-  // Determine which agent (mapping loaded from agents.json on S3)
-  const CONFIG_TO_AGENT = await loadConfigToAgent();
-  const configMatch = Object.keys(CONFIG_TO_AGENT).find(c => logGroup.includes(c));
-  if (!configMatch) {
-    console.log(`[eval-packager] Unknown log group: ${logGroup}`);
-    return { statusCode: 200, body: "Unknown config" };
+  // 1. Resolve agentId from the log group via agents.json evalConfigName
+  const agentList = await loadAgents();
+  const agentId = resolveAgentId(logGroup, agentList);
+  if (!agentId) {
+    console.log('[eval-packager] No matching agent for log group:', logGroup);
+    return { statusCode: 200, body: 'no-match' };
   }
-  const agentName = CONFIG_TO_AGENT[configMatch];
-  console.log(`[eval-packager] ${logEvents.length} eval events for ${agentName}`);
+  console.log(`[eval-packager] Processing event for agent: ${agentId}`);
 
-  // Parse scores from log events
-  const scores = {};
-  let sessionId = "";
-  const rawEvents = [];
+  // 2. Read agent config from DynamoDB
+  const config = await getAgentConfig(agentId);
+  if (!config) {
+    console.log(`[eval-packager] No config found for agent: ${agentId}. Skipping.`);
+    return { statusCode: 200, body: 'no-config' };
+  }
 
-  let parseFailures = 0;
-  let noEvaluatorCount = 0;
+  // 3. Check enabled flag
+  if (config.enabled === false) {
+    console.log(`[eval-packager] Agent ${agentId} is disabled. Skipping.`);
+    return { statusCode: 200, body: 'disabled' };
+  }
 
-  for (const logEvent of logEvents) {
+  // 4. Sample rate check
+  const sampleRate = config.sampleRate ?? 100;
+  if (Math.random() * 100 >= sampleRate) {
+    console.log(`[eval-packager] Agent ${agentId} sample-rate miss (rate=${sampleRate}%). Skipping.`);
+    return { statusCode: 200, body: 'sampled-out' };
+  }
+
+  // Extract session data from log events (enriched with parsed evaluator results)
+  const sessionData = extractSessionData(parsed);
+
+  // 5. Atomic append to sessionBuffer with size guard
+  const batchSize = config.batchSize || 10;
+  const appended = await appendToBuffer(agentId, sessionData, batchSize);
+
+  if (appended.shouldFlush) {
+    // 6. Buffer is full → flush to S3
+    await flushBuffer(agentId, appended.buffer, batchSize);
+  }
+
+  return { statusCode: 200, body: 'ok' };
+};
+
+// ─── Helper Functions ───────────────────────────────────────────────────────
+
+/**
+ * Read agent eval config from DynamoDB.
+ */
+async function getAgentConfig(agentId) {
+  const result = await ddb.send(
+    new GetCommand({
+      TableName: TABLE,
+      Key: { agentId },
+    })
+  );
+  return result.Item || null;
+}
+
+/**
+ * Extract session data from parsed CW Logs event.
+ * Parses each logEvent.message as JSON to extract evaluator scores,
+ * evaluator name, and evidence. Stores parsed results (not raw event metadata)
+ * so the improver agent can synthesize actionable insights from batch payloads.
+ */
+function extractSessionData(parsed) {
+  const logEvents = parsed.logEvents || [];
+  const sessionBuffer = [];
+
+  for (const event of logEvents) {
     try {
-      const parsed = JSON.parse(logEvent.message);
-      rawEvents.push(parsed);
-
-      const attrs = parsed.attributes || {};
-      sessionId = sessionId || attrs["session.id"] || parsed.session_id || parsed.sessionId || parsed.traceId || `session-${Date.now()}`;
-      const evaluator = attrs["gen_ai.evaluation.name"] || parsed.evaluator_id || parsed.evaluatorId || parsed.evaluator || "";
-      const score = attrs["gen_ai.evaluation.score.value"] ?? parsed.score ?? parsed.result?.score;
-      const reason = attrs["gen_ai.evaluation.explanation"] || parsed.reason || parsed.result?.reason || parsed.explanation || "";
-
-      if (evaluator && score !== undefined && score !== null) {
-        scores[evaluator] = { score: Number(score), reason: String(reason).slice(0, 500) };
-      } else {
-        noEvaluatorCount++;
-        if (noEvaluatorCount <= 2) {
-          console.log(`[eval-packager] Event missing evaluator/score. Keys: ${Object.keys(parsed).join(",")}, attrs keys: ${Object.keys(attrs).join(",")}, name field: ${parsed.name || "none"}`);
-        }
-      }
-    } catch (err) {
-      parseFailures++;
-      if (parseFailures <= 2) {
-        console.log(`[eval-packager] JSON parse error: ${err.message}. First 200 chars: ${String(logEvent.message).slice(0, 200)}`);
-      }
-      rawEvents.push({ raw: logEvent.message });
+      const parsedMessage = JSON.parse(event.message);
+      sessionBuffer.push({
+        timestamp: event.timestamp,
+        evaluatorName: parsedMessage.evaluatorName || parsedMessage.name || null,
+        score: parsedMessage.score ?? parsedMessage.evaluatorScore ?? null,
+        evidence: parsedMessage.evidence || parsedMessage.reasoning || null,
+        metadata: parsedMessage.metadata || null,
+        result: parsedMessage.result || null,
+      });
+    } catch {
+      // If message is not valid JSON, include it as raw text with a flag
+      sessionBuffer.push({
+        timestamp: event.timestamp,
+        rawMessage: event.message,
+        parseError: true,
+      });
     }
   }
 
-  if (Object.keys(scores).length === 0) {
-    console.log(`[eval-packager] No parseable scores for ${agentName}. Events: ${logEvents.length}, parseFailures: ${parseFailures}, noEvaluator: ${noEvaluatorCount}`);
-    return { statusCode: 200, body: "No scores" };
-  }
-
-  // Read current prompt
-  let currentPrompt = "";
-  try {
-    const result = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `prompts/${agentName}.txt` }));
-    currentPrompt = await result.Body.transformToString();
-  } catch (err) {
-    console.warn(`[eval-packager] No prompt for ${agentName}: ${err.message}`);
-  }
-
-  // Read recent changes (git log for this agent's prompt)
-  let recentChanges = "";
-  try {
-    const result = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `changelog/${agentName}.txt` }));
-    recentChanges = await result.Body.transformToString();
-  } catch {
-    recentChanges = "(no changelog available)";
-  }
-
-  // Build package
-  const scoreValues = Object.values(scores).map(s => s.score);
-  const pkg = {
-    agent: agentName,
-    session_id: sessionId,
+  return {
+    logGroup: parsed.logGroup,
+    logStream: parsed.logStream,
     timestamp: new Date().toISOString(),
-    eval_config: configMatch,
-    scores,
-    summary: {
-      overall_avg: Math.round((scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length) * 100) / 100,
-      min_score: Math.round(Math.min(...scoreValues) * 100) / 100,
-      count: scoreValues.length,
-    },
-    current_prompt: currentPrompt,
-    tools: AGENT_TOOLS,
-    skills: `Agent loads role-specific blueprints via load_blueprint. Blueprints are stored in S3 (blueprints/<role>.md) and provide detailed instructions for the agent's specialty.`,
-    recent_changes: recentChanges,
-    raw_eval_events: rawEvents,
-    prompt_path: `deploy/runtime-agent/prompts/${agentName}.txt`,
+    evaluatorResults: sessionBuffer,
+  };
+}
+
+/**
+ * Atomic append to the sessionBuffer in DDB.
+ * Uses ConditionExpression to prevent exceeding batchSize.
+ * Returns { shouldFlush: boolean, buffer: array | null }
+ */
+async function appendToBuffer(agentId, sessionData, batchSize) {
+  try {
+    const result = await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE,
+        Key: { agentId },
+        UpdateExpression:
+          'SET sessionBuffer = list_append(sessionBuffer, :new), lastUpdatedAt = :now',
+        ConditionExpression: 'size(sessionBuffer) < :max',
+        ExpressionAttributeValues: {
+          ':new': [sessionData],
+          ':max': batchSize,
+          ':now': new Date().toISOString(),
+        },
+        ReturnValues: 'ALL_NEW',
+      })
+    );
+
+    const buffer = result.Attributes.sessionBuffer || [];
+    const shouldFlush = buffer.length >= batchSize;
+
+    console.log(
+      `[eval-packager] Agent ${agentId}: buffer size=${buffer.length}/${batchSize}` +
+        (shouldFlush ? ' → FLUSH' : '')
+    );
+
+    return { shouldFlush, buffer };
+  } catch (err) {
+    if (err.name === 'ConditionalCheckFailedException') {
+      // 7. Buffer was already full (race condition) — flush then retry
+      console.log(
+        `[eval-packager] Agent ${agentId}: ConditionalCheckFailedException — buffer full. Flushing and retrying.`
+      );
+      await handleOverflow(agentId, sessionData, batchSize);
+      return { shouldFlush: false, buffer: null };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Handle overflow: read current buffer, flush it, reset, then retry append.
+ */
+async function handleOverflow(agentId, sessionData, batchSize) {
+  // Read current buffer
+  const config = await getAgentConfig(agentId);
+  const currentBuffer = config?.sessionBuffer || [];
+
+  // Flush the full buffer
+  if (currentBuffer.length > 0) {
+    await flushBuffer(agentId, currentBuffer, batchSize);
+  }
+
+  // Retry the append (buffer has been reset by flushBuffer)
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE,
+        Key: { agentId },
+        UpdateExpression:
+          'SET sessionBuffer = list_append(sessionBuffer, :new), lastUpdatedAt = :now',
+        ConditionExpression: 'size(sessionBuffer) < :max',
+        ExpressionAttributeValues: {
+          ':new': [sessionData],
+          ':max': batchSize,
+          ':now': new Date().toISOString(),
+        },
+      })
+    );
+    console.log(`[eval-packager] Agent ${agentId}: retry append succeeded after overflow flush.`);
+  } catch (retryErr) {
+    console.error(
+      `[eval-packager] Agent ${agentId}: retry append failed after overflow flush:`,
+      retryErr.message
+    );
+    throw retryErr;
+  }
+}
+
+/**
+ * Flush the session buffer to S3 and reset the DDB buffer.
+ */
+async function flushBuffer(agentId, buffer, batchSize) {
+  const timestamp = new Date().toISOString();
+  const s3Key = `${S3_PREFIX}/batch-${agentId}-${timestamp}.json`;
+
+  const batchPayload = {
+    agentId,
+    batchSize,
+    flushedAt: timestamp,
+    sessions: buffer,
   };
 
-  // Write package to S3 (audit trail)
-  const pkgKey = `eval-packages/${agentName}/${sessionId}.json`;
-  await s3.send(new PutObjectCommand({
-    Bucket: BUCKET,
-    Key: pkgKey,
-    Body: JSON.stringify(pkg, null, 2),
-    ContentType: "application/json",
-  }));
-  console.log(`[eval-packager] Package: ${pkgKey}`);
+  // Write batch to S3
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: s3Key,
+      Body: JSON.stringify(batchPayload, null, 2),
+      ContentType: 'application/json',
+    })
+  );
 
-  // Invoke the fleet improver agent — it writes its own output to S3 via tools
-  const response = await agentcore.send(new InvokeAgentRuntimeCommand({
-    agentRuntimeArn: `arn:aws:bedrock-agentcore:${REGION}:${ACCOUNT_ID}:runtime/${AGENT_ID}`,
-    runtimeSessionId: `improve-${agentName}-${Date.now()}`,
-    payload: JSON.stringify({
-      prompt: JSON.stringify(pkg),
-    }),
-  }));
+  console.log(
+    `[eval-packager] FLUSHED | agent=${agentId} | batchSize=${buffer.length} | s3Key=${s3Key}`
+  );
 
-  // Consume the stream (agent does its own S3 writes via tools)
-  if (response.output?.stream) {
-    for await (const chunk of response.output.stream) {
-      // Agent handles everything — we just need to drain the stream
-    }
-  }
+  // Reset sessionBuffer in DDB
+  await ddb.send(
+    new UpdateCommand({
+      TableName: TABLE,
+      Key: { agentId },
+      UpdateExpression: 'SET sessionBuffer = :empty, lastFlushedAt = :ts, lastUpdatedAt = :ts',
+      ExpressionAttributeValues: {
+        ':empty': [],
+        ':ts': timestamp,
+      },
+    })
+  );
 
-  console.log(`[eval-packager] Agent invoked for ${agentName}`);
-  return { statusCode: 200, body: JSON.stringify({ agent: agentName, pkgKey }) };
+  console.log(`[eval-packager] Agent ${agentId}: buffer reset after flush.`);
 }
