@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { transformEvent } from "@/lib/workflow/transform-event";
 
 export const dynamic = "force-dynamic";
 
@@ -17,42 +18,6 @@ const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },
 });
-
-function transformEvent(item: Record<string, unknown>): Record<string, unknown> | null {
-  const eventType = item.type as string;
-  const detail = (item.detail || {}) as Record<string, unknown>;
-  const agentId = detail.agentId as string;
-  const timestamp = item.timestamp as string;
-  const eventId = item.eventId as string | undefined;
-
-  switch (eventType) {
-    case "agent.streaming": {
-      const subType = detail.type as string;
-      if (subType === "text") {
-        return { type: "agent_output", agentId, chunk: detail.content, timestamp, eventId };
-      }
-      if (subType === "trace") {
-        return { type: "tool_use", agentId, toolName: detail.toolName, timestamp, eventId };
-      }
-      return null;
-    }
-    case "agent.complete":
-      return { type: "agent_complete", agentId, output: detail.output, branch: detail.branch, commitSha: detail.commitSha, timestamp, eventId };
-    case "agent.error":
-      return { type: "error", agentId, error: detail.error, timestamp, eventId };
-    case "agent.started":
-    case "agent.invoked":
-      return { type: "agent_status", agentId: agentId || detail.assignee as string, status: "running", ticketId: detail.ticketId as string, timestamp, eventId };
-    case "workflow.phase_change":
-      return { type: "phase_change", phase: detail.phase, timestamp, eventId };
-    case "workflow.complete":
-      return { type: "workflow_complete", timestamp, eventId };
-    case "workflow.nudge":
-      return { type: "nudge", nudged: detail.nudged, ticketsScanned: detail.ticketsScanned, timestamp, eventId };
-    default:
-      return { type: eventType, ...detail, timestamp, eventId };
-  }
-}
 
 export async function GET(
   _req: NextRequest,
@@ -73,7 +38,7 @@ export async function GET(
     }));
 
     for (const item of result.Items || []) {
-      const transformed = transformEvent(item);
+      const transformed = transformEvent(item, { includeEventId: true });
       if (transformed) {
         allEvents.push(transformed);
       }

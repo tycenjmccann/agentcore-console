@@ -14,6 +14,7 @@ import S3ArtifactsModal from "./S3ArtifactsModal";
 import CancelConfirmationModal from "./CancelConfirmationModal";
 import TicketStatusBadge from "./TicketStatusBadge";
 import TicketDetailModal from "./TicketDetailModal";
+import { useWorkflowStream } from "./useWorkflowStream";
 
 interface WorkflowBoardProps {
   workflowId: string;
@@ -85,7 +86,6 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const [state, setState] = useState<WorkflowState | null>(null);
   const [celebrating, setCelebrating] = useState(false);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
-  const [streamingText, setStreamingText] = useState<Record<string, string>>({});
   // Full agent output fetched directly from DDB (independent of replay scrubber)
   const [agentFullOutput, setAgentFullOutput] = useState<Record<string, string>>({});
   // Tool flash state: maps "phaseId:iconKey" to a timeout so items flash when tools fire
@@ -95,7 +95,6 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
   const [connectorPaths, setConnectorPaths] = useState<string[]>([]);
   // Skip-connectors: paths that jump over inactive phases (e.g., requirements → development when design is skipped)
   const [skipConnectors, setSkipConnectors] = useState<Array<{ d: string; fromIdx: number; toIdx: number }>>([]);
-  const eventSourceRef = useRef<EventSource | null>(null);
   const pipelineRef = useRef<HTMLDivElement>(null);
 
   // Replay state for completed workflows
@@ -173,18 +172,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         .then((r) => r.json())
         .then((data) => {
           if (data && data.id) {
-            // Re-key agentTasks from ticket IDs (DDB) to agentIds (UI expects)
-            // When multiple tickets exist for the same agent, prefer the one with output
-            if (data.agentTasks) {
-              const reKeyed: Record<string, typeof data.agentTasks[string]> = {};
-              for (const [key, task] of Object.entries(data.agentTasks) as [string, { agentId?: string; output?: string }][]) {
-                const id = task.agentId || key;
-                if (!reKeyed[id] || (task.output && !reKeyed[id].output)) {
-                  reKeyed[id] = task;
-                }
-              }
-              data.agentTasks = reKeyed;
-            }
+            // agentTasks normalization (ticket-keyed → agent-keyed) is handled
+            // by the API in /api/workflow/[id]/state/route.ts — no client re-keying needed.
             // Only set state from poll if NOT in replay mode and not catching up
             if (!replayMode && !catchingUp) setState(data);
             if (isFirstFetch) {
@@ -339,58 +328,6 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     return () => clearInterval(interval);
   }, [workflowId, agentTaskKeys, state?.phase]);
 
-  // SSE connection — only for LIVE workflows (starts after catch-up completes or immediately if no catch-up)
-  useEffect(() => {
-    if (replayMode || catchingUp) return;
-
-    let es: EventSource | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let reconnectAttempts = 0;
-    let stopped = false;
-
-    const connect = () => {
-      if (stopped) return;
-      // Use cursor from last replayed event to avoid re-delivering history
-      const cursor = lastEventIdRef.current;
-      const url = cursor
-        ? `/api/workflow/${workflowId}/stream?cursor=${encodeURIComponent(cursor)}`
-        : `/api/workflow/${workflowId}/stream`;
-      es = new EventSource(url);
-      eventSourceRef.current = es;
-
-      es.onopen = () => { reconnectAttempts = 0; };
-
-      es.onmessage = (event) => {
-        try {
-          const data: WorkflowEvent = JSON.parse(event.data);
-          handleEvent(data);
-        } catch {
-          // skip
-        }
-      };
-
-      es.onerror = () => {
-        es?.close();
-        if (stopped) return;
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 15000);
-        reconnectAttempts++;
-        fetch(`/api/workflow/${workflowId}/state`)
-          .then((r) => r.json())
-          .then((data) => {
-            if (data && data.id) setState(data);
-          })
-          .catch(() => {});
-        reconnectTimer = setTimeout(connect, delay);
-      };
-    };
-
-    connect();
-    return () => {
-      stopped = true;
-      es?.close();
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-    };
-  }, [workflowId, replayMode, catchingUp]);
 
   // Live-poll agent output while panel is open and agent is running
   useEffect(() => {
@@ -658,10 +595,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         }
         break;
       case "agent_output":
-        setStreamingText((prev) => ({
-          ...prev,
-          [event.agentId]: (prev[event.agentId] || "") + event.chunk,
-        }));
+        // streamingText accumulation handled by useWorkflowStream hook
         setLastEventPerAgent((prev) => ({ ...prev, [event.agentId]: "Streaming text..." }));
         break;
       case "tool_use": {
@@ -770,6 +704,15 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         break;
     }
   }, [activeConnector]);
+
+  // SSE connection — managed by useWorkflowStream hook (must be after handleEvent definition)
+  const { streamStatus, streamingText } = useWorkflowStream({
+    workflowId,
+    enabled: !replayMode && !catchingUp,
+    initialCursor: lastEventIdRef.current,
+    onEvent: handleEvent,
+    onStateRecovered: (data) => { if (data && data.id) setState(data); },
+  });
 
   // Animate connector dot — exact same logic as demo HTML animateConnector()
   const animateConnectorDot = useCallback((connectorIndex: number, duration = 900) => {
@@ -1104,18 +1047,35 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                   {!atLiveEdge && !isComplete && (
                     <button className="live-btn" onClick={snapToLive} title="Jump to live">LIVE</button>
                   )}
-                  <select
-                    className="replay-speed"
-                    value={playbackSpeed}
-                    onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
-                  >
-                    <option value={1}>1x (real-time)</option>
-                    <option value={3}>3x</option>
-                    <option value={5}>5x</option>
-                    <option value={10}>10x</option>
-                    <option value={20}>20x</option>
-                    <option value={50}>50x</option>
-                  </select>
+                  {isComplete ? (
+                    <select
+                      className="replay-speed"
+                      value={playbackSpeed}
+                      onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
+                    >
+                      <option value={1}>1x (real-time)</option>
+                      <option value={3}>3x</option>
+                      <option value={5}>5x</option>
+                      <option value={10}>10x</option>
+                      <option value={20}>20x</option>
+                      <option value={50}>50x</option>
+                    </select>
+                  ) : (
+                    <span className={`flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded ${
+                      streamStatus === "live" ? "text-green-400" :
+                      streamStatus === "reconnecting" ? "text-yellow-400" :
+                      streamStatus === "connecting" ? "text-blue-400" : "text-zinc-500"
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        streamStatus === "live" ? "bg-green-400 animate-pulse" :
+                        streamStatus === "reconnecting" ? "bg-yellow-400 animate-pulse" :
+                        streamStatus === "connecting" ? "bg-blue-400 animate-pulse" : "bg-zinc-500"
+                      }`} />
+                      {streamStatus === "live" ? "Live" :
+                       streamStatus === "reconnecting" ? "Reconnecting..." :
+                       streamStatus === "connecting" ? "Connecting..." : "Idle"}
+                    </span>
+                  )}
                 </>
               )}
             </div>
@@ -1124,6 +1084,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
           <div className={`pipeline-status-header ${isComplete ? "settled" : ""} ${state.phase === "cancelled" ? "cancelled" : ""}`}>
             {isComplete ? "Complete" : state.phase === "cancelled" ? "Cancelled" : state.phase === "error" ? "Error" : `In Progress: ${PIPELINE_PHASES[currentPhaseIndex]?.name || state.phase}`}
           </div>
+
 
           {/* Cancel button — only show for active (non-terminal) workflows */}
           {state && state.phase !== "complete" && state.phase !== "error" && state.phase !== "cancelled" && (
@@ -1286,7 +1247,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                             >
                               <img className="svc-icon" src={awsIcons.agentcore} alt="AC" />
                               <span className="item-label">{agent.displayName}</span>
-                              <span className="ml-auto mr-auto">
+                              <span className="flex-shrink-0 flex items-center gap-2" style={{ marginLeft: 'auto' }}>
                                 {(() => {
                                   const tid = agentTicketMapRef.current[agent.id] || agentTask?.ticketId;
                                   if (!tid) return null;
@@ -1303,7 +1264,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                                   const status = ticketInfo?.status || derivedStatus;
                                   if (!status) return null;
                                   return (
-                                    <span onClick={(e) => { e.stopPropagation(); handleOpenTicketModal(tid); }}>
+                                    <span className="flex" onClick={(e) => { e.stopPropagation(); handleOpenTicketModal(tid); }}>
                                       <TicketStatusBadge
                                         status={status}
                                         ticketId={tid}
@@ -1312,25 +1273,25 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                                     </span>
                                   );
                                 })()}
-                              </span>
-                              <span
-                                className="item-status cursor-pointer"
-                                title="Click to mark agent as stuck"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (agentTask && (agentTask.status === "running" || agentTask.status === "waiting_response")) {
-                                    if (window.confirm(`Mark "${agent.displayName}" as stuck?\n\nThis will flag the agent as unresponsive and show recovery options.`)) {
-                                      setManualStaleAgents((prev) => new Set([...prev, agent.id]));
-                                      // Also expand this agent's panel immediately
-                                      setExpandedAgent(agent.id);
-                                      fetch(`/api/workflow/${workflowId}/agent-output?agentId=${agent.id}`)
-                                        .then((r) => r.json())
-                                        .then((data) => { if (data.output) setAgentFullOutput((prev) => ({ ...prev, [agent.id]: data.output })); })
-                                        .catch(() => {});
+                                <span
+                                  className="item-status cursor-pointer"
+                                  title="Click to mark agent as stuck"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (agentTask && (agentTask.status === "running" || agentTask.status === "waiting_response")) {
+                                      if (window.confirm(`Mark "${agent.displayName}" as stuck?\n\nThis will flag the agent as unresponsive and show recovery options.`)) {
+                                        setManualStaleAgents((prev) => new Set([...prev, agent.id]));
+                                        // Also expand this agent's panel immediately
+                                        setExpandedAgent(agent.id);
+                                        fetch(`/api/workflow/${workflowId}/agent-output?agentId=${agent.id}`)
+                                          .then((r) => r.json())
+                                          .then((data) => { if (data.output) setAgentFullOutput((prev) => ({ ...prev, [agent.id]: data.output })); })
+                                          .catch(() => {});
+                                      }
                                     }
-                                  }
-                                }}
-                              />
+                                  }}
+                                />
+                              </span>
                             </div>
                           );
                         })}
@@ -1454,7 +1415,16 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
             ticketId: Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.ticketId || "",
             status: Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.status || "running",
             input: "",
-            output: agentFullOutput[expandedAgent] || streamingText[expandedAgent] || Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.output || originalOutputsRef.current[expandedAgent] || "",
+            output: (() => {
+              const agentTask = Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent);
+              const isRunning = agentTask?.status === "running" || agentTask?.status === "waiting_response";
+              const live = streamingText[expandedAgent] || "";
+              const polled = agentFullOutput[expandedAgent] || "";
+              // For running agents, prefer whichever is longer (live SSE vs polled full output)
+              if (isRunning) return live.length >= polled.length ? live : polled;
+              // For completed/idle agents, prefer polled (final) output
+              return polled || live || agentTask?.output || originalOutputsRef.current[expandedAgent] || "";
+            })(),
             branch: Object.values(state.agentTasks).find((t) => t.agentId === expandedAgent)?.branch,
           } : null}
         />

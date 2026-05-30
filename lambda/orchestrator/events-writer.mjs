@@ -13,6 +13,29 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
   marshallOptions: { removeUndefinedValues: true },
 });
 
+// ─── Monotonic Event ID Generator ────────────────────────────────────────────
+// Produces IDs that sort lexicographically in creation order, even within the
+// same millisecond. Format: <timestamp-ms-base36>-<counter-base36-padded>
+// e.g. "lq7k2x00-0001"  (timestamp part is always 8+ chars, counter is 4 chars)
+//
+// Within a single Lambda invocation (warm container), the counter increments
+// monotonically. Across cold starts the timestamp advances, resetting the counter.
+let lastTs = 0;
+let counter = 0;
+
+function nextEventId() {
+  const now = Date.now();
+  if (now === lastTs) {
+    counter++;
+  } else {
+    lastTs = now;
+    counter = 0;
+  }
+  const tsPart = now.toString(36).padStart(9, "0");
+  const seqPart = counter.toString(36).padStart(4, "0");
+  return `${tsPart}-${seqPart}`;
+}
+
 export const handler = async (event) => {
   const detail = event.detail || {};
   const workflowId = detail.workflowId || detail.ticketId || "unknown";
@@ -21,7 +44,7 @@ export const handler = async (event) => {
     TableName: EVENTS_TABLE,
     Item: {
       workflowId,
-      eventId: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      eventId: nextEventId(),
       type: event["detail-type"] || "unknown",
       source: event.source,
       detail,
