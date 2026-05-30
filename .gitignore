@@ -6,8 +6,10 @@ node_modules/
 out/
 
 # Environment (secrets)
-.env.local
 .env
+.env.local
+.env.*.local
+*.local
 
 # Build artifacts
 *.tsbuildinfo

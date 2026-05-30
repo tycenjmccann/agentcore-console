@@ -903,3 +903,15 @@ This validates:
 - Knowledge Base retrieve (if configured)
 
 Expected output: per-agent tool matrix showing pass/fail/missing for every tool, plus role-based validation ensuring each agent type has the tools it needs.
+
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
+## Security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#security-issue-notifications) for information about reporting security issues. Do not create a public GitHub issue for security vulnerabilities.
+
+## License
+
+This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) and [NOTICE](NOTICE) files for details.
