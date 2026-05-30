@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Stripe Payment Processing Microservice",
+  "scripts": {
+    "test": "node --test tests/"
+  },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.600.0"
   }
