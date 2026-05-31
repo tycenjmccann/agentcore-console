@@ -44,9 +44,15 @@ case "$MODULE" in
     aws dynamodb describe-table --table-name agentcore-hub-events --region "$AWS_REGION" >/dev/null 2>&1 \
       || fail "agentcore-hub-events table not found"
 
+    # deploy-fleet.sh writes a flat map: { "agentcore_hub_<agent>": "arn:aws:..." , ... }
     if [[ -f deploy/runtime-agent/fleet-runtime-ids.json ]]; then
-      runtime_count=$(grep -c '"runtimeArn"' deploy/runtime-agent/fleet-runtime-ids.json || true)
-      [[ "$runtime_count" -gt 0 ]] || fail "fleet-runtime-ids.json has no runtimeArn entries"
+      if command -v jq >/dev/null 2>&1; then
+        runtime_count=$(jq '[to_entries[] | select(.value | startswith("arn:aws:bedrock-agentcore:"))] | length' \
+          deploy/runtime-agent/fleet-runtime-ids.json 2>/dev/null || echo 0)
+      else
+        runtime_count=$(grep -cE '"arn:aws:bedrock-agentcore:' deploy/runtime-agent/fleet-runtime-ids.json || true)
+      fi
+      [[ "$runtime_count" -gt 0 ]] || fail "fleet-runtime-ids.json contains no runtime ARNs"
     else
       fail "deploy/runtime-agent/fleet-runtime-ids.json not produced by deploy-fleet.sh"
     fi

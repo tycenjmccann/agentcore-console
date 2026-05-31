@@ -20,6 +20,15 @@ fi
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# Load values written by apply-env.sh (TICKET_PROVIDER, BUILDER_AGENT_ID, etc.)
+# so the deploy steps below see them without the parent shell having to export.
+if [[ -f .env.local ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env.local
+  set +a
+fi
+
 : "${AWS_REGION:?AWS_REGION must be set}"
 : "${AWS_PROFILE:=default}"
 export AWS_PROFILE AWS_REGION
@@ -40,7 +49,27 @@ case "$MODULE" in
 
   builder)
     echo "→ node deploy/setup-builder-agent.mjs"
-    node deploy/setup-builder-agent.mjs
+    # Capture stdout so we can extract BUILDER_AGENT_ID and append it to .env.local.
+    # The Build API reads process.env.BUILDER_AGENT_ID; without persisting it the
+    # /build page returns 503 even after a successful deploy.
+    BUILDER_LOG=$(mktemp)
+    trap 'rm -f "$BUILDER_LOG"' EXIT
+    node deploy/setup-builder-agent.mjs | tee "$BUILDER_LOG"
+    BUILDER_ID=$(grep -E '^[[:space:]]*BUILDER_AGENT_ID=' "$BUILDER_LOG" | head -1 | sed -E 's/^[[:space:]]*BUILDER_AGENT_ID=//' | tr -d '[:space:]')
+    if [[ -n "$BUILDER_ID" ]]; then
+      if grep -q '^BUILDER_AGENT_ID=' .env.local 2>/dev/null; then
+        # macOS sed compat: write through a temp file
+        sed "s|^BUILDER_AGENT_ID=.*|BUILDER_AGENT_ID=$BUILDER_ID|" .env.local > .env.local.tmp && mv .env.local.tmp .env.local
+      else
+        echo "BUILDER_AGENT_ID=$BUILDER_ID" >> .env.local
+      fi
+      chmod 600 .env.local
+      echo "→ Persisted BUILDER_AGENT_ID=$BUILDER_ID to .env.local"
+    else
+      echo "✗ Could not parse BUILDER_AGENT_ID from setup-builder-agent.mjs output" >&2
+      echo "  /build will return 503 until BUILDER_AGENT_ID is set in .env.local" >&2
+      exit 1
+    fi
     ;;
 
   workflow)
