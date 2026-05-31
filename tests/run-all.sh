@@ -23,7 +23,6 @@ npx playwright test \
   tests/tab-agents.spec.ts \
   tests/tab-build.spec.ts \
   tests/tab-workflow.spec.ts \
-  tests/tab-routing.spec.ts \
   tests/tab-tickets.spec.ts \
   --reporter=list
 

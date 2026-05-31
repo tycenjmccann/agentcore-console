@@ -99,7 +99,7 @@ if (!HARNESS_ROLE_ARN) {
       await iam.send(new CreateRoleCommand({
         RoleName: ROLE_NAME,
         AssumeRolePolicyDocument: trustPolicy,
-        Description: "Execution role for AgentCore Hub harness agents (builder, routing)",
+        Description: "Execution role for AgentCore Hub harness agents (builder)",
       }));
       HARNESS_ROLE_ARN = `arn:aws:iam::${accountId}:role/${ROLE_NAME}`;
       console.log(`   ✓ Role "${ROLE_NAME}" created`);

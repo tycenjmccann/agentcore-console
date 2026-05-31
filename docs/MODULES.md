@@ -20,7 +20,6 @@ with the Evaluations surface removed), the remaining app still passes
 | **Builder** | Optional | The `/build` page + builder-tools Lambda for scaffolding agents. |
 | **Workflow** | Optional | Multi-agent orchestration pipeline: intake → requirements → design → development → verification → review, with Jira + ticket tracking. |
 | **Evaluations** | Optional | Self-improvement loop: ingests AgentCore evaluation results from CloudWatch Logs, buffers them, and feeds an improver agent. |
-| **Routing** | Optional | The `/routing` page for inspecting/configuring agent routing. |
 
 The core never imports from an optional module. Optional modules may share core
 libraries (`src/lib/agentcore-sdk.ts`, `src/lib/client-cache.ts`, etc.) and the
@@ -114,12 +113,6 @@ The continuous-improvement loop. Self-contained surface.
 - **UI:** `src/app/build/`
 - **Lambda:** `builder-tools`
 - **Deploy:** `deploy/setup-builder-agent.mjs`
-
-## Module: Routing (optional)
-
-- **UI:** `src/app/routing/`
-- **API:** `src/app/api/agentcore/routing-config/`
-- **Deploy:** `deploy/setup-routing-agents.mjs`
 
 ---
 

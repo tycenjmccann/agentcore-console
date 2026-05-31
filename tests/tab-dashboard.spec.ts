@@ -15,7 +15,6 @@ test.describe("Dashboard Tab", () => {
     await expect(page.locator("[data-testid='nav-agents']")).toBeVisible();
     await expect(page.locator("[data-testid='nav-build']")).toBeVisible();
     await expect(page.locator("[data-testid='nav-workflow']")).toBeVisible();
-    await expect(page.locator("[data-testid='nav-routing']")).toBeVisible();
     await expect(page.locator("[data-testid='nav-ticket history']")).toBeVisible();
   });
 

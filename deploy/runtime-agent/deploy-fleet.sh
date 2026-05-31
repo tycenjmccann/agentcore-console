@@ -34,7 +34,7 @@ if [ -z "${AGENTCORE_ROLE_ARN:-}" ]; then
 fi
 
 ROLE_ARN="${AGENTCORE_ROLE_ARN}"
-GATEWAY_ARN="${GATEWAY_ARN:-}"  # Optional: only needed for routing demo agents
+GATEWAY_ARN="${GATEWAY_ARN:-}"  # Optional: AgentCore MCP gateway ARN
 MODEL_ID="us.anthropic.claude-opus-4-6-v1"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BASE_DIR="$SCRIPT_DIR"
