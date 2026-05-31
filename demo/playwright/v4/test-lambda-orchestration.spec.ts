@@ -121,9 +121,9 @@ test("smoke: ticket skeletons created in DynamoDB with correct dependency chains
 
   // If additional tickets were already created by the requirements agent, validate their structure
   const designTickets = tickets.filter((t) =>
-    t.assignee?.includes("-designer") || t.assignee?.includes("-reviewer") ||
-    t.assignee?.includes("-compliance") || t.assignee?.includes("-localization") ||
-    t.assignee?.includes("-analytics")
+    t.assignee?.includes("_designer") || t.assignee?.includes("_reviewer") ||
+    t.assignee?.includes("_compliance") || t.assignee?.includes("_localization") ||
+    t.assignee?.includes("_analytics")
   );
   if (designTickets.length > 0) {
     for (const dt of designTickets) {
@@ -135,7 +135,7 @@ test("smoke: ticket skeletons created in DynamoDB with correct dependency chains
     console.log(`[smoke] No design tickets yet (requirements agent still running) — expected for dynamic creation flow`);
   }
 
-  const devTickets = tickets.filter((t) => t.assignee?.includes("-dev") && !t.assignee?.includes("-reviewer"));
+  const devTickets = tickets.filter((t) => t.assignee?.includes("_dev") && !t.assignee?.includes("_reviewer"));
   if (devTickets.length > 0) {
     for (const dt of devTickets) {
       expect(dt.status).toBe("blocked");
