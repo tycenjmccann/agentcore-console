@@ -8,7 +8,6 @@ test.describe("AgentCore Hub - UI Smoke Tests", () => {
     await expect(page.locator("[data-testid='nav-dashboard']")).toBeVisible();
     await expect(page.locator("[data-testid='nav-agents']")).toBeVisible();
     await expect(page.locator("[data-testid='nav-build']")).toBeVisible();
-    await expect(page.locator("[data-testid='nav-routing']")).toBeVisible();
     // Agent Activity metrics
     await expect(page.getByText("Invocations")).toBeVisible();
     await expect(page.getByText("Tokens", { exact: true })).toBeVisible();
@@ -64,33 +63,12 @@ test.describe("AgentCore Hub - UI Smoke Tests", () => {
     await expect(page.locator("[data-testid='build-submit-btn']")).toBeEnabled();
   });
 
-  test("Routing page renders pipeline UI", async ({ page }) => {
-    await page.goto("/routing");
-    await expect(page.getByText("Agent Routing Pipeline")).toBeVisible();
-    await expect(page.getByText("SAMPLE TICKETS")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Jira Intake" })).toBeVisible();
-    // Ticket cards
-    await expect(page.getByText("Add push notification support for iOS")).toBeVisible();
-    await expect(page.getByText("Start Flow")).toBeVisible();
-  });
-
-  test("Routing page - sample ticket selection fills form", async ({ page }) => {
-    await page.goto("/routing");
-    // Click first sample ticket
-    await page.locator("button").filter({ hasText: "Add push notification" }).click();
-    // Title and description should be filled
-    const titleInput = page.locator("input[placeholder*='title']");
-    await expect(titleInput).not.toBeEmpty();
-  });
-
   test("Navigation between pages works", async ({ page }) => {
     await page.goto("/");
     await page.locator("[data-testid='nav-agents']").click();
     await expect(page).toHaveURL("/agents");
     await page.locator("[data-testid='nav-build']").click();
     await expect(page).toHaveURL("/build");
-    await page.locator("[data-testid='nav-routing']").click();
-    await expect(page).toHaveURL("/routing");
     await page.locator("[data-testid='nav-dashboard']").click();
     await expect(page).toHaveURL("/");
   });

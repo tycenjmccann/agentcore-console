@@ -92,7 +92,7 @@ case "${SCOPE:-}" in
 - Do NOT add quick action buttons or shortcut links
 - Do NOT add new hooks (useAgentStatus, useWorkflowHistory, etc.)
 - Do NOT create new API routes
-- Keep the existing nav items exactly as they are (Dashboard, Agents, Build, Workflow, Routing, Ticket History)
+- Keep the existing nav items exactly as they are (Dashboard, Agents, Build, Workflow, Ticket History)
 - Total new code should be under 150 lines across all files}"
     ;;
   full)

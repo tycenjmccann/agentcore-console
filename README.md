@@ -13,7 +13,7 @@ A web console for Amazon Bedrock AgentCore that dynamically discovers and intera
 ### Modular by design
 
 The console is a small always-on **core** (Dashboard, Agents, Invoke) plus
-optional **bolt-on modules** (Workflow, Evaluations, Builder, Routing). Each
+optional **bolt-on modules** (Workflow, Evaluations, Builder). Each
 module's UI, API routes, Lambdas, and DynamoDB tables are namespaced, so you can
 deploy only what you need and cherry-pick the rest out. See
 [`docs/MODULES.md`](docs/MODULES.md) for the core-vs-optional breakdown, per-module
@@ -491,63 +491,6 @@ See [`deploy/continuous-improvement/README.md`](deploy/continuous-improvement/RE
 
 ---
 
-## Routing Demo (Agent Skills) — Optional
-
-> **This section is optional.** The Routing tab requires an AgentCore Gateway, which is not created by the setup scripts above. Skip this if you just want the core Build + Pipeline experience.
-
-The Routing tab demonstrates end-to-end agent orchestration with **dynamic skill loading**:
-
-```
-Jira Ticket → Design Agent (loads skill) → Jira Update → Dev Agent (loads skill) → PR & Close
-```
-
-Each agent calls `load_skill` at runtime to get detailed instructions before producing output. This is visible in the OTEL trace as a tool invocation.
-
-### One-Command Setup
-
-```bash
-node deploy/setup-routing-agents.mjs \
-  --gateway-id <your-gateway-id> \
-  --harness-role-arn arn:aws:iam::ACCOUNT:role/agentcore-hub-harness-role
-```
-
-> **Note:** If you ran `setup-builder-agent.mjs` first (Stage 5), the `agentcore-hub-harness-role` already exists and can be reused here.
-
-This creates:
-1. **Skill-loader Lambda** — serves skill instructions (ios-architecture, backend-systems, etc.)
-2. **Gateway target** — exposes `load_skill` as a tool on your AgentCore gateway
-3. **Design Agent harness** — calls `load_skill` → produces architecture docs
-4. **Dev Agent harness** — calls `load_skill` → produces implementation code
-
-The script outputs agent IDs to add to `.env.local`:
-```bash
-DESIGN_AGENT_ID=routing_designer_v2-xxxxxxxxxx
-DEV_AGENT_ID=routing_developer_v2-xxxxxxxxxx
-```
-
-### Prerequisites for Routing
-
-- An existing AgentCore gateway (created via console or `agentcore` CLI)
-- An IAM execution role for harnesses with Bedrock model access
-- The gateway must allow Lambda targets
-
-### Available Skills
-
-| Skill | Agent | Purpose |
-|-------|-------|---------|
-| `ios-architecture` | Design | iOS feature architecture |
-| `backend-systems` | Design | APIs, services, infra |
-| `privacy-compliance` | Design | GDPR, data export |
-| `localization` | Design | i18n, multi-language |
-| `general-design` | Design | Catch-all design |
-| `swift-development` | Dev | iOS/Swift implementation |
-| `node-typescript` | Dev | Backend Node.js/Lambda |
-| `data-services` | Dev | Data pipelines, export |
-| `i18n-tooling` | Dev | Localization infra |
-| `full-stack` | Dev | Cross-stack features |
-
----
-
 ## Production Deployment
 
 > **Note:** If you followed the Setup stages above, infrastructure (DynamoDB, S3, Lambda) is already created. This section covers deploying the app to a hosted environment instead of `localhost:3000`.
@@ -860,7 +803,6 @@ npx playwright test tests/tab-dashboard.spec.ts
 npx playwright test tests/tab-agents.spec.ts
 npx playwright test tests/tab-build.spec.ts
 npx playwright test tests/tab-workflow.spec.ts
-npx playwright test tests/tab-routing.spec.ts
 npx playwright test tests/tab-tickets.spec.ts
 
 # End-to-end workflow (submits real workflow, monitors pipeline)
@@ -875,7 +817,6 @@ npx playwright test tests/e2e-workflow-full.spec.ts --timeout 600000
 | `tab-agents` | Agent discovery, card rendering, detail page chat |
 | `tab-build` | Builder chat interface, inputs, deploy button |
 | `tab-workflow` | Intake form, model selector, workflow history |
-| `tab-routing` | Pipeline visualization, sample tickets, custom input |
 | `tab-tickets` | Ticket history table, search/filter |
 | `e2e-api-routes` | All API endpoints return expected data |
 | `e2e-workflow-full` | Real workflow submission + phase progression |

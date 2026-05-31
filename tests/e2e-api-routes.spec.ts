@@ -6,7 +6,6 @@ import { test, expect } from "@playwright/test";
  * Tests the backend API endpoints that power the console:
  * - Agent discovery (harnesses + runtimes)
  * - Payload format configuration
- * - Routing config
  * - Metrics
  */
 test.describe("E2E: API Routes", () => {
@@ -62,15 +61,6 @@ test.describe("E2E: API Routes", () => {
       data: { agent_id: "test", format: "invalid_format" },
     });
     expect(res.status()).toBe(400);
-  });
-
-  test("Routing config API returns account and region", async ({ request }) => {
-    const res = await request.get("/api/agentcore/routing-config");
-    expect(res.status()).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty("region");
-    expect(data).toHaveProperty("accountId");
-    expect(data.region).toBe("us-east-1");
   });
 
   test("Metrics API returns usage data", async ({ request }) => {
