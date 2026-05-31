@@ -49,3 +49,70 @@ The plugin reasons about four modules (see `docs/MODULES.md` for the full breakd
 ## Re-runs
 
 `/setup` is safe to re-run. Underlying scripts are idempotent and the plugin checks for existing resources before creating new ones.
+
+---
+
+## Design lock — what's branded, what's reused, what's not (read before extending)
+
+The user has signed off on the scope below. **Do not drift from it without updating this section first.** Future sessions extending the plugin should treat these as durable contracts.
+
+### 1. Branding is display-only
+
+`NEXT_PUBLIC_BRAND_NAME` controls the UI string in the header, sidebar, page titles, and pipeline visualization. Defaults to `AgentCore Hub`.
+
+It does **not** rename:
+
+- DynamoDB tables (`agentcore-hub-workflows`, `agentcore-hub-events`, `agentcore-hub-tickets`, `agentcore-hub-eval-config`)
+- Lambda functions (`agentcore-hub-jira`, `agentcore-hub-tickets`, `orchestrator`, `workflow-output`, `eval-packager`, `builder-tools`, etc.)
+- IAM roles (`agentcore-hub-harness-role`, `agentcore-hub-lambda-role`, runtime roles)
+- S3 artifact bucket (`agentcore-hub-artifacts-<ACCOUNT>-<REGION>`)
+- AgentCore runtime names (`agentcore_hub_builder`, the 14 fleet roles)
+
+These names are part of the application contract — Lambda env vars, IAM trust policies, the `RUNTIME_ARN_<HARNESS>` lookup convention, deploy scripts, and the orchestrator all reference them by literal name. Renaming any of them would require a coordinated refactor across ~30 files plus an end-to-end test on a clean account. Out of scope for v1.
+
+### 2. App infra is always created fresh — never bring-your-own
+
+The plugin **never** offers to reuse existing copies of:
+
+- App Lambdas
+- DynamoDB tables / S3 buckets
+- IAM roles + trust policies
+- The 14 fleet runtimes
+- The Builder runtime
+
+Reason: these are tightly coupled to the codebase. Schema, permissions, env-var conventions, and Lambda code all need to match the version of the repo being installed. Letting users substitute their own would mean shipping every variation as supported, which is unwinnable for an OSS project. First-time installs work end-to-end *because* everything is fresh.
+
+### 3. AgentCore *dependencies* — scan and offer to reuse (v2)
+
+The plugin **may** scan the user's account for these and offer to reuse existing resources:
+
+- AgentCore **Gateways** (especially MCP routing — they're expensive to wire up)
+- **MCP servers** (already env-driven via `MCP_SERVERS`)
+- **Memory stores**
+- **Identity providers / token vaults** (if the user has corp OAuth wired up)
+
+These are dependencies the runtimes consume by ARN, not resources the app modifies. Scanning is read-only (`list-*` APIs in the target region) and offers strong-match / weak-match / skip — never auto-substitutes silently.
+
+**Status: not yet implemented.** Will live in `bin/scan-existing.mjs` + new `Q0` in `setup.md`.
+
+### 4. Existing user agents — evaluate, report, then decide (v3)
+
+If a user wants to plug their own existing agent into the workflow ("this is my bug-fix agent"), the plugin runs Claude as a compatibility evaluator:
+
+- Read the agent's runtime config and prompt/code
+- Compare against what the harness expects (ticket tools, OTEL streaming, blueprint tools)
+- Report: works as-is / works partially / requires changes
+- For "partial" or "requires changes," produce a concrete patch list ("add a stream emitter and these blueprint tools, then it'll get full UI fidelity")
+
+This only applies to **agent runtimes**, not app infra. Streaming/OTEL fidelity gaps are surfaced honestly — the plugin tells the user what to expect rather than pretending everything works.
+
+**Status: not yet implemented.** Lower priority than v2.
+
+### 5. Sequencing summary
+
+| Version | Scope | Status |
+|---|---|---|
+| v1 | Brand display var, modular Q&A, fresh install of all app infra | **This PR** |
+| v2 | Scan-and-reuse for AgentCore Gateways, MCP servers, Memory stores | Next |
+| v3 | Evaluate-existing-agents reporter (Claude reads agent config + reports compat) | Later |
+| v4 | `RESOURCE_PREFIX` plumbing for truly rebrandable infra | Only if real demand emerges |

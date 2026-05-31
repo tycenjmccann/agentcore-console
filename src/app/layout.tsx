@@ -6,11 +6,12 @@ import Header from "@/components/layout/Header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SidebarProvider } from "@/components/layout/sidebar/SidebarContext";
 import MainContent from "@/components/layout/MainContent";
+import { BRAND_NAME } from "@/config/brand";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "AgentCore Hub",
+  title: BRAND_NAME,
   description: "Amazon Bedrock AgentCore management console",
 };
 

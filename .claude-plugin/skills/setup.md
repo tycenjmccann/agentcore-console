@@ -40,11 +40,23 @@ If `.env.local` already exists, tell the user up-front: "Found existing `.env.lo
 
 ---
 
-## Q1 — Use case
+## Q1 — Brand name
+
+- **question:** "What should this install be called in the UI? (Header, sidebar, page titles. AWS resource names are not affected.)"
+- **header:** "Brand"
+- **options:**
+  1. *AgentCore Hub* (default)
+  2. *Custom — I'll type one*
+
+If the user picks "Custom", do a free-text follow-up. Save as `brand_name` in the answers blob. This becomes `NEXT_PUBLIC_BRAND_NAME` in `.env.local`.
+
+> **The user has confirmed this is the contract:** the brand var only affects display text. AWS resource names (DynamoDB tables, Lambdas, IAM roles, S3 bucket prefix, AgentCore runtimes) are part of the application contract and are *always* created with the canonical `agentcore-hub-*` prefix. Do not offer to rename them. If a user asks, point them at the design-lock section in `.claude-plugin/README.md`.
+
+## Q2 — Use case
 
 Ask via `AskUserQuestion`:
 
-- **question:** "What do you want to do with AgentCore Hub?"
+- **question:** "What do you want to do with this install?"
 - **header:** "Use case"
 - **options** (single-select):
   1. *Run a multi-agent pipeline that turns Jira tickets into PRs* (Recommended) — Core + Builder + Workflow
@@ -54,7 +66,7 @@ Ask via `AskUserQuestion`:
 
 Map the answer to a `MODULES` set: `{core}`, `{core,builder}`, `{core,builder,workflow}`, or `{core,builder,workflow,evaluations}`.
 
-## Q2 — Ticket store *(skip if Workflow not in MODULES)*
+## Q3 — Ticket store *(skip if Workflow not in MODULES)*
 
 - **question:** "Where will tickets live?"
 - **header:** "Ticket store"
@@ -64,7 +76,7 @@ Map the answer to a `MODULES` set: `{core}`, `{core,builder}`, `{core,builder,wo
 
 If they pick Jira, do a follow-up `AskUserQuestion` (or accept free text via "Other") for `JIRA_SITE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_PROJECT_KEY`. Treat these as secrets — do not echo them back, do not write them anywhere except `.env.local`.
 
-## Q3 — AWS target
+## Q4 — AWS target
 
 Use the pre-flight detection result:
 
@@ -80,7 +92,7 @@ Use the pre-flight detection result:
 
 Set `AWS_PROFILE` and `AWS_REGION` for every subsequent shell call.
 
-## Q4 — Deploy target
+## Q5 — Deploy target
 
 - **question:** "Where should the Next.js app run?"
 - **header:** "Deploy target"
@@ -89,7 +101,7 @@ Set `AWS_PROFILE` and `AWS_REGION` for every subsequent shell call.
   2. *App Runner* (Recommended for sharing) — auto-build + push via ECR
   3. *Skip app deploy* — only create AWS infra; don't touch the Next.js app
 
-## Q5 — GitHub integration *(skip if Workflow not in MODULES)*
+## Q6 — GitHub integration *(skip if Workflow not in MODULES)*
 
 - **question:** "How should agents push code and open PRs?"
 - **header:** "GitHub"
@@ -98,7 +110,7 @@ Set `AWS_PROFILE` and `AWS_REGION` for every subsequent shell call.
   2. *Custom MCP server* — set `MCP_SERVERS` JSON. Follow up for the JSON blob.
   3. *Skip — agents will stop at "ready for PR"* (the workflow still runs, just no PRs created)
 
-## Q6 — Confirm
+## Q7 — Confirm
 
 Print a recap of every choice plus the exact list of scripts that will run, then ask:
 
@@ -118,6 +130,7 @@ Build a JSON answers blob and pipe it to `bin/apply-env.sh`:
 ```bash
 cat > /tmp/agentcore-hub-answers.json <<'EOF'
 {
+  "brand_name": "Bob's AI Hub",
   "modules": ["core", "workflow"],
   "ticket_provider": "dynamodb",
   "aws_account": "...",

@@ -5,6 +5,7 @@ import { Globe, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { invalidateCachePrefix } from "@/lib/client-cache";
 import { PAGE_TITLES as pageTitles } from "@/config/modules";
+import { BRAND_NAME } from "@/config/brand";
 import ThemeToggle from "./ThemeToggle";
 
 export default function Header() {
@@ -15,7 +16,7 @@ export default function Header() {
     ? "Agent Detail"
     : pathname.startsWith("/workflow/") && pathname !== "/workflow"
     ? "Workflow Detail"
-    : pageTitles[pathname] || "AgentCore Hub";
+    : pageTitles[pathname] || BRAND_NAME;
 
   // Listen for dynamic title updates (e.g. selected workflow name)
   useEffect(() => {
