@@ -446,9 +446,9 @@ Each customer plugs in their own tooling via the `MCP_SERVERS` environment varia
 | Development | 3 (Backend Dev, API Dev, Frontend Dev) | Parallel code generation + PR |
 | QA | 2 (QA Verifier, CI Agent) | Test verification + code review |
 
-### Known Limitation: Harness Agents
+### Why the workflow fleet uses Runtime agents
 
-An alternative deployment path (`deploy/setup-team-agents.mjs`) deploys agents as AgentCore Harnesses instead of Runtimes. Harness agents currently have an internal ~120s boto3 read timeout that cannot be configured, causing failures with complex agents. This is an open item with the AgentCore team. Use Runtime agents (the default) until resolved.
+The workflow fleet ships as AgentCore **Runtime** agents, not Harness agents. Runtime agents emit OTEL spans from their own code while running, which is what powers the live UI streaming. With harnesses, event capture is tied to the synchronous `InvokeHarness` response, so a fire-and-forget invocation (which the orchestrator uses) loses the stream. The Builder agent is a harness because single-turn chat doesn't need event streaming. The `InvokeHarness` invocation path is preserved in the app for that reason.
 
 ---
 

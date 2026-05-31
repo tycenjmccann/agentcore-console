@@ -103,9 +103,6 @@ case "$MODULE" in
 
     echo "→ deploy/runtime-agent/deploy-fleet.sh"
     (cd deploy/runtime-agent && ./deploy-fleet.sh)
-
-    echo "→ node deploy/setup-team-agents.mjs"
-    node deploy/setup-team-agents.mjs
     ;;
 
   evaluations)
