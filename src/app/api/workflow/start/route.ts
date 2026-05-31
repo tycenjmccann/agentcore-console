@@ -17,11 +17,11 @@ import { validateIntakeSources } from "@/lib/workflow/intake";
 import type { WorkflowInput } from "@/lib/workflow/types";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
-const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
+const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentcore-hub-tickets";
+const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentcore-hub-workflows";
 const PROJECT_KEY = process.env.JIRA_PROJECT_KEY || process.env.PROJECT_KEY || "TEAM";
 const TICKET_PROVIDER = process.env.TICKET_PROVIDER || "dynamodb";
-const TICKET_TOOLS_LAMBDA = process.env.TICKET_TOOLS_LAMBDA || "agentis-tickets";
+const TICKET_TOOLS_LAMBDA = process.env.TICKET_TOOLS_LAMBDA || "agentcore-hub-tickets";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },

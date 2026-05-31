@@ -8,7 +8,7 @@
     "lint": "eslint ."
   },
   "keywords": ["eval", "packager", "lambda"],
-  "author": "agentis",
+  "author": "agentcore-hub",
   "license": "ISC",
   "description": "Eval packager Lambda: buffers agent eval sessions and flushes batches to S3",
   "dependencies": {

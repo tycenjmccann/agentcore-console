@@ -14,7 +14,7 @@ import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { mapJiraStatusToInternal } from "@/lib/workflow/jira-client";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const ORCHESTRATOR_LAMBDA = process.env.ORCHESTRATOR_LAMBDA || "agentis-orchestrator";
+const ORCHESTRATOR_LAMBDA = process.env.ORCHESTRATOR_LAMBDA || "agentcore-hub-orchestrator";
 
 const lambda = new LambdaClient({ region: REGION });
 

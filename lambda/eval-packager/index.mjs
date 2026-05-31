@@ -7,7 +7,7 @@
  * the configured batchSize.
  *
  * Environment Variables:
- *   EVAL_CONFIG_TABLE  — DynamoDB table name (default: agentis-eval-config)
+ *   EVAL_CONFIG_TABLE  — DynamoDB table name (default: agentcore-hub-eval-config)
  *   ARTIFACTS_BUCKET   — S3 bucket for batch output
  */
 
@@ -28,8 +28,14 @@ const ddb = DynamoDBDocumentClient.from(ddbRaw, {
 const s3 = new S3Client({});
 
 // ─── Config ─────────────────────────────────────────────────────────────────
-const TABLE = process.env.EVAL_CONFIG_TABLE || 'agentis-eval-config';
-const BUCKET = process.env.ARTIFACTS_BUCKET || 'agentis-artifacts-838829463875-us-east-1';
+const TABLE = process.env.EVAL_CONFIG_TABLE || 'agentcore-hub-eval-config';
+const BUCKET = process.env.ARTIFACTS_BUCKET || process.env.ARTIFACT_BUCKET;
+if (!BUCKET) {
+  throw new Error(
+    'ARTIFACTS_BUCKET (or ARTIFACT_BUCKET) env var is required. ' +
+      'Convention: agentcore-hub-artifacts-{ACCOUNT_ID}-{REGION}'
+  );
+}
 const S3_PREFIX = 'fleet-imp-agent/prd';
 const AGENTS_CONFIG_KEY = 'config/agents.json';
 

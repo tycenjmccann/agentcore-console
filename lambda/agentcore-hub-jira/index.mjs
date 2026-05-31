@@ -1,5 +1,5 @@
 /**
- * agentis-jira — Ticket tools Lambda for Jira Cloud.
+ * agentcore-hub-jira — Ticket tools Lambda for Jira Cloud.
  *
  * Deploy this when TICKET_PROVIDER=jira.
  * Agents call this Lambda to create/update/transition tickets in Jira.
@@ -50,7 +50,7 @@ let VALID_ASSIGNEES = null;
 async function loadValidAssignees() {
   if (VALID_ASSIGNEES) return VALID_ASSIGNEES;
   if (!ARTIFACT_BUCKET) {
-    console.warn("[agentis-jira] No ARTIFACT_BUCKET — using fallback roster");
+    console.warn("[agentcore-hub-jira] No ARTIFACT_BUCKET — using fallback roster");
     VALID_ASSIGNEES = FALLBACK_ASSIGNEES;
     return VALID_ASSIGNEES;
   }
@@ -61,9 +61,9 @@ async function loadValidAssignees() {
     }));
     const config = JSON.parse(await res.Body.transformToString());
     VALID_ASSIGNEES = new Set(config.agents.map((a) => a.id));
-    console.log(`[agentis-jira] Loaded ${VALID_ASSIGNEES.size} agents from S3 config`);
+    console.log(`[agentcore-hub-jira] Loaded ${VALID_ASSIGNEES.size} agents from S3 config`);
   } catch (err) {
-    console.warn(`[agentis-jira] Failed to load roster from S3: ${err.message} — using fallback`);
+    console.warn(`[agentcore-hub-jira] Failed to load roster from S3: ${err.message} — using fallback`);
     VALID_ASSIGNEES = FALLBACK_ASSIGNEES;
   }
   return VALID_ASSIGNEES;

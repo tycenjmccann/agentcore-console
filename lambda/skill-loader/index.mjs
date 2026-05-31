@@ -226,7 +226,7 @@ Remember: Claude is capable of extraordinary creative work. Don't hold back, sho
 
 ## Branding System (when working on an existing project)
 
-If a branding kit exists in S3 (bucket: agentis-branding, key: branding-kit/brand-system.md), read it FIRST and design within that system. The branding system takes precedence over the "bold new direction" guidance above — existing projects need consistency, not reinvention. Greenfield projects without a branding kit get full creative freedom.
+If a branding kit exists in S3 (bucket: agentcore-hub-branding, key: branding-kit/brand-system.md), read it FIRST and design within that system. The branding system takes precedence over the "bold new direction" guidance above — existing projects need consistency, not reinvention. Greenfield projects without a branding kit get full creative freedom.
 
 ## Brownfield Feature Design (CRITICAL — read before designing)
 

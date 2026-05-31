@@ -9,16 +9,16 @@ Architectural decisions and their rationale. Newest first.
 **Date:** 2026-05-26
 **Status:** PROPOSED
 **Context:** We currently have two separate Lambdas implementing the same tool interface (`Tickets___create_ticket`, `Tickets___transition_ticket`, etc.):
-- `agentis-jira` — routes to Jira Cloud API
-- `agentis-tickets` — routes to DynamoDB
+- `agentcore-hub-jira` — routes to Jira Cloud API
+- `agentcore-hub-tickets` — routes to DynamoDB
 
 Every upstream service (runtime agents, workflow-output Lambda, orchestrator) must be configured with `TICKET_TOOLS_LAMBDA` env var pointing to the correct one. Missing this config on even one service causes silent failures (e.g., workflow-output Lambda was missing it, causing `report_completion` to fail to transition tickets).
 
-**Decision:** Consolidate into a single Lambda (`agentis-tickets`) that reads `TICKET_PROVIDER` env var and routes internally to the correct adapter. Callers never need to know which provider is in use.
+**Decision:** Consolidate into a single Lambda (`agentcore-hub-tickets`) that reads `TICKET_PROVIDER` env var and routes internally to the correct adapter. Callers never need to know which provider is in use.
 
 **Architecture:**
 ```
-agentis-tickets (single entry point)
+agentcore-hub-tickets (single entry point)
   ├── TICKET_PROVIDER=jira     → jira-adapter.mjs (Jira Cloud API)
   ├── TICKET_PROVIDER=dynamodb → ddb-adapter.mjs (DynamoDB)
   ├── TICKET_PROVIDER=asana    → asana-adapter.mjs (future)

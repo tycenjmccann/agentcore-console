@@ -39,7 +39,7 @@ set -e
 BASE_URL="${WORKFLOW_API_URL:?ERROR: Set WORKFLOW_API_URL to your App Runner URL}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 ACCOUNT_ID="${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")}"
-ARTIFACT_BUCKET="${ARTIFACT_BUCKET:-agentis-artifacts-${ACCOUNT_ID}}"
+ARTIFACT_BUCKET="${ARTIFACT_BUCKET:-agentcore-hub-artifacts-${ACCOUNT_ID}}"
 DEFAULT_BRANCH="main"
 
 TITLE=""

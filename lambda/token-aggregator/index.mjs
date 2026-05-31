@@ -5,12 +5,12 @@
  * Filter pattern: "gen_ai.client.token.usage"
  *
  * Parses token usage from OTEL metric records and atomically increments
- * counters in the agentis-eval-config DynamoDB table.
+ * counters in the agentcore-hub-eval-config DynamoDB table.
  *
  * Also handles a weekly "reset" event from EventBridge to zero counters.
  *
  * Environment Variables:
- *   EVAL_CONFIG_TABLE — DynamoDB table (default: agentis-eval-config)
+ *   EVAL_CONFIG_TABLE — DynamoDB table (default: agentcore-hub-eval-config)
  *   ARTIFACTS_BUCKET  — S3 bucket for agents.json lookup
  */
 
@@ -24,8 +24,14 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 });
 const s3 = new S3Client({});
 
-const TABLE = process.env.EVAL_CONFIG_TABLE || 'agentis-eval-config';
-const BUCKET = process.env.ARTIFACTS_BUCKET || process.env.ARTIFACT_BUCKET || 'agentis-artifacts-023392223961';
+const TABLE = process.env.EVAL_CONFIG_TABLE || 'agentcore-hub-eval-config';
+const BUCKET = process.env.ARTIFACTS_BUCKET || process.env.ARTIFACT_BUCKET;
+if (!BUCKET) {
+  throw new Error(
+    'ARTIFACTS_BUCKET (or ARTIFACT_BUCKET) env var is required. ' +
+      'Convention: agentcore-hub-artifacts-{ACCOUNT_ID}-{REGION}'
+  );
+}
 const AGENTS_KEY = 'config/agents.json';
 
 // ─── Agent resolution (cached per warm start) ──────────────────────────────
@@ -40,7 +46,7 @@ async function loadAgents() {
 }
 
 function resolveAgentId(logGroup, agents) {
-  // Log group: /aws/bedrock-agentcore/runtimes/agentis_requirements_analyst-QGqEkp772T-DEFAULT
+  // Log group: /aws/bedrock-agentcore/runtimes/agentcore_hub_requirements_analyst-QGqEkp772T-DEFAULT
   const match = agents.find(a => a.harnessName && logGroup.includes(a.harnessName));
   return match?.id || null;
 }

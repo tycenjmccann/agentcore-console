@@ -1,9 +1,9 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Agentis Hub - UI Smoke Tests", () => {
+test.describe("AgentCore Hub - UI Smoke Tests", () => {
   test("Dashboard renders with agent activity metrics", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("h1")).toContainText("Agentis");
+    await expect(page.locator("h1")).toContainText("AgentCore Hub");
     // Navigation
     await expect(page.locator("[data-testid='nav-dashboard']")).toBeVisible();
     await expect(page.locator("[data-testid='nav-agents']")).toBeVisible();

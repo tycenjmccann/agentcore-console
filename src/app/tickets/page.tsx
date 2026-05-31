@@ -79,8 +79,8 @@ function getPhaseBadge(agentName: string | undefined): { label: string; color: s
 
 function formatAgentName(raw: string | undefined): string {
   if (!raw) return "Unknown Agent";
-  // Strip ".DEFAULT" suffix and "agentis_" prefix from OTEL service name
-  return raw.replace(/\.DEFAULT$/i, "").replace(/^agentis_/i, "").replace(/_/g, " ");
+  // Strip ".DEFAULT" suffix and "agentcore_hub_" prefix from OTEL service name
+  return raw.replace(/\.DEFAULT$/i, "").replace(/^agentcore_hub_/i, "").replace(/_/g, " ");
 }
 
 // --- Trace event config (reused pattern from agent detail) ---

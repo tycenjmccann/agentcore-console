@@ -4,7 +4,7 @@
  * Type definitions for the ticket provider abstraction.
  * The actual implementations are:
  *   - Jira:     ticket-provider-jira.ts (used when TICKET_PROVIDER=jira)
- *   - DynamoDB: Ticket operations go through the agentis-tickets Lambda
+ *   - DynamoDB: Ticket operations go through the agentcore-hub-tickets Lambda
  *               (agents call it via gateway tools, UI calls it via API routes)
  */
 

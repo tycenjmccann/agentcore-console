@@ -2,19 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bot, Hammer, Workflow, History, GitPullRequest, ChevronLeft, ChevronRight, BarChart3 } from "lucide-react";
+import { Bot, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/components/layout/sidebar/SidebarContext";
-
-const navItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/agents", label: "Agents", icon: Bot },
-  { href: "/build", label: "Build", icon: Hammer },
-  { href: "/workflow", label: "Workflow", icon: GitPullRequest },
-  { href: "/evaluations", label: "Evaluations", icon: BarChart3 },
-  { href: "/routing", label: "Routing", icon: Workflow },
-  { href: "/tickets", label: "Ticket History", icon: History },
-];
+import { NAV_ITEMS as navItems } from "@/config/modules";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -29,7 +20,7 @@ export default function Sidebar() {
           </div>
           {!isCollapsed && (
             <div>
-              <h1 className="text-lg font-bold text-[var(--color-text-primary)]">Agentis</h1>
+              <h1 className="text-lg font-bold text-[var(--color-text-primary)]">AgentCore Hub</h1>
               <p className="text-xs text-[var(--color-text-muted)]">Hub</p>
             </div>
           )}

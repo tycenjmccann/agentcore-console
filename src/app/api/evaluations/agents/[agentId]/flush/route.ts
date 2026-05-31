@@ -3,7 +3,7 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getEvalConfig, clearSessionBuffer } from "@/lib/eval-config";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const S3_BUCKET = "agentis-artifacts-838829463875-us-east-1";
+const S3_BUCKET = process.env.ARTIFACT_BUCKET || process.env.ARTIFACTS_BUCKET;
 
 const s3 = new S3Client({ region: REGION });
 
@@ -14,6 +14,16 @@ export async function POST(
   { params }: { params: { agentId: string } }
 ) {
   const { agentId } = params;
+
+  if (!S3_BUCKET) {
+    return NextResponse.json(
+      {
+        error:
+          "ARTIFACT_BUCKET (or ARTIFACTS_BUCKET) env var is required. Convention: agentcore-hub-artifacts-{ACCOUNT_ID}-{REGION}",
+      },
+      { status: 500 }
+    );
+  }
 
   const config = await getEvalConfig(agentId);
   if (!config) {

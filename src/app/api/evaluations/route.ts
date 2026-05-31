@@ -1,7 +1,7 @@
 /**
  * GET /api/evaluations — Fetch evaluation scorecard + per-agent metrics
  *
- * Sources: Single DynamoDB Scan on agentis-eval-config table.
+ * Sources: Single DynamoDB Scan on agentcore-hub-eval-config table.
  * Token usage and eval scores are pre-aggregated by subscription-filter Lambdas.
  */
 

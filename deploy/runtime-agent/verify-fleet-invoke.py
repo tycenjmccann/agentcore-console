@@ -37,10 +37,10 @@ except ImportError:
 
 # Real integration test prompt — exercises tools with KNOWN FIXTURES and validates OUTPUTS.
 # Fixtures are pre-staged in S3: s3://{ARTIFACT_BUCKET}/healthcheck/fixtures/
-#   - test-logo.png: Image of a blue circle with the word "AGENTIS" below it
+#   - test-logo.png: Image of a blue circle with the word "AGENTCORE" below it
 #   - buggy-component.tsx: React component with a known SSR hydration bug (localStorage in useState)
 #   - fixed-component.tsx: The correct fix (useState default + useEffect)
-#   - test-page.html: HTML page with title "Agentis Fleet Status", message "All systems operational", version "v2.1.0"
+#   - test-page.html: HTML page with title "AgentCore Hub Fleet Status", message "All systems operational", version "v2.1.0"
 HEALTH_CHECK_PROMPT = """You are being invoked for a post-deployment integration test.
 Your job is to execute REAL workflows that mirror what you do in production, using test fixtures.
 For EVERY test, you must validate the OUTPUT is correct — not just that the tool didn't error.
@@ -81,12 +81,12 @@ Return your FULL response as a single JSON array. Nothing else.
    VALIDATE: File exists at /tmp/test-logo.png
 
 7. image_reader: Read /tmp/test-logo.png and describe what you see
-   VALIDATE: Your description MUST mention BOTH "circle" (or "round shape") AND "AGENTIS" (the text). If you cannot identify these two elements, the test FAILS.
+   VALIDATE: Your description MUST mention BOTH "circle" (or "round shape") AND "AGENTCORE" (the text). If you cannot identify these two elements, the test FAILS.
 
 ## TEST GROUP 3: Browser & Screenshot (simulates QA workflow)
 
 8. S3Storage___read_object: Read key='healthcheck/fixtures/test-page.html'
-   VALIDATE: Content includes '<h1 id="title">Agentis Fleet Status</h1>'
+   VALIDATE: Content includes '<h1 id="title">AgentCore Hub Fleet Status</h1>'
 
 9. file_write: Write that HTML content to /tmp/test-page.html
 
@@ -235,28 +235,28 @@ TEST_FIXTURES = {
     "bucket": os.environ.get("ARTIFACT_BUCKET", "your-artifact-bucket"),
     "prefix": "healthcheck/fixtures/",
     "files": {
-        "test-logo.png": "Blue circle with text 'AGENTIS' below it",
+        "test-logo.png": "Blue circle with text 'AGENTCORE' below it",
         "buggy-component.tsx": "React component with localStorage-in-useState SSR bug",
         "fixed-component.tsx": "Correct fix: useState default + useEffect",
-        "test-page.html": "HTML with title 'Agentis Fleet Status', version v2.1.0",
+        "test-page.html": "HTML with title 'AgentCore Hub Fleet Status', version v2.1.0",
     },
 }
 
 # REQUIRED tools per agent role — if these are missing, the agent CANNOT do its job
 REQUIRED_TOOLS_BY_ROLE = {
     # Dev agents MUST have shell + filesystem + code interpreter + claude_code
-    "agentis_frontend_dev": ["shell", "file_read", "file_write", "editor", "code_interpreter", "claude_code"],
-    "agentis_backend_dev": ["shell", "file_read", "file_write", "editor", "code_interpreter", "claude_code"],
-    "agentis_api_dev": ["shell", "file_read", "file_write", "editor", "code_interpreter", "claude_code"],
+    "agentcore_hub_frontend_dev": ["shell", "file_read", "file_write", "editor", "code_interpreter", "claude_code"],
+    "agentcore_hub_backend_dev": ["shell", "file_read", "file_write", "editor", "code_interpreter", "claude_code"],
+    "agentcore_hub_api_dev": ["shell", "file_read", "file_write", "editor", "code_interpreter", "claude_code"],
     # QA needs shell + browser + code interpreter + claude_code
-    "agentis_qa_verifier": ["shell", "file_read", "code_interpreter", "browser", "claude_code"],
+    "agentcore_hub_qa_verifier": ["shell", "file_read", "code_interpreter", "browser", "claude_code"],
     # CI needs shell + claude_code
-    "agentis_ci_agent": ["shell", "file_read", "code_interpreter", "claude_code"],
+    "agentcore_hub_ci_agent": ["shell", "file_read", "code_interpreter", "claude_code"],
     # Security needs claude_code for review
-    "agentis_security_reviewer": ["shell", "file_read", "claude_code"],
+    "agentcore_hub_security_reviewer": ["shell", "file_read", "claude_code"],
     # Design agents need browser for visual reference
-    "agentis_frontend_designer": ["browser", "image_reader"],
-    "agentis_ios_designer": ["image_reader"],
+    "agentcore_hub_frontend_designer": ["browser", "image_reader"],
+    "agentcore_hub_ios_designer": ["image_reader"],
     # All agents need these basics for workflow participation
     "_all": [
         "load_blueprint",
@@ -502,7 +502,7 @@ def print_results(results):
 
         for agent_name in sorted(results.keys()):
             result = results[agent_name]
-            short_agent = agent_name.replace("agentis_", "")
+            short_agent = agent_name.replace("agentcore_hub_", "")
 
             if result.get("error"):
                 print(f"  {short_agent:<30} ERROR: {result['error'][:50]}")

@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Agentis Hub Orchestrator — Event-driven workflow engine via DynamoDB Streams.
+  AgentCore Hub Orchestrator — Event-driven workflow engine via DynamoDB Streams.
   Replaces the in-process Next.js orchestration with Lambda + Streams.
 
 Globals:
@@ -23,17 +23,17 @@ Globals:
 Parameters:
   TicketsTableName:
     Type: String
-    Default: agentis-tickets
+    Default: agentcore-hub-tickets
     Description: Existing DynamoDB table for tickets (must have Streams enabled)
 
   WorkflowsTableName:
     Type: String
-    Default: agentis-workflows
+    Default: agentcore-hub-workflows
     Description: Existing DynamoDB table for workflow metadata
 
   EventsTableName:
     Type: String
-    Default: agentis-events
+    Default: agentcore-hub-events
     Description: Existing DynamoDB table for events (dashboard polling)
 
   ArtifactBucket:
@@ -43,7 +43,7 @@ Parameters:
 
   GitHubLambdaName:
     Type: String
-    Default: agentis-github-mcp
+    Default: agentcore-hub-github-mcp
     Description: Lambda function name for GitHub API calls
 
   EventBus:
@@ -54,9 +54,9 @@ Parameters:
 Resources:
   # ─── Tables are pre-existing (not managed by this stack) ───────────────────────
   # Create with: scripts/create-dynamodb-tables.sh
-  # agentis-tickets: PK=ticketId (S), GSI: parentId-index, assignee-index, Streams=NEW_AND_OLD_IMAGES
-  # agentis-workflows: PK=workflowId (S), GSI: epicId-index — MUST be "workflowId" not "id"
-  # agentis-events: PK=workflowId (S), SK=eventId (S), TTL on "ttl"
+  # agentcore-hub-tickets: PK=ticketId (S), GSI: parentId-index, assignee-index, Streams=NEW_AND_OLD_IMAGES
+  # agentcore-hub-workflows: PK=workflowId (S), GSI: epicId-index — MUST be "workflowId" not "id"
+  # agentcore-hub-events: PK=workflowId (S), SK=eventId (S), TTL on "ttl"
   #
   # ─── CRITICAL: Dependencies ────────────────────────────────────────────────────
   # agent-invoker.mjs requires @smithy/signature-v4 and @aws-crypto/sha256-js for
@@ -68,7 +68,7 @@ Resources:
   OrchestratorFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: agentis-orchestrator
+      FunctionName: agentcore-hub-orchestrator
       Handler: index.handler
       CodeUri: .
       Timeout: 60  # Orchestrator is fast — just DynamoDB reads/writes + async invoke
@@ -107,7 +107,7 @@ Resources:
   AgentInvokerFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: agentis-agent-invoker
+      FunctionName: agentcore-hub-agent-invoker
       Handler: agent-invoker.handler
       CodeUri: .
       Timeout: 900  # 15 min for long agent runs
@@ -136,12 +136,12 @@ Resources:
   WorkflowEventsRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: agentis-workflow-events
+      Name: agentcore-hub-workflow-events
       EventBusName: !Ref EventBus
       EventPattern:
         source:
-          - agentis.orchestrator
-          - agentis.agent-invoker
+          - agentcore-hub.orchestrator
+          - agentcore-hub.agent-invoker
       State: ENABLED
       Targets:
         - Id: EventsTableWriter
@@ -151,7 +151,7 @@ Resources:
   EventsWriterFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: agentis-events-writer
+      FunctionName: agentcore-hub-events-writer
       Handler: events-writer.handler
       CodeUri: .
       Timeout: 10

@@ -10,7 +10,7 @@ import MainContent from "@/components/layout/MainContent";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Agentis Hub",
+  title: "AgentCore Hub",
   description: "Amazon Bedrock AgentCore management console",
 };
 

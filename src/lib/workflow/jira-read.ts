@@ -34,7 +34,7 @@ const JIRA_TO_INTERNAL_STATUS: Record<string, string> = {
 /**
  * Get all tickets for a workflow from Jira.
  * Workflow children are labeled `wf:<workflowId>`; the epic itself is only
- * labeled `agentis-workflow`, so we fetch it separately by its parent key
+ * labeled `agentcore-hub-workflow`, so we fetch it separately by its parent key
  * (which every child references via `parent.key`).
  */
 export async function getTicketsForWorkflowFromJira(workflowId: string) {

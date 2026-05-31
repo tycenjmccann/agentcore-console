@@ -22,9 +22,9 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentis-workflows";
-const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentis-tickets";
-const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
+const WORKFLOWS_TABLE = process.env.WORKFLOWS_TABLE || "agentcore-hub-workflows";
+const TICKETS_TABLE = process.env.TICKETS_TABLE || "agentcore-hub-tickets";
+const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentcore-hub-events";
 const TICKET_PROVIDER = process.env.TICKET_PROVIDER || "dynamodb";
 
 const TERMINAL_PHASES = ["complete", "error", "cancelled"] as const;

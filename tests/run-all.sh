@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
-echo "=== Agentis Playwright Test Suite ==="
+echo "=== AgentCore Hub Playwright Test Suite ==="
 echo ""
 
 # Ensure test-results directory exists

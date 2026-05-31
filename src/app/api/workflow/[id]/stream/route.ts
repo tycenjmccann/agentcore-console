@@ -1,7 +1,7 @@
 /**
  * GET /api/workflow/[id]/stream — EVENT-DRIVEN VERSION
  *
- * SSE endpoint that polls the agentis-events DynamoDB table for new events.
+ * SSE endpoint that polls the agentcore-hub-events DynamoDB table for new events.
  * Events are written there by the EventBridge → events-writer Lambda.
  *
  * No in-process subscribers. The Next.js app is stateless.
@@ -18,7 +18,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
+const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentcore-hub-events";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },

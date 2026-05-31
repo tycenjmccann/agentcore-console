@@ -7,7 +7,7 @@ source "${REPO_ROOT}/deploy/config.sh"
 
 BUCKET="$ARTIFACT_BUCKET"
 ROLE_ARN="$LAMBDA_ROLE_ARN"
-AGENT_ID="${IMPROVEMENT_AGENT_ID:-agentis_fleet_improver-k5W5Vb9GhE}"
+AGENT_ID="${IMPROVEMENT_AGENT_ID:-agentcore_hub_fleet_improver-k5W5Vb9GhE}"
 WORKFLOW_API="${DEPLOYMENT_URL:?ERROR: DEPLOYMENT_URL must be set}"
 FLEET_REPO="$FLEET_REPO_URL"
 
@@ -26,17 +26,17 @@ echo "✓ S3: ${BUCKET}"
 deploy_lambda() {
   local NAME=$1 DIR=$2 TIMEOUT=$3 MEM=$4 ENV_VARS=$5
   cd "${REPO_ROOT}/lambda/${DIR}" && rm -f function.zip && zip -q function.zip index.mjs
-  if aws lambda get-function --function-name "agentis-${NAME}" 2>/dev/null >/dev/null; then
-    aws lambda update-function-code --function-name "agentis-${NAME}" \
+  if aws lambda get-function --function-name "agentcore-hub-${NAME}" 2>/dev/null >/dev/null; then
+    aws lambda update-function-code --function-name "agentcore-hub-${NAME}" \
       --zip-file fileb://function.zip --output text 2>/dev/null >/dev/null
-    echo "✓ Lambda: agentis-${NAME} (updated)"
+    echo "✓ Lambda: agentcore-hub-${NAME} (updated)"
   else
     aws lambda create-function \
-      --function-name "agentis-${NAME}" --runtime nodejs20.x --handler index.handler \
+      --function-name "agentcore-hub-${NAME}" --runtime nodejs20.x --handler index.handler \
       --role "$ROLE_ARN" --zip-file fileb://function.zip \
       --timeout "$TIMEOUT" --memory-size "$MEM" \
       --environment "Variables=${ENV_VARS}" --output text 2>/dev/null >/dev/null
-    echo "✓ Lambda: agentis-${NAME} (created)"
+    echo "✓ Lambda: agentcore-hub-${NAME} (created)"
   fi
   rm -f function.zip
 }
@@ -48,10 +48,10 @@ deploy_lambda "prd-submitter" "prd-submitter" 30 256 \
   "{ARTIFACT_BUCKET=${BUCKET},WORKFLOW_API_URL=${WORKFLOW_API},FLEET_REPO_URL=${FLEET_REPO}}"
 
 # ─── CW Logs → Packager (subscription filters) ──────────────────────────────
-PACKAGER_ARN="arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:agentis-eval-packager"
+PACKAGER_ARN="arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:agentcore-hub-eval-packager"
 
 aws lambda add-permission \
-  --function-name agentis-eval-packager --statement-id cw-logs-invoke \
+  --function-name agentcore-hub-eval-packager --statement-id cw-logs-invoke \
   --action lambda:InvokeFunction --principal "logs.${AWS_REGION}.amazonaws.com" \
   --source-account "$ACCOUNT_ID" --output text 2>/dev/null || true
 
@@ -68,26 +68,26 @@ for lg in json.load(sys.stdin):
 echo "✓ Subscriptions: 14 eval log groups → packager"
 
 # ─── S3 → PRD Submitter (EventBridge) ───────────────────────────────────────
-SUBMITTER_ARN="arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:agentis-prd-submitter"
+SUBMITTER_ARN="arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:agentcore-hub-prd-submitter"
 
 aws events put-rule \
-  --name "agentis-prd-submitter-trigger" \
+  --name "agentcore-hub-prd-submitter-trigger" \
   --event-pattern "{\"source\":[\"aws.s3\"],\"detail-type\":[\"Object Created\"],\"detail\":{\"bucket\":{\"name\":[\"${BUCKET}\"]},\"object\":{\"key\":[{\"prefix\":\"fleet-imp-agent/prd/\"}]}}}" \
   --state ENABLED --output text 2>/dev/null >/dev/null
 
-aws events put-targets --rule "agentis-prd-submitter-trigger" \
+aws events put-targets --rule "agentcore-hub-prd-submitter-trigger" \
   --targets "Id=prd-submitter,Arn=${SUBMITTER_ARN}" --output text 2>/dev/null >/dev/null
 
 aws lambda add-permission \
-  --function-name agentis-prd-submitter --statement-id prd-s3-trigger \
+  --function-name agentcore-hub-prd-submitter --statement-id prd-s3-trigger \
   --action lambda:InvokeFunction --principal events.amazonaws.com \
-  --source-arn "arn:aws:events:${AWS_REGION}:${ACCOUNT_ID}:rule/agentis-prd-submitter-trigger" \
+  --source-arn "arn:aws:events:${AWS_REGION}:${ACCOUNT_ID}:rule/agentcore-hub-prd-submitter-trigger" \
   --output text 2>/dev/null || true
 
 echo "✓ S3 trigger: improvement-prds/ → prd-submitter → workflow API"
 
 # ─── Prompts ─────────────────────────────────────────────────────────────────
-for f in "${REPO_ROOT}/deploy/runtime-agent/prompts/agentis_"*.txt; do
+for f in "${REPO_ROOT}/deploy/runtime-agent/prompts/agentcore_hub_"*.txt; do
   aws s3 cp "$f" "s3://${BUCKET}/prompts/$(basename "$f")" --quiet
 done
 echo "✓ Prompts synced"

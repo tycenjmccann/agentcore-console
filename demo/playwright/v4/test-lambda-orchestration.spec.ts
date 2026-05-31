@@ -32,8 +32,8 @@ import {
 
 const BASE_URL = process.env.DEMO_BASE_URL || "http://localhost:3000";
 const REGION = "us-east-1";
-const TICKETS_TABLE = "agentis-tickets";
-const WORKFLOWS_TABLE = "agentis-workflows";
+const TICKETS_TABLE = "agentcore-hub-tickets";
+const WORKFLOWS_TABLE = "agentcore-hub-workflows";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },
@@ -85,7 +85,7 @@ test("smoke: ticket skeletons created in DynamoDB with correct dependency chains
   // Wait a moment for DynamoDB writes to settle
   await new Promise((r) => setTimeout(r, 2000));
 
-  // Verify workflow exists in agentis-workflows table
+  // Verify workflow exists in agentcore-hub-workflows table
   const wfResult = await ddb.send(new GetCommand({
     TableName: WORKFLOWS_TABLE,
     Key: { workflowId },
@@ -174,7 +174,7 @@ test("light: DynamoDB Stream triggers orchestrator and requirements agent is inv
   // Check CloudWatch logs for the orchestrator Lambda
   const now = Date.now();
   const logsResult = await cwl.send(new FilterLogEventsCommand({
-    logGroupName: "/aws/lambda/agentis-orchestrator",
+    logGroupName: "/aws/lambda/agentcore-hub-orchestrator",
     startTime: now - 30_000, // last 30s
     filterPattern: workflowId,
     limit: 20,

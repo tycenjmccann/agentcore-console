@@ -1,4 +1,4 @@
-# Agentis Hub — Demo & Testing
+# AgentCore Hub — Demo & Testing
 
 ## Running Test Workflows
 
@@ -21,15 +21,15 @@ Requires the Next.js dev server on `localhost:3000` and AWS credentials. See `do
 
 ## Architecture Pipeline Visualization
 
-**File:** `agentis-v1-pipeline.html`
+**File:** `agentcore-hub-v1-pipeline.html`
 **Type:** Single-file HTML (self-contained, no external dependencies)
 **Size:** ~141KB (icons are base64-embedded)
 
 ## What This Is
 
-An animated architecture visualization showing the full Agentis Hub multi-agent development pipeline. It demonstrates how 13 AWS Bedrock AgentCore agents across 5 phases autonomously take a PRD/mockup from intake to shipped code with zero human intervention.
+An animated architecture visualization showing the full AgentCore Hub multi-agent development pipeline. It demonstrates how 13 AWS Bedrock AgentCore agents across 5 phases autonomously take a PRD/mockup from intake to shipped code with zero human intervention.
 
-Open `agentis-v1-pipeline.html` directly in any modern browser — no server needed.
+Open `agentcore-hub-v1-pipeline.html` directly in any modern browser — no server needed.
 
 ## Pipeline Architecture (5 Phases)
 
@@ -176,4 +176,4 @@ The file is a single HTML document with:
 
 ## File Location
 
-- **Canonical copy:** `demo/agentis-v1-pipeline.html` (relative to repo root)
+- **Canonical copy:** `demo/agentcore-hub-v1-pipeline.html` (relative to repo root)

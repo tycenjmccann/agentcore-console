@@ -1,13 +1,13 @@
 /**
  * Events Writer Lambda — Writes EventBridge events to DynamoDB for dashboard polling.
- * Triggered by EventBridge rule matching agentis.orchestrator and agentis.agent-invoker events.
+ * Triggered by EventBridge rule matching agentcore-hub.orchestrator and agentcore-hub.agent-invoker events.
  */
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentis-events";
+const EVENTS_TABLE = process.env.EVENTS_TABLE || "agentcore-hub-events";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), {
   marshallOptions: { removeUndefinedValues: true },

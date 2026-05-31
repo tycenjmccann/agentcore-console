@@ -68,7 +68,7 @@ export async function POST(
     );
   }
 
-  // Invoke the agentis-tickets Lambda
+  // Invoke the agentcore-hub-tickets Lambda
   const lambda = new LambdaClient({ region: process.env.AWS_REGION || "us-east-1" });
 
   const payload = {
@@ -80,7 +80,7 @@ export async function POST(
 
   try {
     const command = new InvokeCommand({
-      FunctionName: process.env.TICKET_TOOLS_LAMBDA || "agentis-tickets",
+      FunctionName: process.env.TICKET_TOOLS_LAMBDA || "agentcore-hub-tickets",
       InvocationType: "RequestResponse",
       Payload: Buffer.from(JSON.stringify(payload)),
     });

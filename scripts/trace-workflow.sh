@@ -32,15 +32,15 @@ export AWS_PROFILE="${AWS_PROFILE:?ERROR: Set AWS_PROFILE}"
 REGION="${AWS_REGION:-us-east-1}"
 
 # Log groups
-LOG_ORCHESTRATOR="/aws/lambda/agentis-orchestrator"
-LOG_TICKET_TOOLS="/aws/lambda/${TICKET_TOOLS_LAMBDA:-agentis-tickets}"
-LOG_WORKFLOW_OUTPUT="/aws/lambda/agentis-workflow-output"
-LOG_AGENT_INVOKER="/aws/lambda/agentis-agent-invoker"
+LOG_ORCHESTRATOR="/aws/lambda/agentcore-hub-orchestrator"
+LOG_TICKET_TOOLS="/aws/lambda/${TICKET_TOOLS_LAMBDA:-agentcore-hub-tickets}"
+LOG_WORKFLOW_OUTPUT="/aws/lambda/agentcore-hub-workflow-output"
+LOG_AGENT_INVOKER="/aws/lambda/agentcore-hub-agent-invoker"
 
 # DynamoDB tables
-TABLE_EVENTS="agentis-events"
-TABLE_TICKETS="agentis-tickets"
-TABLE_WORKFLOWS="agentis-workflows"
+TABLE_EVENTS="agentcore-hub-events"
+TABLE_TICKETS="agentcore-hub-tickets"
+TABLE_WORKFLOWS="agentcore-hub-workflows"
 
 # Defaults
 HOURS=4

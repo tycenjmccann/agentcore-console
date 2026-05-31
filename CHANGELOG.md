@@ -1,4 +1,4 @@
-# Changelog — Agentis Pipeline System
+# Changelog — AgentCore Hub Pipeline System
 
 All notable changes to the agent fleet, orchestrator, and deployment system.
 
@@ -7,15 +7,15 @@ All notable changes to the agent fleet, orchestrator, and deployment system.
 ### 2026-05-25 — Config-Driven Roster, Assignee Validation, SI Loop Fixes
 
 **Config-Driven Agent Roster (DL-023):**
-- All 3 Lambdas (orchestrator, agentis-tickets, agentis-jira-real) now load roster from `s3://{BUCKET}/config/agents.json` on cold start
+- All 3 Lambdas (orchestrator, agentcore-hub-tickets, agentcore-hub-jira-real) now load roster from `s3://{BUCKET}/config/agents.json` on cold start
 - Hardcoded roster lists retained as fallback only (if S3 unreachable)
 - `deploy-all.sh` syncs `src/config/agents.json` to S3 alongside prompts
 - Adding/removing agents no longer requires Lambda redeployment — just sync the JSON to S3
 - IAM: added `s3-config-read` inline policy to ticket Lambda role
-- Env var `ARTIFACT_BUCKET` added to `agentis-tickets` and `agentis-jira-real`
+- Env var `ARTIFACT_BUCKET` added to `agentcore-hub-tickets` and `agentcore-hub-jira-real`
 
-**Assignee Validation (agentis-tickets):**
-- Added `VALID_AGENTS` validation to `agentis-tickets` Lambda (was already in `agentis-jira`)
+**Assignee Validation (agentcore-hub-tickets):**
+- Added `VALID_AGENTS` validation to `agentcore-hub-tickets` Lambda (was already in `agentcore-hub-jira`)
 - Rejects tickets with unknown assignee IDs with a clear error listing valid agents
 - Root cause of TEAM-73 stuck workflow: requirements analyst assigned to non-existent `team-ios-dev`
 
@@ -24,18 +24,18 @@ All notable changes to the agent fleet, orchestrator, and deployment system.
 - Explicitly documents: no `team-ios-dev` agent; iOS dev → `team-frontend-dev`
 
 **Continuous Improvement Loop Fixes:**
-- Fixed `eval-packager` CONFIG_TO_AGENT keys: `eval_*` → `eval_agentis_*` (matching actual log group names)
+- Fixed `eval-packager` CONFIG_TO_AGENT keys: `eval_*` → `eval_agentcore_hub_*` (matching actual log group names)
 - Added XRay sampling rule creation (`AgentCore100Percent`, priority 1, 100% rate) to `deploy-all.sh`
 - Documented both XRay sampling + indexing requirements in CI README
 
 **Deployments:**
 | Lambda | What Changed |
 |--------|-------------|
-| `agentis-orchestrator` | Config-driven roster from S3 |
-| `agentis-tickets` | S3 roster + assignee validation |
-| `agentis-jira-real` | S3 roster loading |
-| `agentis-eval-packager` | Fixed CONFIG_TO_AGENT key names |
-| `agentis-skill-loader` | iOS dev guidance in requirements blueprint |
+| `agentcore-hub-orchestrator` | Config-driven roster from S3 |
+| `agentcore-hub-tickets` | S3 roster + assignee validation |
+| `agentcore-hub-jira-real` | S3 roster loading |
+| `agentcore-hub-eval-packager` | Fixed CONFIG_TO_AGENT key names |
+| `agentcore-hub-skill-loader` | iOS dev guidance in requirements blueprint |
 
 **Documentation:**
 - Added DL-023 to workflow-pipeline-architecture.md
@@ -181,7 +181,7 @@ All notable changes to the agent fleet, orchestrator, and deployment system.
 
 **Fixes applied:**
 1. QA prompt: Added "icon-only buttons/links MUST have aria-label" and "unused imports will fail lint"
-2. Redeployed `agentis_qa_verifier`
+2. Redeployed `agentcore_hub_qa_verifier`
 
 **CI agent:** Timed out (14 min) — npm ci + build too slow for 900s Lambda timeout. Infrastructure issue, not code quality.
 
@@ -216,9 +216,9 @@ All notable changes to the agent fleet, orchestrator, and deployment system.
 **Root Cause:** Frontend dev agent uses `animate-in`, `fade-in`, `slide-in-from-bottom-*` classes which require `tailwindcss-animate` plugin. Plugin is NOT in package.json or tailwind.config.js. Classes will be purged in production build.
 
 **Fixes applied:**
-1. `agentis_frontend_dev.txt` prompt: Added explicit rule — NEVER use animation classes without verifying plugin is installed. Lists safe alternatives (built-in `transition-*`, custom `@keyframes`).
+1. `agentcore_hub_frontend_dev.txt` prompt: Added explicit rule — NEVER use animation classes without verifying plugin is installed. Lists safe alternatives (built-in `transition-*`, custom `@keyframes`).
 2. `qa-verification` skill: Added animation plugin check to static analysis phase — if code uses `animate-in`/`fade-in`/`slide-in-*`/`zoom-in-*`/`scrollbar-thin`, verify plugin is in BOTH package.json AND tailwind.config. Missing = BLOCKING.
-3. Redeployed: `agentis_frontend_dev` Runtime + `agentis-skill-loader` Lambda.
+3. Redeployed: `agentcore_hub_frontend_dev` Runtime + `agentcore-hub-skill-loader` Lambda.
 
 **Also noted (non-blocking):**
 - `tailwind-merge` not installed (cn() uses clsx only) — potential class conflict issues
@@ -236,9 +236,9 @@ All notable changes to the agent fleet, orchestrator, and deployment system.
 **Fixes applied:**
 1. `ci-verification` skill: Rewritten from "check external CI" to "YOU ARE the CI — clone, build, lint, typecheck, report output"
 2. `qa-verification` skill: Added mandatory build execution, framework-specific checks (Tailwind purge, hydration), evidence requirements
-3. `agentis_ci_agent.txt` prompt: Rewritten to emphasize execution over review, explicit "never approve without command output"
-4. `agentis_qa_verifier.txt` prompt: Added "non-blocking is ONLY cosmetic", must BLOCK if tools unavailable
-5. `agentis_frontend_dev.txt` prompt: Added pre-implementation checklist (verify imports, check configs, verify APIs), framework rules (no dynamic Tailwind, no localStorage in useState)
+3. `agentcore_hub_ci_agent.txt` prompt: Rewritten to emphasize execution over review, explicit "never approve without command output"
+4. `agentcore_hub_qa_verifier.txt` prompt: Added "non-blocking is ONLY cosmetic", must BLOCK if tools unavailable
+5. `agentcore_hub_frontend_dev.txt` prompt: Added pre-implementation checklist (verify imports, check configs, verify APIs), framework rules (no dynamic Tailwind, no localStorage in useState)
 6. All prompts updated with `claude_code` delegation pattern (Claude SDK integration)
 7. Skill-loader Lambda redeployed, 3 agents (CI, QA, frontend dev) redeployed
 

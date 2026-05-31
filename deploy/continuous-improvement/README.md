@@ -22,7 +22,7 @@ CloudWatch Logs → eval-packager Lambda → DynamoDB buffer → S3 batch → im
    - Applies per-agent controls (enabled flag, sample rate)
    - Atomically appends enriched session data to a DynamoDB buffer
 
-3. **DynamoDB Buffer** (`agentis-eval-config` table):
+3. **DynamoDB Buffer** (`agentcore-hub-eval-config` table):
    - Keyed by canonical `agentId` (e.g., `team-frontend-dev`)
    - Accumulates sessions in `sessionBuffer` list attribute
    - Flushes when buffer reaches configured `batchSize`
@@ -104,7 +104,7 @@ This structure enables the improver agent to directly synthesize insights withou
 
 ### What it does
 
-1. **Creates DynamoDB table** (`agentis-eval-config`) with on-demand billing if it doesn't exist
+1. **Creates DynamoDB table** (`agentcore-hub-eval-config`) with on-demand billing if it doesn't exist
 2. **Seeds 14 agent rows** from `src/config/agents.json` with default eval configuration:
    - `enabled: true`
    - `sampleRate: 100` (100%)

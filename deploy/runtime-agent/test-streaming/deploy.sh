@@ -7,7 +7,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 source "${REPO_ROOT}/deploy/config.sh"
 
 ROLE_ARN="$AGENTCORE_ROLE_ARN"
-AGENT_NAME="agentis_test_streaming"
+AGENT_NAME="agentcore_hub_test_streaming"
 
 cd "$SCRIPT_DIR"
 

@@ -46,7 +46,7 @@ else
 fi
 
 # ─── Check 2: IAM XRay Permissions ──────────────────────────────────────────
-HAS_XRAY=$(aws iam get-role-policy --role-name agentis-agentcore-role \
+HAS_XRAY=$(aws iam get-role-policy --role-name agentcore-hub-agentcore-role \
   --policy-name agentcore-permissions \
   --query 'PolicyDocument' --output json 2>/dev/null | grep -c "xray:PutTraceSegments" || echo "0")
 if [ "$HAS_XRAY" -gt 0 ]; then
@@ -64,11 +64,11 @@ else
 fi
 
 # ─── Check 4: Eval-packager Lambda ──────────────────────────────────────────
-PACKAGER_STATE=$(aws lambda get-function --function-name agentis-eval-packager \
+PACKAGER_STATE=$(aws lambda get-function --function-name agentcore-hub-eval-packager \
   --region "$AWS_REGION" --query 'Configuration.State' --output text 2>/dev/null || echo "MISSING")
 if [ "$PACKAGER_STATE" = "Active" ]; then
   # Check concurrency (0 = disabled)
-  CONCURRENCY=$(aws lambda get-function-concurrency --function-name agentis-eval-packager \
+  CONCURRENCY=$(aws lambda get-function-concurrency --function-name agentcore-hub-eval-packager \
     --region "$AWS_REGION" --query 'ReservedConcurrentExecutions' --output text 2>/dev/null || echo "none")
   if [ "$CONCURRENCY" = "0" ]; then
     check "eval-packager Lambda" "deployed but DISABLED (concurrency=0)"
@@ -80,9 +80,9 @@ else
 fi
 
 # ─── Check 5: PRD-submitter Lambda ──────────────────────────────────────────
-SUBMITTER_STATE=$(aws lambda get-function --function-name agentis-prd-submitter \
+SUBMITTER_STATE=$(aws lambda get-function --function-name agentcore-hub-prd-submitter \
   --region "$AWS_REGION" --query 'Configuration.State' --output text 2>/dev/null || echo "MISSING")
-SUBMITTER_URL=$(aws lambda get-function-configuration --function-name agentis-prd-submitter \
+SUBMITTER_URL=$(aws lambda get-function-configuration --function-name agentcore-hub-prd-submitter \
   --region "$AWS_REGION" --query 'Environment.Variables.WORKFLOW_API_URL' --output text 2>/dev/null || echo "")
 if [ "$SUBMITTER_STATE" = "Active" ] && [ -n "$SUBMITTER_URL" ]; then
   check "prd-submitter Lambda (API: ${SUBMITTER_URL})" "ok"
@@ -112,7 +112,7 @@ else
 fi
 
 # ─── Check 7: EventBridge Rule ──────────────────────────────────────────────
-RULE_STATE=$(aws events describe-rule --name agentis-prd-submitter-trigger \
+RULE_STATE=$(aws events describe-rule --name agentcore-hub-prd-submitter-trigger \
   --region "$AWS_REGION" --query 'State' --output text 2>/dev/null || echo "MISSING")
 if [ "$RULE_STATE" = "ENABLED" ]; then
   check "EventBridge rule (prd-submitter-trigger)" "ok"

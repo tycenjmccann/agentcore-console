@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deploy/continuous-improvement/deploy-all.sh
-# Creates the agentis-eval-config DynamoDB table and seeds all fleet agents.
+# Creates the agentcore-hub-eval-config DynamoDB table and seeds all fleet agents.
 # Idempotent: skips agents that already have a config row.
 #
 # Agent IDs are sourced from src/config/agents.json (canonical source of truth).
@@ -12,7 +12,7 @@ set -euo pipefail
 ###############################################################################
 # Configuration
 ###############################################################################
-TABLE_NAME="agentis-eval-config"
+TABLE_NAME="agentcore-hub-eval-config"
 REGION="${AWS_REGION:-us-east-1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}/../.."

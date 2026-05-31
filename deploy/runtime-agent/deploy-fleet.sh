@@ -50,7 +50,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "═══════════════════════════════════════════════════════════════"
-echo "  Deploying Agentis Fleet — 14 Strands Agents on Runtime"
+echo "  Deploying AgentCore Hub Fleet — 14 Strands Agents on Runtime"
 echo "═══════════════════════════════════════════════════════════════"
 echo "  Region:      $REGION"
 echo "  Role ARN:    $ROLE_ARN"
@@ -63,20 +63,20 @@ echo ""
 
 # All 14 agents — same code, different runtime name + system prompt
 AGENTS=(
-  "agentis_requirements_analyst"
-  "agentis_frontend_designer"
-  "agentis_ios_designer"
-  "agentis_backend_designer"
-  "agentis_android_designer"
-  "agentis_security_reviewer"
-  "agentis_legal_compliance"
-  "agentis_localization"
-  "agentis_analytics_designer"
-  "agentis_backend_dev"
-  "agentis_api_dev"
-  "agentis_frontend_dev"
-  "agentis_qa_verifier"
-  "agentis_ci_agent"
+  "agentcore_hub_requirements_analyst"
+  "agentcore_hub_frontend_designer"
+  "agentcore_hub_ios_designer"
+  "agentcore_hub_backend_designer"
+  "agentcore_hub_android_designer"
+  "agentcore_hub_security_reviewer"
+  "agentcore_hub_legal_compliance"
+  "agentcore_hub_localization"
+  "agentcore_hub_analytics_designer"
+  "agentcore_hub_backend_dev"
+  "agentcore_hub_api_dev"
+  "agentcore_hub_frontend_dev"
+  "agentcore_hub_qa_verifier"
+  "agentcore_hub_ci_agent"
 )
 
 RESULTS_FILE="$SCRIPT_DIR/fleet-runtime-ids.json"

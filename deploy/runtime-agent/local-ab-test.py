@@ -75,14 +75,14 @@ VARIANTS = {
     "A": {
         "name": "Opus (direct coding)",
         "model_id": "us.anthropic.claude-opus-4-6-v1",
-        "prompt_file": "agentis_frontend_dev.txt",
+        "prompt_file": "agentcore_hub_frontend_dev.txt",
         "extra_instructions": "",
         "use_claude_code": False,
     },
     "B": {
         "name": "Opus (Claude Code SDK)",
         "model_id": "us.anthropic.claude-opus-4-6-v1",
-        "prompt_file": "agentis_frontend_dev.txt",
+        "prompt_file": "agentcore_hub_frontend_dev.txt",
         "extra_instructions": """You have access to a `claude_code` tool that delegates coding tasks to Claude Code —
 a specialized coding agent with its own file editing, terminal, and git capabilities running in an isolated environment.
 

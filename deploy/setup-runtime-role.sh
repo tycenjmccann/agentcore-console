@@ -18,7 +18,7 @@ set -e
 
 REGION="${AWS_REGION:-us-east-1}"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ROLE_NAME="agentis-agentcore-role"
+ROLE_NAME="agentcore-hub-agentcore-role"
 ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ROLE_NAME}"
 
 # Check if role exists
@@ -50,7 +50,7 @@ EOF
 aws iam create-role \
   --role-name "$ROLE_NAME" \
   --assume-role-policy-document "$TRUST_POLICY" \
-  --description "Execution role for Agentis fleet runtime agents (all built-in tools)" \
+  --description "Execution role for AgentCore Hub fleet runtime agents (all built-in tools)" \
   --output text > /dev/null
 
 echo "   ✓ Role created"
@@ -289,7 +289,7 @@ aws iam put-role-policy \
       \"Sid\": \"InvokeLambda\",
       \"Effect\": \"Allow\",
       \"Action\": \"lambda:InvokeFunction\",
-      \"Resource\": \"arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:agentis-*\"
+      \"Resource\": \"arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:agentcore-hub-*\"
     }]
   }"
 echo "   ✓ Attached Lambda invoke"
@@ -305,8 +305,8 @@ aws iam put-role-policy \
       \"Effect\": \"Allow\",
       \"Action\": [\"s3:GetObject\", \"s3:PutObject\", \"s3:ListBucket\"],
       \"Resource\": [
-        \"arn:aws:s3:::agentis-artifacts-${ACCOUNT_ID}\",
-        \"arn:aws:s3:::agentis-artifacts-${ACCOUNT_ID}/*\"
+        \"arn:aws:s3:::agentcore-hub-artifacts-${ACCOUNT_ID}\",
+        \"arn:aws:s3:::agentcore-hub-artifacts-${ACCOUNT_ID}/*\"
       ]
     }]
   }"
@@ -322,7 +322,7 @@ aws iam put-role-policy \
       \"Sid\": \"EventsTableWrite\",
       \"Effect\": \"Allow\",
       \"Action\": [\"dynamodb:PutItem\", \"dynamodb:UpdateItem\", \"dynamodb:GetItem\", \"dynamodb:Query\"],
-      \"Resource\": \"arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/agentis-*\"
+      \"Resource\": \"arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/agentcore-hub-*\"
     }]
   }"
 echo "   ✓ Attached DynamoDB events write"

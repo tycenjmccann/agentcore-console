@@ -3,8 +3,8 @@
 #
 # Submits a workflow via the /api/workflow/start endpoint.
 # This is the ONLY correct way to start a workflow — it ensures:
-#   - Workflow metadata in agentis-workflows has all required fields (startedAt, etc.)
-#   - Epic + requirements ticket created in agentis-tickets
+#   - Workflow metadata in agentcore-hub-workflows has all required fields (startedAt, etc.)
+#   - Epic + requirements ticket created in agentcore-hub-tickets
 #   - DynamoDB Stream fires → orchestrator Lambda invokes agents
 #
 # Usage:

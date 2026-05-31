@@ -1,7 +1,7 @@
 /**
  * GET/POST /api/evaluations/loop — Toggle the continuous improvement loop
  *
- * Mechanism: Lambda reserved concurrency on agentis-eval-packager
+ * Mechanism: Lambda reserved concurrency on agentcore-hub-eval-packager
  *   - concurrency = 0 → loop OFF (Lambda can't be invoked)
  *   - concurrency removed → loop ON (Lambda uses unreserved pool)
  *
@@ -13,7 +13,7 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const FUNCTION_NAME = "agentis-eval-packager";
+const FUNCTION_NAME = "agentcore-hub-eval-packager";
 
 export async function GET() {
   try {

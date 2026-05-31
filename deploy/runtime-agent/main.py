@@ -1,5 +1,5 @@
 """
-Agentis Pipeline Agent — Strands on AgentCore Runtime
+AgentCore Hub Pipeline Agent — Strands on AgentCore Runtime
 
 Universal agent code deployed as 13 separate Runtime resources.
 Each deployment gets its own SYSTEM_PROMPT env var baked in at deploy time,
@@ -139,8 +139,8 @@ MODEL_ID = os.getenv("MODEL_ID", "us.anthropic.claude-opus-4-6-v1")
 READ_TIMEOUT = int(os.getenv("READ_TIMEOUT", "1200"))  # 20 minutes — agents need room for complex claude_code calls
 GATEWAY_ARN = os.getenv("GATEWAY_ARN", "")
 # NOTE: AgentCore reserves "ARTIFACT_BUCKET" as a system env var (points to CodeBuild source bucket).
-# We use AGENTIS_ARTIFACT_BUCKET to avoid the collision.
-ARTIFACT_BUCKET = os.getenv("AGENTIS_ARTIFACT_BUCKET", os.getenv("ARTIFACT_BUCKET", ""))
+# We use AGENTCORE_HUB_ARTIFACT_BUCKET to avoid the collision.
+ARTIFACT_BUCKET = os.getenv("AGENTCORE_HUB_ARTIFACT_BUCKET", os.getenv("ARTIFACT_BUCKET", ""))
 
 # System prompt: prefer S3 (for large prompts), fall back to env var
 _prompt_s3_key = os.getenv("SYSTEM_PROMPT_S3_KEY", "")
@@ -157,15 +157,15 @@ else:
     SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "You are a helpful AI agent on a development team.")
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("agentis-pipeline-agent")
+logger = logging.getLogger("agentcore-hub-pipeline-agent")
 
 # --- Load Claude Code skills from S3 at cold start ---
 # Skills are stored as SKILL.md files in S3 under skills/{role}/.
 # We sync them to /tmp/.claude/skills/ so claude_code auto-discovers them.
 # Mapping from agent name → skill folder in S3 (multiple agents can share a skill set)
 _AGENT_SKILL_MAP = {
-    "agentis_ios_designer": "ios-designer",
-    # Future: "agentis_frontend_dev": "frontend-dev", etc.
+    "agentcore_hub_ios_designer": "ios-designer",
+    # Future: "agentcore_hub_frontend_dev": "frontend-dev", etc.
 }
 _agent_name_from_prompt_key = os.path.basename(_prompt_s3_key).replace(".txt", "") if _prompt_s3_key else ""
 _skill_set = _AGENT_SKILL_MAP.get(_agent_name_from_prompt_key, "")
@@ -208,17 +208,17 @@ model = BedrockModel(
 lambda_client = boto3.client("lambda", region_name=REGION)
 
 # Tool Lambda function names (the gateway targets are backed by these)
-S3_TOOLS_LAMBDA = os.getenv("S3_TOOLS_LAMBDA", "agentis-s3-tools")
-TICKET_TOOLS_LAMBDA = os.getenv("TICKET_TOOLS_LAMBDA", "agentis-tickets")
-BUILDER_TOOLS_LAMBDA = os.getenv("BUILDER_TOOLS_LAMBDA", "agentis-builder-tools")
-WORKFLOW_OUTPUT_LAMBDA = os.getenv("WORKFLOW_OUTPUT_LAMBDA", "agentis-workflow-output")
-SKILL_LOADER_LAMBDA = os.getenv("SKILL_LOADER_LAMBDA", "agentis-skill-loader")
+S3_TOOLS_LAMBDA = os.getenv("S3_TOOLS_LAMBDA", "agentcore-hub-s3-tools")
+TICKET_TOOLS_LAMBDA = os.getenv("TICKET_TOOLS_LAMBDA", "agentcore-hub-tickets")
+BUILDER_TOOLS_LAMBDA = os.getenv("BUILDER_TOOLS_LAMBDA", "agentcore-hub-builder-tools")
+WORKFLOW_OUTPUT_LAMBDA = os.getenv("WORKFLOW_OUTPUT_LAMBDA", "agentcore-hub-workflow-output")
+SKILL_LOADER_LAMBDA = os.getenv("SKILL_LOADER_LAMBDA", "agentcore-hub-skill-loader")
 
 # Set per-invocation by agent_invocation() — used by tools to pass context to Lambdas
 _CURRENT_WORKFLOW_ID = "unknown"
 _CURRENT_AGENT_ID = "unknown"
 
-# ARTIFACT_BUCKET is set near the top of this file (line ~135) via AGENTIS_ARTIFACT_BUCKET env var.
+# ARTIFACT_BUCKET is set near the top of this file (line ~135) via AGENTCORE_HUB_ARTIFACT_BUCKET env var.
 
 # MCP Servers — connect agents to external tools (GitHub, GitLab, Jira, Asana, etc.)
 # Configured via MCP_SERVERS env var (JSON array) or legacy GITHUB_PAT shorthand.
@@ -242,8 +242,8 @@ if GITHUB_PAT:
         ["git", "config", "--global", "url.https://x-access-token:" + GITHUB_PAT + "@github.com/.insteadOf", "https://github.com/"],
         capture_output=True,
     )
-    subprocess.run(["git", "config", "--global", "user.email", "agent@agentis.dev"], capture_output=True)
-    subprocess.run(["git", "config", "--global", "user.name", "Agentis Agent"], capture_output=True)
+    subprocess.run(["git", "config", "--global", "user.email", "agent@agentcore-hub.example.com"], capture_output=True)
+    subprocess.run(["git", "config", "--global", "user.name", "AgentCore Hub Agent"], capture_output=True)
 
 def _parse_mcp_servers():
     """Parse MCP server config from env. Returns list of {url, headers} dicts."""
@@ -642,7 +642,7 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
             start_new_session=True,  # New process group — enables killpg
             env={
                 **os.environ,
-                "CLAUDE_CODE_ENTRYPOINT": "agentis-pipeline",
+                "CLAUDE_CODE_ENTRYPOINT": "agentcore-hub-pipeline",
                 "HOME": "/tmp",
             },
         )
@@ -743,7 +743,7 @@ logger.info(f"Loaded {len(LAMBDA_TOOLS)} Lambda-backed tools + GitHub MCP (built
 
 # --- DynamoDB client for real-time event publishing ---
 _ddb_events_client = boto3.client("dynamodb", region_name=REGION)
-_EVENTS_TABLE = os.getenv("EVENTS_TABLE", "agentis-events")
+_EVENTS_TABLE = os.getenv("EVENTS_TABLE", "agentcore-hub-events")
 
 
 def _publish_agent_started(workflow_id: str, agent_id: str):

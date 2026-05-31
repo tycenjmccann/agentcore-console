@@ -140,7 +140,7 @@ const gatewayArn = `arn:aws:bedrock-agentcore:${REGION}:${accountId}:gateway/${G
 
 // --- Deploy ---
 console.log("\n" + "═".repeat(60));
-console.log("🚀 Deploying Agentis Team Agents (13 pipeline agents)");
+console.log("🚀 Deploying AgentCore Hub Team Agents (13 pipeline agents)");
 console.log("═".repeat(60));
 console.log(`   Region:       ${REGION}`);
 console.log(`   Gateway:      ${GATEWAY_ID}`);
