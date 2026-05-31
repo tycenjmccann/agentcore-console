@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { WorkflowState, WorkflowPhase, AgentTask, WorkflowEvent } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
+import { BRAND_NAME } from "@/config/brand";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -404,7 +405,7 @@ export default function PipelineVisualization({ workflowState, onStepClick }: Pi
 
   return (
     <div className={`pipeline-container${celebrating ? " celebrate" : ""}`}>
-      <div className="pipeline-title">AgentCore Hub</div>
+      <div className="pipeline-title">{BRAND_NAME}</div>
       <div className="pipeline-subtitle">Autonomous Multi-Agent Development Pipeline</div>
 
       {/* Legend with all 5 AWS icons */}

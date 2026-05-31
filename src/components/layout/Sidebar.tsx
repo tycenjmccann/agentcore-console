@@ -6,6 +6,7 @@ import { Bot, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/components/layout/sidebar/SidebarContext";
 import { NAV_ITEMS as navItems } from "@/config/modules";
+import { BRAND_NAME } from "@/config/brand";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -20,7 +21,7 @@ export default function Sidebar() {
           </div>
           {!isCollapsed && (
             <div>
-              <h1 className="text-lg font-bold text-[var(--color-text-primary)]">AgentCore Hub</h1>
+              <h1 className="text-lg font-bold text-[var(--color-text-primary)]">{BRAND_NAME}</h1>
               <p className="text-xs text-[var(--color-text-muted)]">Hub</p>
             </div>
           )}

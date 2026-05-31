@@ -226,7 +226,7 @@ All 3 Lambdas load the roster from S3 at cold start and cache it in memory. If S
 | Orchestrator Lambda | S3 read at cold start | `id`, `phase`, `harnessName` |
 | agentcore-hub-tickets Lambda | S3 read at cold start | `id` only (validation Set) |
 | agentcore-hub-jira-real Lambda | S3 read at cold start | `id` only (validation Set) |
-| `deploy/setup-team-agents.mjs` | Direct file read | All fields (deploys agents) |
+| `deploy/runtime-agent/deploy-fleet.sh` | Reads agent list to deploy each runtime | All fields (deploys agents) |
 
 ---
 
