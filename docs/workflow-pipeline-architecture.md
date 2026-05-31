@@ -1528,7 +1528,7 @@ If S3 read fails → falls back to hardcoded FALLBACK_ROSTER (no outage)
 
 | Lambda | Loader function | Cache variable | What it extracts |
 |--------|----------------|---------------|-----------------|
-| `agentcore-hub-orchestrator` | `loadAgentRoster()` | `_agentRoster` | `{id, phase, harnessName}` per agent |
+| `agentcore-hub-orchestrator` | `loadAgentRoster()` | `_agentRoster` | `{agentId, phase, runtimeArn}` per agent |
 | `agentcore-hub-tickets` | `loadValidAgents()` | `VALID_AGENTS` | `Set` of agent IDs |
 | `agentcore-hub-jira-real` | `loadValidAssignees()` | `VALID_ASSIGNEES` | `Set` of agent IDs |
 

@@ -46,8 +46,8 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
 
 function formatAgentName(agentId: string): string {
   return agentId
-    .replace(/^team-/, "")
-    .split("-")
+    .replace(/^agentcore_hub_/, "")
+    .split(/[_-]/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 }

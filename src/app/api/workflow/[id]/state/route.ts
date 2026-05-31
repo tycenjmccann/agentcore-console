@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 /**
  * Re-key agentTasks from ticketId-keyed (DDB storage) to agentId-keyed (UI expected).
  * The orchestrator stores tasks keyed by ticketId (e.g. "TEAM-462") but the UI
- * pipeline visualization expects them keyed by agentId (e.g. "team-requirements-analyst").
+ * pipeline visualization expects them keyed by agentId (e.g. "agentcore_hub_requirements_analyst").
  */
 function normalizeAgentTasks(
   agentTasks: Record<string, Record<string, unknown>> | undefined

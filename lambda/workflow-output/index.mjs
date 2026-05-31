@@ -147,14 +147,14 @@ async function reportCompletion({ ticket_id, summary, artifacts = "", branch, co
 // ─── Manifest Updates ──────────────────────────────────────────────────────────
 
 const PHASE_MAP = {
-  "team-requirements-analyst": "requirements",
-  "team-frontend-designer": "design", "team-ios-designer": "design",
-  "team-backend-designer": "design", "team-android-designer": "design",
-  "team-security-reviewer": "design", "team-legal-compliance": "design",
-  "team-localization": "design", "team-analytics-designer": "design",
-  "team-frontend-dev": "development", "team-backend-dev": "development",
-  "team-api-dev": "development",
-  "team-qa-verifier": "verification", "team-ci-agent": "verification",
+  "agentcore_hub_requirements_analyst": "requirements",
+  "agentcore_hub_frontend_designer": "design", "agentcore_hub_ios_designer": "design",
+  "agentcore_hub_backend_designer": "design", "agentcore_hub_android_designer": "design",
+  "agentcore_hub_security_reviewer": "design", "agentcore_hub_legal_compliance": "design",
+  "agentcore_hub_localization": "design", "agentcore_hub_analytics_designer": "design",
+  "agentcore_hub_frontend_dev": "development", "agentcore_hub_backend_dev": "development",
+  "agentcore_hub_api_dev": "development",
+  "agentcore_hub_qa_verifier": "verification", "agentcore_hub_ci_agent": "verification",
 };
 
 async function updateManifest(workflowId, agentId, entries) {

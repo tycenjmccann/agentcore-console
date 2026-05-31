@@ -463,15 +463,15 @@ This is a workflow end-to-end test. Each agent is being given a minimal task to 
 1. Load skill \`requirements-analysis\`
 2. Create EXACTLY these 5 tickets using \`Tickets___create_ticket\`. Each ticket's description must contain the exact instructions for that agent shown in the section below — copy-paste the relevant block.
 
-   **Ticket 1:** summary="Design: Frontend Designer", assignee="team-frontend-designer", blocked_by=[YOUR_TICKET_ID]
-   **Ticket 2:** summary="Review: Security Reviewer", assignee="team-security-reviewer", blocked_by=[YOUR_TICKET_ID]
-   **Ticket 3:** summary="Review: Legal Compliance", assignee="team-legal-compliance", blocked_by=[YOUR_TICKET_ID]
-   **Ticket 4:** summary="Dev: Frontend Dev", assignee="team-frontend-dev", blocked_by=[TICKET_1, TICKET_2, TICKET_3]
-   **Ticket 5:** summary="QA: Verifier", assignee="team-qa-verifier", blocked_by=[TICKET_4]
+   **Ticket 1:** summary="Design: Frontend Designer", assignee="agentcore_hub_frontend_designer", blocked_by=[YOUR_TICKET_ID]
+   **Ticket 2:** summary="Review: Security Reviewer", assignee="agentcore_hub_security_reviewer", blocked_by=[YOUR_TICKET_ID]
+   **Ticket 3:** summary="Review: Legal Compliance", assignee="agentcore_hub_legal_compliance", blocked_by=[YOUR_TICKET_ID]
+   **Ticket 4:** summary="Dev: Frontend Dev", assignee="agentcore_hub_frontend_dev", blocked_by=[TICKET_1, TICKET_2, TICKET_3]
+   **Ticket 5:** summary="QA: Verifier", assignee="agentcore_hub_qa_verifier", blocked_by=[TICKET_4]
 
    Do NOT create a CI ticket — QA will create it.
 
-3. Save artifact to S3: \`workflows/{workflowId}/agents/team-requirements-analyst/test-pass.md\` with content "Requirements connectivity check — created 5 tickets"
+3. Save artifact to S3: \`workflows/{workflowId}/agents/agentcore_hub_requirements_analyst/test-pass.md\` with content "Requirements connectivity check — created 5 tickets"
 4. Call \`WorkflowOutput___report_completion\`
 
 ---
@@ -483,7 +483,7 @@ This is a workflow end-to-end test. Each agent is being given a minimal task to 
 Connectivity check — Frontend Designer:
 1. Load skill \`frontend-design\`
 2. Confirm GitHub access: run \`git ls-remote https://github.com/tycenjmccann/agentcore-console\` (or any equivalent gh/git command) and capture the first few refs as proof
-3. Save to S3: workflows/{workflowId}/agents/team-frontend-designer/test-pass.md — include the ref output and "GitHub access confirmed"
+3. Save to S3: workflows/{workflowId}/agents/agentcore_hub_frontend_designer/test-pass.md — include the ref output and "GitHub access confirmed"
 4. Call WorkflowOutput___report_completion
 Do not write code. Do not clone repos.
 \`\`\`
@@ -493,7 +493,7 @@ Do not write code. Do not clone repos.
 Connectivity check — Security Reviewer:
 1. Load skill \`code-review\`
 2. Confirm GitHub access: run \`git ls-remote https://github.com/tycenjmccann/agentcore-console\` and capture the first few refs
-3. Save to S3: workflows/{workflowId}/agents/team-security-reviewer/test-pass.md — include the ref output and "GitHub access confirmed"
+3. Save to S3: workflows/{workflowId}/agents/agentcore_hub_security_reviewer/test-pass.md — include the ref output and "GitHub access confirmed"
 4. Call WorkflowOutput___report_completion
 Do not write code. Do not clone repos.
 \`\`\`
@@ -503,7 +503,7 @@ Do not write code. Do not clone repos.
 Connectivity check — Legal Compliance:
 1. Load skill \`privacy-compliance\`
 2. Confirm GitHub access: run \`git ls-remote https://github.com/tycenjmccann/agentcore-console\` and capture the first few refs
-3. Save to S3: workflows/{workflowId}/agents/team-legal-compliance/test-pass.md — include the ref output and "GitHub access confirmed"
+3. Save to S3: workflows/{workflowId}/agents/agentcore_hub_legal_compliance/test-pass.md — include the ref output and "GitHub access confirmed"
 4. Call WorkflowOutput___report_completion
 Do not write code. Do not clone repos.
 \`\`\`
@@ -513,7 +513,7 @@ Do not write code. Do not clone repos.
 Connectivity check — Frontend Dev:
 1. Load skill \`full-stack\`
 2. Confirm Claude Code is available: run a simple \`claude --version\` (or equivalent) and a one-shot ping prompt like \`claude -p "reply with the single word: pong"\` and capture both outputs
-3. Save to S3: workflows/{workflowId}/agents/team-frontend-dev/test-pass.md — include the version + ping output and "Claude Code access confirmed"
+3. Save to S3: workflows/{workflowId}/agents/agentcore_hub_frontend_dev/test-pass.md — include the version + ping output and "Claude Code access confirmed"
 4. Call WorkflowOutput___report_completion
 Do not write code. Do not clone repos.
 \`\`\`
@@ -524,15 +524,15 @@ Connectivity check — QA Verifier:
 1. Load skill \`qa-verification\`
 2. Create the CI ticket using Tickets___create_ticket:
    - summary: "CI: Agent — connectivity check"
-   - assignee: "team-ci-agent"
+   - assignee: "agentcore_hub_ci_agent"
    - blocked_by: [YOUR_TICKET_ID]
    - description: |
      Connectivity check — CI Agent:
      1. Load skill \`ci-verification\`
-     2. Save to S3: workflows/{workflowId}/agents/team-ci-agent/test-pass.md — content: "CI connectivity check passed"
+     2. Save to S3: workflows/{workflowId}/agents/agentcore_hub_ci_agent/test-pass.md — content: "CI connectivity check passed"
      3. Call WorkflowOutput___report_completion
      Do not write code. Do not clone repos.
-3. Save to S3: workflows/{workflowId}/agents/team-qa-verifier/test-pass.md — content: "QA connectivity check passed — CI ticket created"
+3. Save to S3: workflows/{workflowId}/agents/agentcore_hub_qa_verifier/test-pass.md — content: "QA connectivity check passed — CI ticket created"
 4. Call WorkflowOutput___report_completion
 Do not write code. Do not clone repos.
 \`\`\`

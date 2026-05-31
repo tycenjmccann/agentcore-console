@@ -427,7 +427,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     } else if (event.type === "agent_status" && event.status === "running") {
       // If an agent starts in a new phase we haven't animated yet, fire the connector
       const agentPhaseIdx = PIPELINE_PHASES.findIndex((p) =>
-        p.agents.some((a) => a.id === event.agentId)
+        p.agents.some((a) => a.agentId === event.agentId)
       );
       if (agentPhaseIdx > 0 && agentPhaseIdx > replayPhaseHighWaterRef.current) {
         replayPhaseHighWaterRef.current = agentPhaseIdx;
@@ -437,7 +437,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
     } else if (event.type === "tool_use") {
       const resolved = resolveToolIcon(event.toolName);
       if (resolved) {
-        const agentPhase = PIPELINE_PHASES.find((p) => p.agents.some((a) => a.id === event.agentId));
+        const agentPhase = PIPELINE_PHASES.find((p) => p.agents.some((a) => a.agentId === event.agentId));
         if (agentPhase) {
           const flashKey = `${agentPhase.id}:${resolved.icon}`;
           setToolFlashes((prev) => ({ ...prev, [flashKey]: true }));
@@ -556,7 +556,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         // If an agent starts running in a phase beyond current, animate the connector
         if (event.status === "running") {
           const agentPhase = PIPELINE_PHASES.findIndex((p) =>
-            p.agents.some((a) => a.id === event.agentId)
+            p.agents.some((a) => a.agentId === event.agentId)
           );
           if (agentPhase > 0 && activeConnector === null) {
             setState((s) => {
@@ -610,7 +610,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
         if (resolved) {
           // Find which phase this agent belongs to
           const agentPhase = PIPELINE_PHASES.find((p) =>
-            p.agents.some((a) => a.id === event.agentId)
+            p.agents.some((a) => a.agentId === event.agentId)
           );
           if (agentPhase) {
             const flashKey = `${agentPhase.id}:${resolved.icon}`;
@@ -941,7 +941,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
       return Object.keys(state.agentTasks).length > 0 ? "done" : "inactive";
     }
 
-    const tasks = phase.agents.map((a) => state.agentTasks[a.id]).filter(Boolean);
+    const tasks = phase.agents.map((a) => state.agentTasks[a.agentId]).filter(Boolean);
     if (tasks.length === 0) return "inactive";
 
     // Active = at least one agent is running/waiting
@@ -1213,8 +1213,8 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                       <>
                         <div className="sec-label">Agents ({phase.agents.length})</div>
                         {phase.agents.map((agent) => {
-                          const agentTask = state?.agentTasks[agent.id];
-                          const isAgentStale = (isStale || manualStaleAgents.has(agent.id)) && agentTask && (agentTask.status === "running" || agentTask.status === "waiting_response");
+                          const agentTask = state?.agentTasks[agent.agentId];
+                          const isAgentStale = (isStale || manualStaleAgents.has(agent.agentId)) && agentTask && (agentTask.status === "running" || agentTask.status === "waiting_response");
                           const agentItemClass = agentTask
                             ? isAgentStale
                               ? "error"
@@ -1228,10 +1228,10 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                             : getItemClass(idx);
                           return (
                             <div
-                              key={agent.id}
+                              key={agent.agentId}
                               className={`item ${isSettled ? "done settled" : agentItemClass} cursor-pointer`}
                               onClick={() => {
-                                const targetAgent = expandedAgent === agent.id ? null : agent.id;
+                                const targetAgent = expandedAgent === agent.agentId ? null : agent.agentId;
                                 setExpandedAgent(targetAgent);
                                 if (targetAgent) {
                                   fetch(`/api/workflow/${workflowId}/agent-output?agentId=${targetAgent}`)
@@ -1249,7 +1249,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                               <span className="item-label">{agent.displayName}</span>
                               <span className="flex-shrink-0 flex items-center gap-2" style={{ marginLeft: 'auto' }}>
                                 {(() => {
-                                  const tid = agentTicketMapRef.current[agent.id] || agentTask?.ticketId;
+                                  const tid = agentTicketMapRef.current[agent.agentId] || agentTask?.ticketId;
                                   if (!tid) return null;
                                   const ticketInfo = ticketStatusMap[tid];
                                   // Derive status from agentTask when ticketStatusMap hasn't caught up
@@ -1280,12 +1280,12 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
                                     e.stopPropagation();
                                     if (agentTask && (agentTask.status === "running" || agentTask.status === "waiting_response")) {
                                       if (window.confirm(`Mark "${agent.displayName}" as stuck?\n\nThis will flag the agent as unresponsive and show recovery options.`)) {
-                                        setManualStaleAgents((prev) => new Set([...prev, agent.id]));
+                                        setManualStaleAgents((prev) => new Set([...prev, agent.agentId]));
                                         // Also expand this agent's panel immediately
-                                        setExpandedAgent(agent.id);
-                                        fetch(`/api/workflow/${workflowId}/agent-output?agentId=${agent.id}`)
+                                        setExpandedAgent(agent.agentId);
+                                        fetch(`/api/workflow/${workflowId}/agent-output?agentId=${agent.agentId}`)
                                           .then((r) => r.json())
-                                          .then((data) => { if (data.output) setAgentFullOutput((prev) => ({ ...prev, [agent.id]: data.output })); })
+                                          .then((data) => { if (data.output) setAgentFullOutput((prev) => ({ ...prev, [agent.agentId]: data.output })); })
                                           .catch(() => {});
                                       }
                                     }

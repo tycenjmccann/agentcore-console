@@ -7,7 +7,7 @@ import agentsConfig from "@/config/agents.json";
 
 // Map agent display names → agent IDs for API calls
 const AGENT_ID_MAP = new Map<string, string>(
-  agentsConfig.agents.map((a) => [a.name, a.id])
+  agentsConfig.agents.map((a) => [a.displayName, a.agentId])
 );
 
 interface ScorecardEntry {
@@ -174,7 +174,7 @@ export default function EvaluationsPage() {
     fetchAgentConfigs();
   }, [fetchData, fetchAgentConfigs]);
 
-  const agents = data?.agents?.length ? data.agents : agentsConfig.agents.map((a) => a.name);
+  const agents = data?.agents?.length ? data.agents : agentsConfig.agents.map((a) => a.displayName);
   const hasScores = !!(data?.scorecard && Object.keys(data.scorecard).length > 0);
 
   // Compute totals for operational metrics

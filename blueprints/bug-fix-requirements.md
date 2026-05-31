@@ -58,11 +58,11 @@ Classify the fix scope:
 ### Step 4: Pick the Single Dev Agent
 Match the suspected subsystem from Step 2 to a dev agent:
 
-- UI / components / pages / styles (`src/components/`, `src/app/`, `*.tsx`, `*.css`) → `team-frontend-dev`
-- API routes / server libs / lambdas (`src/app/api/`, `src/lib/`, `lambda/`) → `team-backend-dev`
-- New API contract changes only → `team-api-dev` (rare for a bug)
+- UI / components / pages / styles (`src/components/`, `src/app/`, `*.tsx`, `*.css`) → `agentcore_hub_frontend_dev`
+- API routes / server libs / lambdas (`src/app/api/`, `src/lib/`, `lambda/`) → `agentcore_hub_backend_dev`
+- New API contract changes only → `agentcore_hub_api_dev` (rare for a bug)
 
-If the symptom is in the UI but the report or stack trace points to a server response, pick `team-backend-dev` — fix the source, not the symptom.
+If the symptom is in the UI but the report or stack trace points to a server response, pick `agentcore_hub_backend_dev` — fix the source, not the symptom.
 
 ### Step 5: Create Three Sub-Tasks Under the Bug
 
@@ -82,7 +82,7 @@ Create exactly three sub-tasks — no design phase, no top-level tickets:
    - `blocked_by`: `""` (runs immediately)
 
 2. **QA verification sub-task**
-   - `assignee`: `team-qa-verifier`
+   - `assignee`: `agentcore_hub_qa_verifier`
    - `title`: `Verify fix: {one-line description}`
    - `description`:
      - Link to bug-analysis.md
@@ -94,7 +94,7 @@ Create exactly three sub-tasks — no design phase, no top-level tickets:
    - `blocked_by`: `{dev-fix-subtask-key}`
 
 3. **CI sub-task**
-   - `assignee`: `team-ci-agent`
+   - `assignee`: `agentcore_hub_ci_agent`
    - `title`: `CI: {one-line description}`
    - `parent_id`: the Bug's key
    - `ticket_type`: `"subtask"`
@@ -110,7 +110,7 @@ Create exactly three sub-tasks — no design phase, no top-level tickets:
 - DO NOT create top-level tickets — use sub-tasks under the Bug
 - DO NOT use `ticket_type="task"` for a bug's children — Jira will reject `Task → Bug` ("hierarchy" error). Always `ticket_type="subtask"`.
 - DO NOT confuse the kwarg names — the tool is `ticket_type` + `parent_id`, NOT `issue_type` + `parent_key`. Old docs may say otherwise; trust the tool signature.
-- DO NOT spin up `team-frontend-designer` or any design agent for a bug fix
+- DO NOT spin up `agentcore_hub_frontend_designer` or any design agent for a bug fix
 - DO NOT assign multiple dev agents — pick one
 - DO NOT create a "design the fix" sub-task — the design is to remove the defect
 - DO NOT skip the regression test requirement

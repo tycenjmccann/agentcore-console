@@ -113,7 +113,7 @@ test("smoke: ticket skeletons created in DynamoDB with correct dependency chains
   expect(tickets.length).toBeGreaterThanOrEqual(1);
 
   // Requirements ticket should be "todo" or "in_progress" (Stream fires so fast it may already be picked up)
-  const reqTicket = tickets.find((t) => t.assignee === "team-requirements-analyst");
+  const reqTicket = tickets.find((t) => t.assignee === "agentcore_hub_requirements_analyst");
   expect(reqTicket).toBeTruthy();
   expect(["todo", "in_progress"]).toContain(reqTicket!.status);
   expect(reqTicket!.blockedBy || []).toEqual([]);
@@ -185,7 +185,7 @@ test("light: DynamoDB Stream triggers orchestrator and requirements agent is inv
 
   // Verify orchestrator saw the requirements ticket go "todo" → invoked agent
   const sawTicketReady = logMessages.includes("handleTicketReady") || logMessages.includes("Invoking agent");
-  const sawRequirements = logMessages.includes("requirements_analyst") || logMessages.includes("team-requirements-analyst");
+  const sawRequirements = logMessages.includes("requirements_analyst") || logMessages.includes("agentcore_hub_requirements_analyst");
 
   if (sawTicketReady) {
     console.log(`[light] ✓ Orchestrator processed "todo" ticket`);
@@ -201,7 +201,7 @@ test("light: DynamoDB Stream triggers orchestrator and requirements agent is inv
   }));
 
   const agentTasks = wfResult.Item?.agentTasks || {};
-  const reqTask = agentTasks["team-requirements-analyst"];
+  const reqTask = agentTasks["agentcore_hub_requirements_analyst"];
   if (reqTask?.status === "running") {
     console.log(`[light] ✓ Requirements agent task status: running`);
   }
@@ -215,7 +215,7 @@ test("light: DynamoDB Stream triggers orchestrator and requirements agent is inv
     ExpressionAttributeValues: { ":pid": epicId },
   }));
   const reqTicket = (ticketsResult.Items || []).find(
-    (t) => t.assignee === "team-requirements-analyst"
+    (t) => t.assignee === "agentcore_hub_requirements_analyst"
   );
 
   console.log(`[light] Requirements ticket status: ${reqTicket?.status}`);

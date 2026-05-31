@@ -201,19 +201,23 @@ All 3 Lambdas load the roster from S3 at cold start and cache it in memory. If S
 {
   "agents": [
     {
-      "id": "team-frontend-dev",       // Used in ticket assignee, orchestrator routing
-      "name": "Frontend Developer",     // Display name
-      "role": "Implement UI from...",   // Role description
-      "phase": "development",           // Pipeline phase
-      "harnessName": "agentcore_hub_frontend_dev", // AgentCore Runtime name (deploy-fleet.sh writes this)
-      "tools": [...],                   // Tool list (used by frontend only)
-      "canQueryAgents": [...],          // A2A query permissions
-      "keywords": [...]                 // Search/routing keywords
+      "agentId": "agentcore_hub_frontend_dev",  // Canonical ID + AgentCore Runtime resource name
+      "displayName": "Frontend Developer",       // Display name in UI
+      "description": "Implement UI from...",     // Role description
+      "phase": "development",                    // Pipeline phase
+      "type": "developer",                       // Agent type
+      "model": "claude-sonnet-4-5",              // Model choice
+      "evaluationsEnabled": true,                // Online evals on/off
+      "tools": [...],                            // Tool list (synced from main.py)
+      "skills": [...],                           // Claude Code skills loaded from S3
+      "blueprints": [...],                       // Process instruction names loaded via load_blueprint
+      "evalConfigName": "eval_frontend_dev",     // CW Logs eval config (refresh-agents-json.sh writes this)
+      "runtimeArn": "arn:aws:..."                // Runtime ARN (refresh-agents-json.sh writes this)
     }
   ],
   "defaults": {
-    "intakeAgentId": "team-requirements-analyst",
-    "defaultAssigneeId": "team-backend-designer"
+    "intakeAgentId": "agentcore_hub_requirements_analyst",
+    "defaultAssigneeId": "agentcore_hub_backend_designer"
   }
 }
 ```
@@ -223,7 +227,7 @@ All 3 Lambdas load the roster from S3 at cold start and cache it in memory. If S
 | Consumer | How it reads | What it uses |
 |----------|-------------|-------------|
 | Frontend (`pipeline-config.ts`) | Direct import at build time | All fields (renders UI) |
-| Orchestrator Lambda | S3 read at cold start | `id`, `phase`, `harnessName` |
+| Orchestrator Lambda | S3 read at cold start | `agentId`, `phase`, `runtimeArn` |
 | agentcore-hub-tickets Lambda | S3 read at cold start | `id` only (validation Set) |
 | agentcore-hub-jira-real Lambda | S3 read at cold start | `id` only (validation Set) |
 | `deploy/runtime-agent/deploy-fleet.sh` | Reads agent list to deploy each runtime | All fields (deploys agents) |

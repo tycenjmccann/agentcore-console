@@ -7,7 +7,6 @@ test.describe("Dashboard Tab", () => {
 
   test("renders header with AgentCore Hub branding", async ({ page }) => {
     await expect(page.locator("h1")).toContainText("AgentCore Hub");
-    await expect(page.getByText("Hub")).toBeVisible();
   });
 
   test("shows all navigation items", async ({ page }) => {

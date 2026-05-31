@@ -48,20 +48,20 @@ const COUNTER_KEY = { ticketId: "__COUNTER__" };
 // ─── Agent Roster (config-driven from S3, falls back to hardcoded) ────────────
 
 const FALLBACK_AGENTS = new Set([
-  "team-requirements-analyst",
-  "team-ios-designer",
-  "team-frontend-designer",
-  "team-backend-designer",
-  "team-android-designer",
-  "team-security-reviewer",
-  "team-legal-compliance",
-  "team-localization",
-  "team-analytics-designer",
-  "team-backend-dev",
-  "team-api-dev",
-  "team-frontend-dev",
-  "team-qa-verifier",
-  "team-ci-agent",
+  "agentcore_hub_requirements_analyst",
+  "agentcore_hub_ios_designer",
+  "agentcore_hub_frontend_designer",
+  "agentcore_hub_backend_designer",
+  "agentcore_hub_android_designer",
+  "agentcore_hub_security_reviewer",
+  "agentcore_hub_legal_compliance",
+  "agentcore_hub_localization",
+  "agentcore_hub_analytics_designer",
+  "agentcore_hub_backend_dev",
+  "agentcore_hub_api_dev",
+  "agentcore_hub_frontend_dev",
+  "agentcore_hub_qa_verifier",
+  "agentcore_hub_ci_agent",
 ]);
 
 let VALID_AGENTS = null;
@@ -79,7 +79,7 @@ async function loadValidAgents() {
       Key: "config/agents.json",
     }));
     const config = JSON.parse(await res.Body.transformToString());
-    VALID_AGENTS = new Set(config.agents.map((a) => a.id));
+    VALID_AGENTS = new Set(config.agents.map((a) => a.agentId));
     console.log(`[agentcore-hub-tickets] Loaded ${VALID_AGENTS.size} agents from S3 config`);
   } catch (err) {
     console.warn(`[agentcore-hub-tickets] Failed to load roster from S3: ${err.message} — using fallback`);
@@ -174,7 +174,7 @@ async function createTicket(args) {
   if (assignee && !VALID_AGENTS.has(assignee)) {
     return textResult(
       `Error: Invalid assignee "${assignee}". Valid agents are: ${[...VALID_AGENTS].join(", ")}. ` +
-      `Note: There is NO "team-ios-dev" agent. iOS/SwiftUI development goes to "team-frontend-dev".`
+      `Note: There is NO "agentcore_hub_ios_dev" agent. iOS/SwiftUI development goes to "agentcore_hub_frontend_dev".`
     );
   }
 
@@ -337,7 +337,7 @@ async function searchIssues(args) {
   const limit = max_results || 50;
 
   // Simple JQL parsing — supports common patterns:
-  // "project = TEAM", "assignee = team-frontend-dev", "parent = TEAM-42", "status = todo"
+  // "project = TEAM", "assignee = agentcore_hub_frontend_dev", "parent = TEAM-42", "status = todo"
   let filterExpression = null;
   let exprNames = {};
   let exprValues = {};
@@ -601,19 +601,19 @@ async function lookupUser(args) {
 
   // Return matching agents from roster
   const agents = [
-    { id: "team-requirements-analyst", name: "Requirements Analyst", role: "requirements" },
-    { id: "team-ios-designer", name: "iOS Designer", role: "design" },
-    { id: "team-backend-designer", name: "Backend Designer", role: "design" },
-    { id: "team-android-designer", name: "Android Designer", role: "design" },
-    { id: "team-security-reviewer", name: "Security Reviewer", role: "design" },
-    { id: "team-legal-compliance", name: "Legal & Compliance", role: "design" },
-    { id: "team-localization", name: "Localization", role: "design" },
-    { id: "team-analytics-designer", name: "Analytics Designer", role: "design" },
-    { id: "team-backend-dev", name: "Backend Developer", role: "development" },
-    { id: "team-api-dev", name: "API Developer", role: "development" },
-    { id: "team-frontend-dev", name: "Frontend Developer", role: "development" },
-    { id: "team-qa-verifier", name: "QA Verifier", role: "verification" },
-    { id: "team-ci-agent", name: "CI Agent", role: "review" },
+    { id: "agentcore_hub_requirements_analyst", name: "Requirements Analyst", role: "requirements" },
+    { id: "agentcore_hub_ios_designer", name: "iOS Designer", role: "design" },
+    { id: "agentcore_hub_backend_designer", name: "Backend Designer", role: "design" },
+    { id: "agentcore_hub_android_designer", name: "Android Designer", role: "design" },
+    { id: "agentcore_hub_security_reviewer", name: "Security Reviewer", role: "design" },
+    { id: "agentcore_hub_legal_compliance", name: "Legal & Compliance", role: "design" },
+    { id: "agentcore_hub_localization", name: "Localization", role: "design" },
+    { id: "agentcore_hub_analytics_designer", name: "Analytics Designer", role: "design" },
+    { id: "agentcore_hub_backend_dev", name: "Backend Developer", role: "development" },
+    { id: "agentcore_hub_api_dev", name: "API Developer", role: "development" },
+    { id: "agentcore_hub_frontend_dev", name: "Frontend Developer", role: "development" },
+    { id: "agentcore_hub_qa_verifier", name: "QA Verifier", role: "verification" },
+    { id: "agentcore_hub_ci_agent", name: "CI Agent", role: "review" },
   ];
 
   const matches = agents.filter(

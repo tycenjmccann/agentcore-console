@@ -47,8 +47,8 @@ async function loadAgents() {
 
 function resolveAgentId(logGroup, agents) {
   // Log group: /aws/bedrock-agentcore/runtimes/agentcore_hub_requirements_analyst-QGqEkp772T-DEFAULT
-  const match = agents.find(a => a.harnessName && logGroup.includes(a.harnessName));
-  return match?.id || null;
+  const match = agents.find(a => a.agentId && logGroup.includes(a.agentId));
+  return match?.agentId || null;
 }
 
 // ─── Handler ────────────────────────────────────────────────────────────────

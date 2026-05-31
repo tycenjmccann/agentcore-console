@@ -3,13 +3,15 @@
 # refresh-agents-json.sh — Sync src/config/agents.json with what's actually
 # deployed in AgentCore, without redeploying.
 #
-# Reconciles four fields on every agent in agents.json:
-#   - harnessName    — the runtime resource name (queried from AgentCore)
+# Reconciles three fields on every agent in agents.json:
 #   - runtimeArn     — the runtime ARN (queried from AgentCore)
 #   - evalConfigName — the CW Logs eval config name (queried from CloudWatch)
 #   - tools          — the actual tool capability set loaded by main.py
 #                      (computed by parsing main.py + the GitHub MCP set
 #                      declared in the canonical tool list below)
+#
+# The runtime resource name IS agent.agentId (convention) — no separate
+# harnessName field is stored.
 #
 # All 14 fleet agents load an identical 37-tool capability set in main.py,
 # so the same canonical list is written to every agent. The event processor
@@ -184,15 +186,16 @@ config = json.loads(text)
 plans = []
 missing = []
 for agent in config["agents"]:
-    runtime_name = "agentcore_hub_" + agent["id"].replace("team-", "").replace("-", "_")
-    # Eval config name uses the same short id (no "agentcore_hub_" prefix), e.g.
-    # team-requirements-analyst -> eval_requirements_analyst.
-    eval_short = "eval_" + agent["id"].replace("team-", "").replace("-", "_")
+    # Convention: agentId IS the runtime name (e.g. "agentcore_hub_requirements_analyst")
+    runtime_name = agent["agentId"]
+    # Eval config name strips the "agentcore_hub_" prefix, e.g.
+    # agentcore_hub_requirements_analyst -> eval_requirements_analyst.
+    eval_short = "eval_" + agent["agentId"].replace("agentcore_hub_", "")
     eval_name = eval_configs.get(eval_short)
     if runtime_name in deployed:
-        plans.append((agent["id"], runtime_name, deployed[runtime_name], eval_name))
+        plans.append((agent["agentId"], runtime_name, deployed[runtime_name], eval_name))
     else:
-        missing.append(agent["id"])
+        missing.append(agent["agentId"])
 
 # Compact JSON-array string for the tools field, matching agents.json style.
 tools_array_str = "[" + ", ".join(f'"{t}"' for t in canonical_tools) + "]"
@@ -201,7 +204,7 @@ updated = 0
 unchanged = 0
 
 for agent_id, runtime_name, runtime_arn, eval_name in plans:
-    id_marker = f'"id": "{agent_id}"'
+    id_marker = f'"agentId": "{agent_id}"'
     id_pos = text.find(id_marker)
     if id_pos < 0:
         continue
@@ -212,35 +215,24 @@ for agent_id, runtime_name, runtime_arn, eval_name in plans:
 
     new_block = block
 
-    # harnessName
-    if re.search(r'"harnessName":\s*"[^"]*"', new_block):
-        new_block = re.sub(r'"harnessName":\s*"[^"]*"', f'"harnessName": "{runtime_name}"', new_block)
-    else:
-        new_block = re.sub(
-            r'("id":\s*"' + re.escape(agent_id) + r'",\n)',
-            r'\1      "harnessName": "' + runtime_name + r'",\n',
-            new_block,
-        )
-
-    # evalConfigName (insert after harnessName)
+    # evalConfigName — set if found, else insert after agentId
     if eval_name:
-        if re.search(r'"evalConfigName":\s*"[^"]*"', new_block):
-            new_block = re.sub(r'"evalConfigName":\s*"[^"]*"', f'"evalConfigName": "{eval_name}"', new_block)
+        if re.search(r'"evalConfigName":\s*("[^"]*"|null)', new_block):
+            new_block = re.sub(r'"evalConfigName":\s*("[^"]*"|null)', f'"evalConfigName": "{eval_name}"', new_block)
         else:
             new_block = re.sub(
-                r'("harnessName":\s*"' + re.escape(runtime_name) + r'",\n)',
+                r'("agentId":\s*"' + re.escape(agent_id) + r'",\n)',
                 r'\1      "evalConfigName": "' + eval_name + r'",\n',
                 new_block,
             )
 
-    # runtimeArn
-    if re.search(r'"runtimeArn":\s*"[^"]*"', new_block):
-        new_block = re.sub(r'"runtimeArn":\s*"[^"]*"', f'"runtimeArn": "{runtime_arn}"', new_block)
+    # runtimeArn — set if found (including null), else insert after evalConfigName/agentId
+    if re.search(r'"runtimeArn":\s*("[^"]*"|null)', new_block):
+        new_block = re.sub(r'"runtimeArn":\s*("[^"]*"|null)', f'"runtimeArn": "{runtime_arn}"', new_block)
     else:
-        # Insert after evalConfigName if present, else after harnessName
         anchor = (
             r'("evalConfigName":\s*"[^"]*",\n)' if eval_name and '"evalConfigName"' in new_block
-            else r'("harnessName":\s*"' + re.escape(runtime_name) + r'",\n)'
+            else r'("agentId":\s*"' + re.escape(agent_id) + r'",\n)'
         )
         new_block = re.sub(
             anchor,
@@ -256,7 +248,6 @@ for agent_id, runtime_name, runtime_arn, eval_name in plans:
             new_block,
         )
     else:
-        # Insert after runtimeArn if missing
         new_block = re.sub(
             r'("runtimeArn":\s*"' + re.escape(runtime_arn) + r'",\n)',
             r'\1      "tools": ' + tools_array_str + r',\n',

@@ -35,7 +35,7 @@ const DEFAULT_PRICING = { input: 15, output: 75 };
 const AGENT_DISPLAY_NAMES = new Map(
   agentsConfig.agents
     .filter((a) => a.evaluationsEnabled)
-    .map((a) => [a.id, a.name])
+    .map((a) => [a.agentId, a.displayName])
 );
 
 // In-memory cache

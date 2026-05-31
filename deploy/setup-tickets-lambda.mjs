@@ -326,7 +326,7 @@ const tools = [
       properties: {
         title: { type: "string", description: "Ticket title (clear, actionable)" },
         description: { type: "string", description: "Detailed description with acceptance criteria" },
-        assignee: { type: "string", description: "Agent ID to assign (e.g., 'team-frontend-dev', 'team-ios-designer')" },
+        assignee: { type: "string", description: "Agent ID to assign (e.g., 'agentcore_hub_frontend_dev', 'agentcore_hub_ios_designer')" },
         parent_id: { type: "string", description: "Parent epic ID (e.g., 'TEAM-42')" },
         blocked_by: { type: "array", items: { type: "string" }, description: "List of ticket IDs that must complete first" },
         type: { type: "string", enum: ["task", "story", "bug"], description: "Ticket type (default: task)" },

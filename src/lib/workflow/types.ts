@@ -25,7 +25,7 @@ export interface JiraTicket {
   title: string;
   description: string;
   status: TicketStatus;
-  assignee?: string;             // agent ID (e.g., "team-ios-designer")
+  assignee?: string;             // agent ID (e.g., "agentcore_hub_ios_designer")
   parent?: string;               // parent ticket ID
   children: string[];            // child ticket IDs
   blockedBy: string[];           // tickets that must be "done" before this can start
@@ -54,17 +54,6 @@ export interface Artifact {
 // ─── Agent Definitions ───────────────────────────────────────────────────────
 
 export type AgentPhase = "requirements" | "design" | "development" | "verification" | "review";
-
-export interface AgentDefinition {
-  id: string;                    // e.g., "team-ios-designer"
-  name: string;                  // display name: "iOS Designer"
-  role: string;                  // short role description
-  phase: AgentPhase;
-  harnessName: string;           // AgentCore harness name for discovery/creation
-  systemPrompt: string;
-  tools: string[];               // tool names: ["a2a", "s3_read", "s3_write", "code_interpreter", "git"]
-  canQueryAgents: string[];      // agent IDs this agent can A2A invoke
-}
 
 // ─── Workflow State ──────────────────────────────────────────────────────────
 

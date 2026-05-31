@@ -1,5 +1,5 @@
 /**
- * GET /api/workflow/[id]/agent-output?agentId=team-frontend-dev
+ * GET /api/workflow/[id]/agent-output?agentId=agentcore_hub_frontend_dev
  *
  * Returns ALL text output for a specific agent in a workflow.
  * Streaming chunks: agentcore-hub-events table

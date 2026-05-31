@@ -316,19 +316,19 @@ You MUST justify every agent you assign. The DEFAULT is to NOT include an agent.
 ### EXAMPLES OF CORRECT ASSIGNMENT
 
 **"Add collapsible sidebar to web app"**
-→ team-frontend-dev, team-qa-verifier, team-ci-agent (3 agents total)
+→ agentcore_hub_frontend_dev, agentcore_hub_qa_verifier, agentcore_hub_ci_agent (3 agents total)
 Why: Pure UI change. No new data, no new APIs, no mobile, no security implications.
 
 **"Add user profile photo upload"**
-→ team-backend-designer, team-frontend-dev, team-backend-dev, team-security-reviewer, team-qa-verifier, team-ci-agent (6 agents)
+→ agentcore_hub_backend_designer, agentcore_hub_frontend_dev, agentcore_hub_backend_dev, agentcore_hub_security_reviewer, agentcore_hub_qa_verifier, agentcore_hub_ci_agent (6 agents)
 Why: New file upload API (backend), new UI (frontend), file handling security (security), verification needed.
 
 **"Add dark mode toggle"**
-→ team-frontend-dev, team-qa-verifier, team-ci-agent (3 agents)
+→ agentcore_hub_frontend_dev, agentcore_hub_qa_verifier, agentcore_hub_ci_agent (3 agents)
 Why: CSS/state change only. No APIs, no data, no security.
 
 **"Add payment processing"**
-→ team-backend-designer, team-frontend-dev, team-backend-dev, team-api-dev, team-security-reviewer, team-legal-compliance, team-qa-verifier, team-ci-agent (8 agents)
+→ agentcore_hub_backend_designer, agentcore_hub_frontend_dev, agentcore_hub_backend_dev, agentcore_hub_api_dev, agentcore_hub_security_reviewer, agentcore_hub_legal_compliance, agentcore_hub_qa_verifier, agentcore_hub_ci_agent (8 agents)
 Why: New APIs, PCI compliance, legal requirements, full-stack implementation.
 
 ### COMMON MISTAKES TO AVOID
@@ -338,8 +338,8 @@ Why: New APIs, PCI compliance, legal requirements, full-stack implementation.
 - DO NOT assign analytics for features that don't add new user interactions
 - DO NOT assign backend agents for pure frontend work
 - DO NOT create generic tickets with titles like "Design: {agent name} — {feature title}" — be SPECIFIC about what you need from each agent
-- DO NOT invent agent IDs that don't exist. There is NO "team-ios-dev" agent. ALL frontend/UI/iOS/SwiftUI development goes to team-frontend-dev. The ONLY valid dev agents are: team-frontend-dev, team-backend-dev, team-api-dev
-- For iOS projects: use team-ios-designer for design, team-frontend-dev for implementation
+- DO NOT invent agent IDs that don't exist. There is NO "agentcore_hub_ios_dev" agent. ALL frontend/UI/iOS/SwiftUI development goes to agentcore_hub_frontend_dev. The ONLY valid dev agents are: agentcore_hub_frontend_dev, agentcore_hub_backend_dev, agentcore_hub_api_dev
+- For iOS projects: use agentcore_hub_ios_designer for design, agentcore_hub_frontend_dev for implementation
 
 ## Process
 

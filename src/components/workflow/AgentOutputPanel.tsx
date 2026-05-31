@@ -25,8 +25,8 @@ interface AgentOutputPanelProps {
 /** Format agent ID to display name */
 function formatAgentName(agentId: string): string {
   return agentId
-    .replace(/^team-/, "")
-    .split("-")
+    .replace(/^agentcore_hub_/, "")
+    .split(/[_-]/)
     .map((word) => {
       const upper = word.toUpperCase();
       if (["IOS", "API", "UI", "QA"].includes(upper)) return upper;

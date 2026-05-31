@@ -29,20 +29,20 @@ const s3 = new S3Client({ region: REGION });
 // ─── Agent Roster (config-driven from S3, falls back to hardcoded) ────────────
 
 const FALLBACK_ASSIGNEES = new Set([
-  "team-requirements-analyst",
-  "team-frontend-designer",
-  "team-ios-designer",
-  "team-backend-designer",
-  "team-android-designer",
-  "team-security-reviewer",
-  "team-legal-compliance",
-  "team-localization",
-  "team-analytics-designer",
-  "team-backend-dev",
-  "team-api-dev",
-  "team-frontend-dev",
-  "team-qa-verifier",
-  "team-ci-agent",
+  "agentcore_hub_requirements_analyst",
+  "agentcore_hub_frontend_designer",
+  "agentcore_hub_ios_designer",
+  "agentcore_hub_backend_designer",
+  "agentcore_hub_android_designer",
+  "agentcore_hub_security_reviewer",
+  "agentcore_hub_legal_compliance",
+  "agentcore_hub_localization",
+  "agentcore_hub_analytics_designer",
+  "agentcore_hub_backend_dev",
+  "agentcore_hub_api_dev",
+  "agentcore_hub_frontend_dev",
+  "agentcore_hub_qa_verifier",
+  "agentcore_hub_ci_agent",
 ]);
 
 let VALID_ASSIGNEES = null;
@@ -60,7 +60,7 @@ async function loadValidAssignees() {
       Key: "config/agents.json",
     }));
     const config = JSON.parse(await res.Body.transformToString());
-    VALID_ASSIGNEES = new Set(config.agents.map((a) => a.id));
+    VALID_ASSIGNEES = new Set(config.agents.map((a) => a.agentId));
     console.log(`[agentcore-hub-jira] Loaded ${VALID_ASSIGNEES.size} agents from S3 config`);
   } catch (err) {
     console.warn(`[agentcore-hub-jira] Failed to load roster from S3: ${err.message} — using fallback`);
@@ -132,7 +132,7 @@ async function createTicket(params) {
     const valid = [...VALID_ASSIGNEES].join(", ");
     throw new Error(
       `Invalid assignee "${assignee}". Valid agents: ${valid}. ` +
-      `Note: There is NO "team-ios-dev" agent. ALL iOS/SwiftUI/Android/Web development goes to "team-frontend-dev".`
+      `Note: There is NO "agentcore_hub_ios_dev" agent. ALL iOS/SwiftUI/Android/Web development goes to "agentcore_hub_frontend_dev".`
     );
   }
 

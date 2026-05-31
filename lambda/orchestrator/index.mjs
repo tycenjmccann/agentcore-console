@@ -59,20 +59,20 @@ const bedrockAgent = new BedrockAgentRuntimeClient({ region: REGION });
 // ─── Agent Roster (config-driven from S3, falls back to hardcoded) ────────────
 
 const FALLBACK_ROSTER = [
-  { id: "team-requirements-analyst", phase: "requirements", harnessName: "agentcore_hub_requirements_analyst" },
-  { id: "team-frontend-designer", phase: "design", harnessName: "agentcore_hub_frontend_designer" },
-  { id: "team-ios-designer", phase: "design", harnessName: "agentcore_hub_ios_designer" },
-  { id: "team-backend-designer", phase: "design", harnessName: "agentcore_hub_backend_designer" },
-  { id: "team-android-designer", phase: "design", harnessName: "agentcore_hub_android_designer" },
-  { id: "team-security-reviewer", phase: "design", harnessName: "agentcore_hub_security_reviewer" },
-  { id: "team-legal-compliance", phase: "design", harnessName: "agentcore_hub_legal_compliance" },
-  { id: "team-localization", phase: "design", harnessName: "agentcore_hub_localization" },
-  { id: "team-analytics-designer", phase: "design", harnessName: "agentcore_hub_analytics_designer" },
-  { id: "team-backend-dev", phase: "development", harnessName: "agentcore_hub_backend_dev" },
-  { id: "team-api-dev", phase: "development", harnessName: "agentcore_hub_api_dev" },
-  { id: "team-frontend-dev", phase: "development", harnessName: "agentcore_hub_frontend_dev" },
-  { id: "team-qa-verifier", phase: "verification", harnessName: "agentcore_hub_qa_verifier" },
-  { id: "team-ci-agent", phase: "review", harnessName: "agentcore_hub_ci_agent" },
+  { agentId: "agentcore_hub_requirements_analyst", phase: "requirements" },
+  { agentId: "agentcore_hub_frontend_designer", phase: "design" },
+  { agentId: "agentcore_hub_ios_designer", phase: "design" },
+  { agentId: "agentcore_hub_backend_designer", phase: "design" },
+  { agentId: "agentcore_hub_android_designer", phase: "design" },
+  { agentId: "agentcore_hub_security_reviewer", phase: "design" },
+  { agentId: "agentcore_hub_legal_compliance", phase: "design" },
+  { agentId: "agentcore_hub_localization", phase: "design" },
+  { agentId: "agentcore_hub_analytics_designer", phase: "design" },
+  { agentId: "agentcore_hub_backend_dev", phase: "development" },
+  { agentId: "agentcore_hub_api_dev", phase: "development" },
+  { agentId: "agentcore_hub_frontend_dev", phase: "development" },
+  { agentId: "agentcore_hub_qa_verifier", phase: "verification" },
+  { agentId: "agentcore_hub_ci_agent", phase: "review" },
 ];
 
 let _agentRoster = null;
@@ -91,9 +91,8 @@ async function loadAgentRoster() {
     }));
     const config = JSON.parse(await res.Body.transformToString());
     _agentRoster = config.agents.map((a) => ({
-      id: a.id,
+      agentId: a.agentId,
       phase: a.phase,
-      harnessName: a.harnessName,
       runtimeArn: a.runtimeArn || null,
     }));
     console.log(`[orchestrator] Loaded ${_agentRoster.length} agents from S3 config`);
@@ -106,7 +105,7 @@ async function loadAgentRoster() {
 
 function getAgentDef(id) {
   const roster = _agentRoster || FALLBACK_ROSTER;
-  return roster.find((a) => a.id === id);
+  return roster.find((a) => a.agentId === id);
 }
 
 // ─── Handler (DDB Stream OR direct webhook invocation) ───────────────────────
@@ -776,20 +775,20 @@ async function shouldCreateQaTicket(epicId, workflow) {
 
   // Check if QA ticket already exists (active OR done — never create more than one)
   const hasQaTicket = children.some(
-    (t) => t.assignee === "team-qa-verifier" && t.status !== "blocked"
+    (t) => t.assignee === "agentcore_hub_qa_verifier" && t.status !== "blocked"
   );
   if (hasQaTicket) return false;
 
   // Check if all dev tickets are done
   const devTickets = children.filter(
-    (t) => t.assignee && (t.assignee.includes("-dev") || t.assignee.includes("-frontend"))
+    (t) => t.assignee && (t.assignee.endsWith("_dev") || t.assignee.endsWith("_frontend"))
   );
   if (devTickets.length === 0) return false;
   const allDevsDone = devTickets.every((t) => t.status === "done");
   if (!allDevsDone) return false;
 
   // Check if design tickets are done
-  const designTickets = children.filter((t) => t.assignee && t.assignee.includes("-designer"));
+  const designTickets = children.filter((t) => t.assignee && t.assignee.endsWith("_designer"));
   const allDesignDone = designTickets.every((t) => t.status === "done");
 
   return allDevsDone && allDesignDone;
@@ -801,7 +800,7 @@ async function isWorkflowComplete(epicId) {
   // Must have at least one dev or QA ticket done (not just requirements/design)
   const hasDevOrQaDone = children.some((t) => {
     const assignee = t.assignee || "";
-    const isDevOrQa = assignee.includes("-dev") || assignee.includes("-qa") || assignee.includes("-ci");
+    const isDevOrQa = assignee.endsWith("_dev") || assignee.includes("_qa") || assignee.includes("_ci");
     return isDevOrQa && t.status === "done";
   });
   if (!hasDevOrQaDone) return false;
@@ -816,7 +815,7 @@ async function createQaVerificationTicket(workflow) {
   await publishEvent(workflow.epicId, "workflow.phase_change", { phase: "verification", workflowId: workflow.id });
 
   const children = await getChildTickets(workflow.epicId);
-  const devTickets = children.filter((t) => t.assignee && t.assignee.includes("-dev"));
+  const devTickets = children.filter((t) => t.assignee && t.assignee.endsWith("_dev"));
   const devSummaries = devTickets.map((t) => `- ${t.title} (${t.assignee}): ${t.status}`).join("\n");
   const inputSources = (workflow.input?.sources || []).map((s) => `- ${s.type}: ${s.value}`).join("\n");
 
@@ -848,7 +847,7 @@ ${inputSources}
       title: "QA: Visual & functional verification",
       description: qaDescription,
       status: "todo",
-      assignee: "team-qa-verifier",
+      assignee: "agentcore_hub_qa_verifier",
       parentId: workflow.epicId,
       workflowId: workflow.id,
       comments: [],
@@ -907,13 +906,13 @@ async function completeWorkflow(workflow) {
  */
 async function invokeAgent(agentDef, context, workflow) {
   // Discover agent ARN — prefer runtimeArn from roster, then env var lookup
-  const runtimeEnvKey = `RUNTIME_ARN_${agentDef.harnessName.toUpperCase()}`;
-  const harnessEnvKey = `HARNESS_ARN_${agentDef.harnessName.toUpperCase()}`;
+  const runtimeEnvKey = `RUNTIME_ARN_${agentDef.agentId.toUpperCase()}`;
+  const harnessEnvKey = `HARNESS_ARN_${agentDef.agentId.toUpperCase()}`;
   const harnessArn = agentDef.runtimeArn || process.env[runtimeEnvKey] || process.env[harnessEnvKey];
   if (!harnessArn) {
-    console.error(`[orchestrator] No ARN for agent: ${agentDef.harnessName}. Tried ${runtimeEnvKey} and ${harnessEnvKey}. Marking ticket blocked.`);
+    console.error(`[orchestrator] No ARN for agent: ${agentDef.agentId}. Tried ${runtimeEnvKey} and ${harnessEnvKey}. Marking ticket blocked.`);
     // Mark ticket blocked instead of silently returning — prevents stuck workflows
-    const task = Object.values(workflow.agentTasks || {}).find(t => t.agentId === agentDef.id && t.status === "running");
+    const task = Object.values(workflow.agentTasks || {}).find(t => t.agentId === agentDef.agentId && t.status === "running");
     if (task?.ticketId) {
       await ddb.send(new UpdateCommand({
         TableName: TICKETS_TABLE,
@@ -924,13 +923,13 @@ async function invokeAgent(agentDef, context, workflow) {
       }));
     }
     await publishEvent(workflow.epicId, "agent.error", {
-      agentId: agentDef.id,
+      agentId: agentDef.agentId,
       workflowId: workflow.id,
       error: `No runtime ARN configured. Set ${runtimeEnvKey} env var on orchestrator Lambda.`,
     });
     return;
   }
-  console.log(`[orchestrator] Using ${harnessArn.includes("/runtime/") ? "Runtime" : "Harness"} for ${agentDef.id}`);
+  console.log(`[orchestrator] Using ${harnessArn.includes("/runtime/") ? "Runtime" : "Harness"} for ${agentDef.agentId}`);
 
   // Determine model override
   let modelConfig = undefined;
@@ -955,9 +954,9 @@ async function invokeAgent(agentDef, context, workflow) {
     // The agent stream will run to completion. When done, the agent's report_completion
     // tool writes "done" status to DynamoDB, which triggers this Lambda via stream.
     // Prefix with ticketId so OTEL traces are discoverable by Jira ticket in the Ticket History page
-    const task = Object.values(workflow.agentTasks || {}).find(t => t.agentId === agentDef.id && t.status === "running");
+    const task = Object.values(workflow.agentTasks || {}).find(t => t.agentId === agentDef.agentId && t.status === "running");
     const ticketPrefix = task?.ticketId ? `${task.ticketId}_` : "";
-    const sessionId = `${ticketPrefix}${workflow.id}-${agentDef.id}-${Date.now()}`;
+    const sessionId = `${ticketPrefix}${workflow.id}-${agentDef.agentId}-${Date.now()}`;
 
     const command = new InvokeAgentCommand({
       agentAliasId: "TSTALIASID", // placeholder — real ARN used via agentId
@@ -977,35 +976,35 @@ async function invokeAgent(agentDef, context, workflow) {
         sessionId,
         prompt: context,
         workflowId: workflow.id,
-        agentId: agentDef.id,
+        agentId: agentDef.agentId,
         ticketId: task?.ticketId || "",
         modelOverride: modelConfig,
       }),
     }));
 
-    console.log(`[orchestrator] Async invoke sent for ${agentDef.id} (session: ${sessionId})`);
+    console.log(`[orchestrator] Async invoke sent for ${agentDef.agentId} (session: ${sessionId})`);
 
     // Journey log: agent invocation dispatched
-    await publishEvent(task?.ticketId || agentDef.id, "orchestrator.agent_invoked", {
-      ticketId: task?.ticketId || "", agentId: agentDef.id, sessionId,
+    await publishEvent(task?.ticketId || agentDef.agentId, "orchestrator.agent_invoked", {
+      ticketId: task?.ticketId || "", agentId: agentDef.agentId, sessionId,
       workflowId: workflow.id, runtimeArn: harnessArn,
     });
 
     // Persist session info to the workflow manifest (S3) for health probes and traceability
     try {
-      await updateManifestSession(workflow.id, agentDef.id, {
+      await updateManifestSession(workflow.id, agentDef.agentId, {
         sessionId,
         runtimeArn: harnessArn,
         invokedAt: new Date().toISOString(),
-        ticketId: Object.values(workflow.agentTasks || {}).find(t => t.agentId === agentDef.id && t.status === "running")?.ticketId,
+        ticketId: Object.values(workflow.agentTasks || {}).find(t => t.agentId === agentDef.agentId && t.status === "running")?.ticketId,
       });
     } catch (err) {
       console.warn(`[orchestrator] Manifest session write failed (non-fatal): ${err.message}`);
     }
   } catch (err) {
-    console.error(`[orchestrator] Failed to invoke ${agentDef.id}:`, err);
+    console.error(`[orchestrator] Failed to invoke ${agentDef.agentId}:`, err);
     // Mark ticket as blocked
-    const task = workflow.agentTasks?.[agentDef.id];
+    const task = workflow.agentTasks?.[agentDef.agentId];
     if (task) {
       await ddb.send(new UpdateCommand({
         TableName: TICKETS_TABLE,
@@ -1031,10 +1030,10 @@ async function buildAgentContext(ticket, workflow) {
   context += `ticket_id: ${ticket.ticketId}\n\n`;
 
   // For requirements analyst only: provide the valid agent roster (registry data).
-  if (ticket.assignee === "team-requirements-analyst") {
+  if (ticket.assignee === "agentcore_hub_requirements_analyst") {
     const roster = (_agentRoster || FALLBACK_ROSTER)
-      .filter(a => a.id !== "team-requirements-analyst")
-      .map(a => `  - "${a.id}" (${a.phase})`)
+      .filter(a => a.agentId !== "agentcore_hub_requirements_analyst")
+      .map(a => `  - "${a.agentId}" (${a.phase})`)
       .join("\n");
     context += `## Available Agents\n${roster}\n\n`;
 
@@ -1083,7 +1082,7 @@ async function buildAgentContext(ticket, workflow) {
   if (agentDef?.phase === "development") {
     const baseBranch = workflow.featureBranch || workflow.repoConfig?.repos?.[0]?.defaultBranch || "main";
     context += `## Branch\n`;
-    context += `feature_branch: feature/${ticket.ticketId}-${agentDef.id.replace("team-", "")}\n`;
+    context += `feature_branch: feature/${ticket.ticketId}-${agentDef.agentId.replace(/^agentcore_hub_/, "").replace(/_/g, "-")}\n`;
     context += `base_branch: ${baseBranch}\n\n`;
 
     // Design artifacts content (scope)
@@ -1251,7 +1250,7 @@ async function bootstrapBugWorkflow(bugTicket) {
     summary: analystSummary,
     issuetype: { name: "Subtask" },
     parent: { key: bugKey },
-    labels: ["agentcore-hub-workflow", `wf:${workflowId}`, "agent:team-requirements-analyst"],
+    labels: ["agentcore-hub-workflow", `wf:${workflowId}`, "agent:agentcore_hub_requirements_analyst"],
     description: {
       type: "doc",
       version: 1,

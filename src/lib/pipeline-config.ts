@@ -264,8 +264,8 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
 // ─── Agent Config Interface ─────────────────────────────────────────────────
 
 export interface PipelineAgentConfig {
-  /** Agent ID — must match AGENT_ROSTER id and WorkflowState.agentTasks keys */
-  id: string;
+  /** Agent ID — must match agents.json agentId and WorkflowState.agentTasks keys */
+  agentId: string;
   /** Display name shown in pipeline */
   displayName: string;
   /** Agent type: "runtime" (AgentCore Runtime) or "harness" (AgentCore Harness) */
@@ -274,8 +274,6 @@ export interface PipelineAgentConfig {
   model: string;
   /** Whether evaluations are enabled for this agent */
   evaluationsEnabled: boolean;
-  /** AgentCore harness name (used for discovery) */
-  harnessName: string;
   /** Tools this agent has access to (used to determine which icons to flash) */
   tools: string[];
 }
@@ -367,12 +365,11 @@ function buildPipelinePhases(): PipelinePhaseConfig[] {
         return mappedPhase === phaseId;
       })
       .map((a) => ({
-        id: a.id,
-        displayName: a.name,
+        agentId: a.agentId,
+        displayName: a.displayName,
         type: (a.type || "runtime") as "runtime" | "harness",
         model: a.model || "",
         evaluationsEnabled: a.evaluationsEnabled ?? false,
-        harnessName: a.harnessName,
         tools: a.tools.filter((t) => t !== "invoke_team_agent"),
       }));
 
@@ -453,12 +450,12 @@ export function resolveToolIcon(toolName: string): { icon: string; label: string
 
 export function findAgentPhase(agentId: string): PipelinePhaseConfig | undefined {
   return PIPELINE_PHASES.find((phase) =>
-    phase.agents.some((a) => a.id === agentId)
+    phase.agents.some((a) => a.agentId === agentId)
   );
 }
 
 // ─── Helper: Get all agent IDs from config ──────────────────────────────────
 
 export function getAllAgentIds(): string[] {
-  return PIPELINE_PHASES.flatMap((phase) => phase.agents.map((a) => a.id));
+  return PIPELINE_PHASES.flatMap((phase) => phase.agents.map((a) => a.agentId));
 }

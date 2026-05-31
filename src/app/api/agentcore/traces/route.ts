@@ -385,23 +385,22 @@ async function enrichTraceTools(
   const toolSpans = traces.filter((t) => t.details?.toolCallId);
   if (toolSpans.length === 0) return;
 
-  // sessionId format: TEAM-<n>_wf_<id>-<agent-slug>-<timestamp>
-  // Longest match wins so "team-claude-code-developer" beats "team-claude-code".
-  const agents = (agentsConfig as { agents: Array<{ id: string; harnessName?: string }> }).agents;
-  let matched: { id: string; harnessName?: string } | undefined;
+  // sessionId format: TEAM-<n>_wf_<id>-<agentId>-<timestamp>
+  // Longest match wins so longer IDs beat shorter prefixes.
+  const agents = (agentsConfig as { agents: Array<{ agentId: string }> }).agents;
+  let matched: { agentId: string } | undefined;
   for (const agent of agents) {
-    if (!agent.harnessName) continue;
-    if (sessionId.includes(`-${agent.id}-`) || sessionId.includes(`_${agent.id}-`)) {
-      if (!matched || agent.id.length > matched.id.length) matched = agent;
+    if (sessionId.includes(`-${agent.agentId}-`) || sessionId.includes(`_${agent.agentId}-`)) {
+      if (!matched || agent.agentId.length > matched.agentId.length) matched = agent;
     }
   }
-  if (!matched?.harnessName) return;
+  if (!matched) return;
 
   const client = getLogsClient(region);
 
   const lgRes = await client.send(
     new DescribeLogGroupsCommand({
-      logGroupNamePrefix: `/aws/bedrock-agentcore/runtimes/${matched.harnessName}-`,
+      logGroupNamePrefix: `/aws/bedrock-agentcore/runtimes/${matched.agentId}-`,
       limit: 10,
     })
   );

@@ -350,7 +350,7 @@ JIRA_PROJECT_KEY=TEAM
 **Jira project requirements:**
 - Project type: **Team-managed** (next-gen) software project
 - Issue link type: `Blocks` (standard, exists by default)
-- Agent assignments stored as labels: `agent:team-frontend-dev`
+- Agent assignments stored as labels: `agent:agentcore_hub_frontend_dev`
 - Workflow IDs stored as labels: `wf:wf_123456`
 
 **Workflow setup (required):**
