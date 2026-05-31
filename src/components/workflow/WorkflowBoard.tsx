@@ -7,7 +7,7 @@ import type {
   TicketStatus,
 } from "@/lib/workflow/types";
 import awsIcons from "@/lib/aws-icons.json";
-import { PIPELINE_PHASES, PHASE_DISPLAY_META, resolveToolIcon, getPhaseToolCount, getPhaseSkillCount } from "@/lib/pipeline-config";
+import { PIPELINE_PHASES, PHASE_DISPLAY_META, resolveToolIcon, getPhaseToolCount } from "@/lib/pipeline-config";
 import { Square } from "lucide-react";
 import AgentOutputPanel from "./AgentOutputPanel";
 import S3ArtifactsModal from "./S3ArtifactsModal";
@@ -1193,7 +1193,7 @@ export default function WorkflowBoard({ workflowId }: WorkflowBoardProps) {
 
                   <div className="card-stats">
                     <div className="stat-row">{getPhaseToolCount(phase.id)} Tools</div>
-                    <div className="stat-row">{getPhaseSkillCount(phase.id)} Skills</div>
+                    <div className="stat-row">{phase.skills.length} Skills</div>
                   </div>
 
                   <div className="card-eval">

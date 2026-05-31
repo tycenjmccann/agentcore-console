@@ -11,7 +11,7 @@
       "evalConfigName": "eval_requirements_analyst",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_requirements_analyst-iUpYwC25KS",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["requirements-engineering"],
       "blueprints": ["requirements-analyst", "bug-fix-requirements"]
     },
     {
@@ -25,7 +25,7 @@
       "evalConfigName": "eval_ios_designer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_ios_designer-GOLOXGG3h7",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": ["ios-designer"],
+      "skills": ["apple-hig-expert"],
       "blueprints": ["ios-designer"]
     },
     {
@@ -39,7 +39,7 @@
       "evalConfigName": "eval_backend_designer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_backend_designer-WcCbzyBZ4i",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["backend-architecture", "aws-serverless-backend"],
       "blueprints": ["backend-designer"]
     },
     {
@@ -53,7 +53,7 @@
       "evalConfigName": "eval_frontend_designer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_frontend_designer-0F6gH873ZO",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["frontend-design"],
       "blueprints": ["frontend-designer"]
     },
     {
@@ -67,7 +67,7 @@
       "evalConfigName": "eval_android_designer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_android_designer-99sWXeFskP",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["android-jetpack-compose"],
       "blueprints": ["android-designer"]
     },
     {
@@ -81,7 +81,7 @@
       "evalConfigName": "eval_security_reviewer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_security_reviewer-tmoEXEHFg9",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["security-review"],
       "blueprints": ["security-reviewer"]
     },
     {
@@ -95,7 +95,7 @@
       "evalConfigName": "eval_legal_compliance",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_legal_compliance-R3RnglAnOm",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["governance-risk-compliance"],
       "blueprints": ["legal-compliance"]
     },
     {
@@ -109,7 +109,7 @@
       "evalConfigName": "eval_localization",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_localization-EI5eUWGmDJ",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["i18n-localization"],
       "blueprints": ["localization"]
     },
     {
@@ -123,7 +123,7 @@
       "evalConfigName": "eval_analytics_designer",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_analytics_designer-nIfOVs3GEj",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["analytics-observability"],
       "blueprints": ["analytics-designer"]
     },
     {
@@ -137,7 +137,7 @@
       "evalConfigName": "eval_backend_dev",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_backend_dev-UKXih09TYL",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["backend-architecture", "aws-serverless-backend"],
       "blueprints": ["backend-dev"]
     },
     {
@@ -151,7 +151,7 @@
       "evalConfigName": "eval_api_dev",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_api_dev-6V6nFpBL3L",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["api-design-reviewer"],
       "blueprints": ["api-dev"]
     },
     {
@@ -165,7 +165,7 @@
       "evalConfigName": "eval_frontend_dev",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_frontend_dev-1YoJPW6ASF",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["typescript-react-patterns", "frontend-design"],
       "blueprints": ["frontend-dev"]
     },
     {
@@ -179,7 +179,7 @@
       "evalConfigName": "eval_qa_verifier",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_qa_verifier-RZfbvN5e64",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["qa-test-coverage"],
       "blueprints": ["qa-verifier"]
     },
     {
@@ -193,7 +193,7 @@
       "evalConfigName": "eval_ci_agent",
       "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:838829463875:runtime/agentis_ci_agent-tSCbVuA5eb",
       "tools": ["S3Storage___list_objects", "S3Storage___read_object", "S3Storage___write_object", "Tickets___add_comment", "Tickets___create_ticket", "Tickets___list_tickets", "Tickets___search_issues", "Tickets___transition_ticket", "Tickets___update_ticket", "WorkflowOutput___report_completion", "WorkflowOutput___save_design_doc", "WorkflowOutput___submit_ticket_plan", "browser", "calculator", "claude_code", "code_interpreter", "create_branch", "create_or_update_file", "create_pull_request", "current_time", "download_s3_file", "editor", "environment", "file_read", "file_write", "get_file_contents", "get_me", "http_request", "image_reader", "list_branches", "load_blueprint", "push_files", "python_repl", "retrieve", "search_code", "search_repositories", "shell"],
-      "skills": [],
+      "skills": ["ci-cd-pipelines"],
       "blueprints": ["ci-agent"]
     }
   ],

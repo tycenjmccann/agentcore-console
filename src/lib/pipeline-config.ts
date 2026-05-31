@@ -2,13 +2,15 @@
  * Pipeline Configuration
  *
  * This file defines HOW to DISPLAY the pipeline — purely visual/UI concerns.
- * Agent data (who exists, what tools they have) comes from agents.json (single source of truth).
+ * Agent data (who exists, what tools they have, what skills they load) comes from
+ * agents.json (single source of truth). Per-phase skill lists, models, and
+ * evaluations-enabled flags are derived by aggregating across the agents in each phase.
  *
  * To customize for your environment:
- * 1. Deploy your AgentCore harness agents
- * 2. Update src/config/agents.json with your agent IDs and harness names
+ * 1. Deploy your AgentCore agents
+ * 2. Update src/config/agents.json (agentId, tools, skills, blueprints)
  * 3. Update TOOL_ICON_MAP below if you add custom gateway tools
- * 4. Update PHASE_DISPLAY_META if you change phase display properties
+ * 4. Update PHASE_DISPLAY_META if you change phase identity / config / outputs labels
  */
 
 import agentsConfig from "@/config/agents.json";
@@ -106,10 +108,7 @@ interface PhaseDisplayMeta {
   identity: PipelineIdentityItem[];
   config: PipelineConfigItem[];
   tools: PipelineDisplayItem[];
-  skills: string[];
   outputs: PipelineDisplayItem[];
-  models: string[];
-  evaluationsEnabled: boolean;
 }
 
 export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
@@ -128,10 +127,7 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { dot: "ext", label: "Set Target Git Repo" },
       { icon: "s3", label: "S3 Artifact Storage" },
     ],
-    skills: [],
     outputs: [{ icon: "eventbridge", label: "Jira Epic Created (EventBridge)" }],
-    models: [],
-    evaluationsEnabled: false,
   },
   requirements: {
     name: "Requirements",
@@ -153,15 +149,10 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { icon: "github", label: "GitHub (MCP)" },
       { icon: "claude", label: "Claude Code" },
     ],
-    skills: [
-      "Requirements Analysis",
-    ],
     outputs: [
       { icon: "s3", label: "S3 Artifacts" },
       { icon: "agentcore", label: "report_completion" },
     ],
-    models: ["Claude Opus 4.6"],
-    evaluationsEnabled: true,
   },
   design: {
     name: "Design",
@@ -181,21 +172,10 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { icon: "github", label: "GitHub (MCP)" },
       { icon: "claude", label: "Claude Code" },
     ],
-    skills: [
-      "iOS Architecture",
-      "Backend Systems",
-      "Frontend Design",
-      "Privacy & Compliance",
-      "Localization",
-      "General Design",
-      "Code Architect",
-    ],
     outputs: [
       { icon: "s3", label: "S3 Artifacts" },
       { icon: "agentcore", label: "save_design_doc" },
     ],
-    models: ["Claude Opus 4.6", "Claude Sonnet 4.6"],
-    evaluationsEnabled: true,
   },
   development: {
     name: "Development",
@@ -215,19 +195,11 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { icon: "github", label: "GitHub (MCP)" },
       { icon: "claude", label: "Claude Code" },
     ],
-    skills: [
-      "Swift Development",
-      "Node.js / TypeScript",
-      "Full-Stack",
-      "Feature Dev",
-    ],
     outputs: [
       { icon: "s3", label: "S3 Artifacts" },
       { icon: "github", label: "Git Commits / PRs" },
       { icon: "agentcore", label: "report_completion" },
     ],
-    models: ["Claude Opus 4.6", "Claude Sonnet 4.6"],
-    evaluationsEnabled: true,
   },
   qa: {
     name: "QA & Ship",
@@ -248,16 +220,10 @@ export const PHASE_DISPLAY_META: Record<PipelinePhaseId, PhaseDisplayMeta> = {
       { icon: "github", label: "GitHub (MCP)" },
       { icon: "claude", label: "Claude Code" },
     ],
-    skills: [
-      "QA Verification",
-      "CI Verification",
-    ],
     outputs: [
       { icon: "s3", label: "S3 Artifacts" },
       { icon: "agentcore", label: "report_completion" },
     ],
-    models: ["Claude Opus 4.6", "Claude Sonnet 4.6"],
-    evaluationsEnabled: true,
   },
 };
 
@@ -276,6 +242,8 @@ export interface PipelineAgentConfig {
   evaluationsEnabled: boolean;
   /** Tools this agent has access to (used to determine which icons to flash) */
   tools: string[];
+  /** Claude Code skill slugs loaded for this agent */
+  skills: string[];
 }
 
 // ─── Pipeline Phase Config (derived) ────────────────────────────────────────
@@ -331,11 +299,6 @@ export function getPhaseToolCount(phaseId: PipelinePhaseId): number {
   return tools.size;
 }
 
-/** Count skills for a phase */
-export function getPhaseSkillCount(phaseId: PipelinePhaseId): number {
-  return PHASE_DISPLAY_META[phaseId].skills.length;
-}
-
 /** Count runtime agents (total agents in this phase) */
 export function getPhaseRuntimeAgentCount(phaseId: PipelinePhaseId): number {
   return agentsConfig.agents.filter((a) => {
@@ -354,6 +317,20 @@ export function getPhaseHarnessAgentCount(phaseId: PipelinePhaseId): number {
 
 // ─── Derive PIPELINE_PHASES from agents.json + display metadata ─────────────
 
+/** Convert a kebab-case skill slug into a Title Case display label. */
+const SKILL_ACRONYMS = new Set(["api", "aws", "ci", "cd", "hig", "i18n", "qa", "ux", "ui"]);
+
+function humanizeSkillSlug(slug: string): string {
+  return slug
+    .split("-")
+    .map((part) => {
+      if (part.length === 0) return part;
+      if (SKILL_ACRONYMS.has(part)) return part === "i18n" ? "i18n" : part.toUpperCase();
+      return part[0].toUpperCase() + part.slice(1);
+    })
+    .join(" ");
+}
+
 function buildPipelinePhases(): PipelinePhaseConfig[] {
   return PHASE_DISPLAY_ORDER.map((phaseId, idx) => {
     const meta = PHASE_DISPLAY_META[phaseId];
@@ -371,6 +348,7 @@ function buildPipelinePhases(): PipelinePhaseConfig[] {
         model: a.model || "",
         evaluationsEnabled: a.evaluationsEnabled ?? false,
         tools: a.tools.filter((t) => t !== "invoke_team_agent"),
+        skills: a.skills ?? [],
       }));
 
     // Generate typeLabel dynamically
@@ -403,6 +381,10 @@ function buildPipelinePhases(): PipelinePhaseConfig[] {
           return items;
         })();
 
+    // Derive skills from union of agent.skills, deduped, humanized for display
+    const skillSlugs = [...new Set(agents.flatMap((a) => a.skills))];
+    const phaseSkills = skillSlugs.map(humanizeSkillSlug);
+
     return {
       id: phaseId,
       name: meta.name,
@@ -414,7 +396,7 @@ function buildPipelinePhases(): PipelinePhaseConfig[] {
       config: meta.config,
       tools: phaseTools,
       agents,
-      skills: meta.skills,
+      skills: phaseSkills,
       outputs: meta.outputs,
       models: [...new Set(agents.map((a) => a.model).filter(Boolean))],
       evaluationsEnabled: agents.some((a) => a.evaluationsEnabled),

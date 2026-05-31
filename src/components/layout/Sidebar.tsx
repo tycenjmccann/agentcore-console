@@ -20,10 +20,7 @@ export default function Sidebar() {
             <Bot className="w-5 h-5 text-white" />
           </div>
           {!isCollapsed && (
-            <div>
-              <h1 className="text-lg font-bold text-[var(--color-text-primary)]">{BRAND_NAME}</h1>
-              <p className="text-xs text-[var(--color-text-muted)]">Hub</p>
-            </div>
+            <h1 className="text-lg font-bold text-[var(--color-text-primary)]">{BRAND_NAME}</h1>
           )}
         </div>
       </div>
