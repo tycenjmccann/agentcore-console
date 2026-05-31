@@ -95,7 +95,7 @@ async function startWithJira(body: WorkflowInput) {
     parentId: epicId,
     title: `Requirements: requirements analyst — ${body.title}`,
     description: `Analyze the feature request and create tickets for the relevant agents.\n\nTitle: ${body.title}\nDescription: ${body.description}`,
-    assignee: "team-requirements-analyst",
+    assignee: "agentcore_hub_requirements_analyst",
     blockedBy: [],
   }, workflowId);
 
@@ -157,7 +157,7 @@ async function startWithDynamoDB(body: WorkflowInput) {
     description: `Analyze the feature request and create tickets for the relevant agents.\n\nTitle: ${body.title}\nDescription: ${body.description}`,
     issue_type: "Task",
     parent_key: epicId,
-    assignee: "team-requirements-analyst",
+    assignee: "agentcore_hub_requirements_analyst",
     workflow_id: workflowId,
   });
 

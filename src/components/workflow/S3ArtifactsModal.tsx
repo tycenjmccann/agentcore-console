@@ -346,7 +346,7 @@ export default function S3ArtifactsModal({
                 {sortedFolders.map((folder) => {
                   const folderLabel = folder === "shared"
                     ? "Shared Workspace"
-                    : folder.replace(/^team-/, "").split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+                    : folder.replace(/^agentcore_hub_/, "").split(/[_-]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
                   return (
                     <div key={folder}>
                       <div className="flex items-center gap-2 mb-1 px-1">

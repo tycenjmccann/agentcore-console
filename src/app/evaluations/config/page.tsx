@@ -43,7 +43,7 @@ interface Toast {
 // --- Build agent name lookup from config ---
 
 const AGENT_NAME_MAP = new Map<string, string>(
-  agentsConfig.agents.map((a) => [a.id, a.name])
+  agentsConfig.agents.map((a) => [a.agentId, a.displayName])
 );
 
 function resolveAgentName(agentId: string): string {

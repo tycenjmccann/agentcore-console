@@ -75,16 +75,16 @@ function buildDemoAgentTasks(
   const tasks: WorkflowState["agentTasks"] = {};
 
   const designAgents = [
-    "team-ios-designer",
-    "team-android-designer",
-    "team-backend-designer",
-    "team-security-reviewer",
-    "team-analytics-designer",
-    "team-localization",
-    "team-legal-compliance",
+    "agentcore_hub_ios_designer",
+    "agentcore_hub_android_designer",
+    "agentcore_hub_backend_designer",
+    "agentcore_hub_security_reviewer",
+    "agentcore_hub_analytics_designer",
+    "agentcore_hub_localization",
+    "agentcore_hub_legal_compliance",
   ];
 
-  const devAgents = ["team-frontend-dev", "team-backend-dev", "team-api-dev"];
+  const devAgents = ["agentcore_hub_frontend_dev", "agentcore_hub_backend_dev", "agentcore_hub_api_dev"];
 
   if (
     phase === "requirements" ||
@@ -93,9 +93,9 @@ function buildDemoAgentTasks(
     phase === "review" ||
     phase === "complete"
   ) {
-    tasks["team-requirements"] = {
+    tasks["agentcore_hub_requirements_analyst"] = {
       id: "task-req-1",
-      agentId: "team-requirements",
+      agentId: "agentcore_hub_requirements_analyst",
       ticketId: "TEAM-1",
       status: phase === "requirements" ? "running" : "complete",
       input: "Analyze PRD and create tickets",

@@ -357,14 +357,14 @@ def Tickets___create_ticket(title: str, description: str, parent_id: str = "", a
     """Create a new ticket in the project tracker.
 
     MANDATORY TICKETS (create these for EVERY workflow, no exceptions):
-      - team-qa-verifier: "QA: Verify [feature]" — blocked_by=ALL dev ticket IDs
-      - team-ci-agent: "CI: Validate build and tests for [feature]" — blocked_by=QA ticket ID
+      - agentcore_hub_qa_verifier: "QA: Verify [feature]" — blocked_by=ALL dev ticket IDs
+      - agentcore_hub_ci_agent: "CI: Validate build and tests for [feature]" — blocked_by=QA ticket ID
 
     Example complete ticket set for a frontend feature:
-      1. create_ticket(assignee="team-frontend-designer", blocked_by="")
-      2. create_ticket(assignee="team-frontend-dev", blocked_by="TEAM-101")
-      3. create_ticket(assignee="team-qa-verifier", blocked_by="TEAM-102")  ← ALWAYS
-      4. create_ticket(assignee="team-ci-agent", blocked_by="TEAM-103")     ← ALWAYS
+      1. create_ticket(assignee="agentcore_hub_frontend_designer", blocked_by="")
+      2. create_ticket(assignee="agentcore_hub_frontend_dev", blocked_by="TEAM-101")
+      3. create_ticket(assignee="agentcore_hub_qa_verifier", blocked_by="TEAM-102")  ← ALWAYS
+      4. create_ticket(assignee="agentcore_hub_ci_agent", blocked_by="TEAM-103")     ← ALWAYS
 
     Args:
         title: Ticket title/summary
@@ -372,7 +372,7 @@ def Tickets___create_ticket(title: str, description: str, parent_id: str = "", a
         parent_id: Parent ticket key (e.g., "TEAM-1492"). Required for child tickets.
             For bug-fix flows this must be the parent Bug's key — Jira requires
             sub-tasks of a Bug to use issue_type=subtask, not task.
-        assignee: Agent ID to assign to (e.g., team-frontend-dev, team-backend-dev, team-qa-verifier, team-ci-agent)
+        assignee: Agent ID to assign to (e.g., agentcore_hub_frontend_dev, agentcore_hub_backend_dev, agentcore_hub_qa_verifier, agentcore_hub_ci_agent)
         ticket_type: One of "epic", "story", "task", or "subtask".
             Use "subtask" + a parent_id when the parent is a Bug (Jira rejects task→bug).
         blocked_by: Comma-separated list of ticket IDs this ticket is blocked by (e.g., "TEAM-401,TEAM-402")
@@ -783,7 +783,7 @@ async def agent_invocation(payload, context):
     {
         "prompt": "The task context (ticket description, workflow metadata)",
         "workflow_id": "wf_xxx",
-        "agent_id": "team-security-reviewer",
+        "agent_id": "agentcore_hub_security_reviewer",
         "model_override": "us.anthropic.claude-opus-4-6-v1" (optional)
     }
 

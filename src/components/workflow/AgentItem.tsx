@@ -8,13 +8,12 @@ interface AgentItemProps {
   onClick: () => void;
 }
 
-/** Format agent ID to display name: "team-ios-designer" -> "iOS Designer" */
+/** Format agent ID to display name: "agentcore_hub_ios_designer" -> "iOS Designer" */
 function formatAgentName(agentId: string): string {
   return agentId
-    .replace(/^team-/, "")
-    .split("-")
+    .replace(/^agentcore_hub_/, "")
+    .split(/[_-]/)
     .map((word) => {
-      // Handle common acronyms
       const upper = word.toUpperCase();
       if (["IOS", "API", "UI", "QA"].includes(upper)) return upper;
       return word.charAt(0).toUpperCase() + word.slice(1);

@@ -70,7 +70,7 @@ if [[ ! -f "${FLEET_IDS_FILE}" ]]; then
 fi
 
 # Read canonical agent IDs from agents.json
-AGENT_IDS=$(jq -r '.agents[].id' "${FLEET_IDS_FILE}")
+AGENT_IDS=$(jq -r '.agents[].agentId' "${FLEET_IDS_FILE}")
 NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SEEDED=0
 SKIPPED=0

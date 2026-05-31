@@ -12,8 +12,9 @@ CloudWatch Logs → eval-packager Lambda → DynamoDB buffer → S3 batch → im
 
 1. **CW Logs Ingestion**: Bedrock AgentCore evaluation harnesses emit results to CloudWatch Logs groups following the pattern:
    ```
-   /aws/bedrock-agentcore/evaluations/results/eval_<harnessName>
+   /aws/bedrock-agentcore/evaluations/results/eval_<short_id>
    ```
+   where `<short_id>` is the agent's `agentId` with the `agentcore_hub_` prefix stripped.
 
 2. **Eval Packager Lambda** (`lambda/eval-packager/index.mjs`):
    - Triggered by CW Logs subscription filters
@@ -23,7 +24,7 @@ CloudWatch Logs → eval-packager Lambda → DynamoDB buffer → S3 batch → im
    - Atomically appends enriched session data to a DynamoDB buffer
 
 3. **DynamoDB Buffer** (`agentcore-hub-eval-config` table):
-   - Keyed by canonical `agentId` (e.g., `team-frontend-dev`)
+   - Keyed by canonical `agentId` (e.g., `agentcore_hub_frontend_dev`)
    - Accumulates sessions in `sessionBuffer` list attribute
    - Flushes when buffer reaches configured `batchSize`
 
@@ -41,17 +42,16 @@ CloudWatch Logs → eval-packager Lambda → DynamoDB buffer → S3 batch → im
 The packager Lambda resolves agent identity dynamically from `config/agents.json` stored in the artifacts S3 bucket:
 
 1. On cold start, loads `s3://<ARTIFACTS_BUCKET>/config/agents.json`
-2. Builds a `harnessName → id` lookup map (cached for warm starts)
-3. Extracts harness name from the CW Logs log group (substring after `eval_`)
-4. Resolves to canonical agent ID (e.g., `team_frontend_dev` → `team-frontend-dev`)
+2. Builds an `agentId` lookup set (cached for warm starts)
+3. Extracts agent identifier from the CW Logs log group (substring after `eval_`)
+4. Resolves to canonical agent ID by prefixing with `agentcore_hub_` (e.g., `frontend_dev` → `agentcore_hub_frontend_dev`)
 
 This replaces the previously hardcoded `CONFIG_TO_AGENT` map, ensuring the packager stays in sync with the canonical agent registry.
 
 ### Agents Config Source of Truth
 
 The file `src/config/agents.json` defines all agents with their:
-- `id`: Canonical agent identifier (kebab-case, e.g., `team-frontend-dev`)
-- `harnessName`: Evaluation harness identifier (snake_case, e.g., `team_frontend_dev`)
+- `agentId`: Canonical agent identifier (snake_case, e.g., `agentcore_hub_frontend_dev`). The runtime resource name is the same string.
 
 ## Enriched Batch Payloads
 
@@ -59,12 +59,12 @@ Each session in the S3 batch `sessions[]` array contains **parsed evaluator resu
 
 ```json
 {
-  "agentId": "team-frontend-dev",
+  "agentId": "agentcore_hub_frontend_dev",
   "batchSize": 10,
   "flushedAt": "2025-01-15T10:30:00.000Z",
   "sessions": [
     {
-      "logGroup": "/aws/bedrock-agentcore/evaluations/results/eval_team_frontend_dev",
+      "logGroup": "/aws/bedrock-agentcore/evaluations/results/eval_frontend_dev",
       "logStream": "stream-id",
       "timestamp": "2025-01-15T10:29:55.000Z",
       "evaluatorResults": [
@@ -117,23 +117,23 @@ The seed is idempotent — existing rows are not overwritten (`attribute_not_exi
 
 | agentId | Source |
 |---------|--------|
-| team-requirements-analyst | agents.json |
-| team-ios-designer | agents.json |
-| team-backend-designer | agents.json |
-| team-frontend-designer | agents.json |
-| team-android-designer | agents.json |
-| team-security-reviewer | agents.json |
-| team-legal-compliance | agents.json |
-| team-localization | agents.json |
-| team-analytics-designer | agents.json |
-| team-backend-dev | agents.json |
-| team-api-dev | agents.json |
-| team-frontend-dev | agents.json |
-| team-qa-verifier | agents.json |
-| team-ci-agent | agents.json |
+| agentcore_hub_requirements_analyst | agents.json |
+| agentcore_hub_ios_designer | agents.json |
+| agentcore_hub_backend_designer | agents.json |
+| agentcore_hub_frontend_designer | agents.json |
+| agentcore_hub_android_designer | agents.json |
+| agentcore_hub_security_reviewer | agents.json |
+| agentcore_hub_legal_compliance | agents.json |
+| agentcore_hub_localization | agents.json |
+| agentcore_hub_analytics_designer | agents.json |
+| agentcore_hub_backend_dev | agents.json |
+| agentcore_hub_api_dev | agents.json |
+| agentcore_hub_frontend_dev | agents.json |
+| agentcore_hub_qa_verifier | agents.json |
+| agentcore_hub_ci_agent | agents.json |
 
 ## Troubleshooting
 
 - **"Agents config file not found"**: Ensure you're running from the repo root or that the path `src/config/agents.json` is accessible relative to the script.
-- **Agent not resolving**: Verify the agent's `harnessName` in `src/config/agents.json` matches the CW Logs group suffix.
+- **Agent not resolving**: Verify the agent's `agentId` in `src/config/agents.json` matches the CW Logs group suffix (after stripping the `agentcore_hub_` prefix).
 - **Stale agent map**: The Lambda caches `agents.json` for warm starts. A cold start (redeploy or timeout) will reload it.

@@ -66,7 +66,7 @@ function resolveAgentId(logGroup, agentList) {
   const match = agentList.find(
     (a) => a.evalConfigName && logGroup.includes(a.evalConfigName)
   );
-  return match?.id || null;
+  return match?.agentId || null;
 }
 
 // ─── Handler ────────────────────────────────────────────────────────────────

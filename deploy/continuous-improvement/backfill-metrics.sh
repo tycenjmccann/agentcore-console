@@ -41,11 +41,12 @@ import json, subprocess, sys, time
 with open('${AGENTS_FILE}') as f:
     agents = json.load(f)['agents']
 
-agents = [a for a in agents if a.get('evaluationsEnabled') and a.get('harnessName')]
+agents = [a for a in agents if a.get('evaluationsEnabled')]
 
 for agent in agents:
-    agent_id = agent['id']
-    harness = agent['harnessName']
+    agent_id = agent['agentId']
+    # Convention: agentId IS the runtime name (no separate harnessName field)
+    harness = agent_id
     eval_config = agent.get('evalConfigName', '')
 
     print(f'\\n--- {agent_id} ---')

@@ -431,7 +431,7 @@ export function buildRequirementsContext(
   context += `1. A structured requirements document with acceptance criteria\n`;
   context += `2. A JSON ticket plan specifying which team agents need to be involved\n`;
   context += `\nONLY create tickets for agents that are relevant to this work.\n`;
-  context += `Available agents: team-ios-designer, team-backend-designer, team-android-designer, team-security-reviewer, team-legal-compliance, team-localization, team-analytics-designer, team-backend-dev, team-api-dev, team-frontend-dev\n`;
+  context += `Available agents: agentcore_hub_ios_designer, agentcore_hub_backend_designer, agentcore_hub_android_designer, agentcore_hub_security_reviewer, agentcore_hub_legal_compliance, agentcore_hub_localization, agentcore_hub_analytics_designer, agentcore_hub_backend_dev, agentcore_hub_api_dev, agentcore_hub_frontend_dev\n`;
 
   return context;
 }
