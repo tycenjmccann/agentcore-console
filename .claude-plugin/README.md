@@ -45,11 +45,13 @@ The plugin reasons about four modules (see `docs/MODULES.md` for the full breakd
 # Validate the manifest (run from repo root)
 claude plugin validate . --strict
 
-# Try the plugin locally without publishing to a marketplace
+# Load the plugin for one session — no install, no restart needed
 claude --plugin-dir .
 ```
 
-The skill at `skills/setup/SKILL.md` and the agent at `agents/deploy-runner.md` are auto-discovered from their default directories — `plugin.json` only carries metadata.
+Once Claude Code starts, type `/setup` at the prompt. The skill at `skills/setup/SKILL.md` and the agent at `agents/deploy-runner.md` are auto-discovered from their default directories — `plugin.json` only carries metadata.
+
+**Iterating on the plugin during development:** edits to `SKILL.md` take effect immediately in the running session. Edits to `agents/`, `bin/*.sh`, or `plugin.json` require `/reload-plugins` (or restarting `claude --plugin-dir .`).
 
 ## Hard rules the plugin follows
 

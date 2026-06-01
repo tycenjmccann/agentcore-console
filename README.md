@@ -27,23 +27,26 @@ deploy checklists, and exact removal steps.
 
 ## Quick start with `/setup` (recommended)
 
-This repo ships a Claude Code plugin that turns the manual stages below into a guided conversation:
+This repo ships a Claude Code plugin that turns the manual stages below into a guided conversation. There's no install step — `--plugin-dir .` loads the plugin for that one session.
 
 ```bash
 git clone https://github.com/tycenjmccann/agentcore-hub.git
 cd agentcore-hub
 
-# Launch Claude Code with this repo's plugin loaded for the session
+# Launch Claude Code with this repo's plugin loaded for the session.
+# Run from the repo root — the path is the plugin directory, not the manifest.
 claude --plugin-dir .
 ```
 
-Then inside Claude Code:
+Then at the Claude Code prompt:
 
 ```
 /setup
 ```
 
-`/setup` asks 4–6 questions, detects your AWS account/region, writes `.env.local`, and runs only the deploy scripts the modules you picked actually need — verifying each phase before moving on. Safe to re-run; never overwrites `.env.local` (backs up to `.env.local.bak` first). See [`.claude-plugin/README.md`](.claude-plugin/README.md) for the full plugin design.
+That's it — no exit, no restart. `/setup` asks 4–6 questions, detects your AWS account/region, writes `.env.local`, and runs only the deploy scripts the modules you picked actually need — verifying each phase before moving on. Safe to re-run (Ctrl-C, then `/setup` again in a fresh `claude --plugin-dir .` session); never overwrites `.env.local` (backs up to `.env.local.bak` first). See [`.claude-plugin/README.md`](.claude-plugin/README.md) for the full plugin design.
+
+> **Want it permanently?** Once a marketplace entry is published, `claude plugin install agentcore-hub-setup@<marketplace>` installs it across all sessions. Until then, use `--plugin-dir .` per session.
 
 If you'd rather drive the install by hand (or you're not using Claude Code), follow the progressive stages below.
 
