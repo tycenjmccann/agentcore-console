@@ -40,7 +40,7 @@ The plugin reasons about four modules (see `docs/MODULES.md` for the full breakd
 
 ## Hard rules the plugin follows
 
-- Never adds new infra — only orchestrates scripts that already exist in `deploy/` and `scripts/`.
+- Never adds new infra — only orchestrates scripts that already exist in the repo (`deploy/`, `scripts/`, or alongside Lambda source under `lambda/<name>/deploy.sh`).
 - Never overwrites `.env.local` — backs up to `.env.local.bak` first.
 - Always passes `AWS_PROFILE` + `AWS_REGION` through to every `aws` call. Never assumes `default`.
 - Never logs secrets (Jira API token, GitHub PAT). They go straight from the prompt into `.env.local` mode 600.

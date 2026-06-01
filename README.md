@@ -414,7 +414,7 @@ To configure:
 
 ### Agent Roster (Config-Driven)
 
-The roster of valid agents is defined in `src/config/agents.json` — the single source of truth. This file is synced to S3 during deployment, and all Lambdas (orchestrator, agentcore-hub-tickets, agentcore-hub-jira-real) load it on cold start.
+The roster of valid agents is defined in `src/config/agents.json` — the single source of truth. This file is synced to S3 during deployment, and all Lambdas (orchestrator, agentcore-hub-tickets, agentcore-hub-jira) load it on cold start.
 
 **To add/remove agents:**
 1. Edit `src/config/agents.json`
