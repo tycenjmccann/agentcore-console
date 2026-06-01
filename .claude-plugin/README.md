@@ -27,7 +27,8 @@ The plugin reasons about four modules (see `docs/MODULES.md` for the full breakd
 .claude-plugin/
 ├── plugin.json                # plugin manifest
 ├── skills/
-│   └── setup.md               # the /setup conversation flow
+│   └── setup/
+│       └── SKILL.md           # the /setup conversation flow
 ├── agents/
 │   └── deploy-runner.md       # subagent for long-running deploys (5–15 min)
 └── bin/
@@ -37,6 +38,18 @@ The plugin reasons about four modules (see `docs/MODULES.md` for the full breakd
 ```
 
 `bin/run-module.sh` is the single source of truth for "to deploy module X, run scripts A, B, C." If a script is added or removed, this file is the only one to update.
+
+## Validating and installing
+
+```bash
+# Validate the manifest (run from repo root)
+claude plugin validate . --strict
+
+# Try the plugin locally without publishing to a marketplace
+claude --plugin-dir .
+```
+
+The skill at `skills/setup/SKILL.md` and the agent at `agents/deploy-runner.md` are auto-discovered from their default directories — `plugin.json` only carries metadata.
 
 ## Hard rules the plugin follows
 

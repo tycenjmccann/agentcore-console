@@ -27,17 +27,19 @@ deploy checklists, and exact removal steps.
 
 ## Quick start with `/setup` (recommended)
 
-This repo ships a Claude Code plugin that turns the manual stages below into a guided conversation. From inside Claude Code:
+This repo ships a Claude Code plugin that turns the manual stages below into a guided conversation:
 
 ```bash
 git clone https://github.com/tycenjmccann/agentcore-hub.git
 cd agentcore-hub
+
+# Launch Claude Code with this repo's plugin loaded for the session
+claude --plugin-dir .
 ```
 
-Then in Claude Code:
+Then inside Claude Code:
 
 ```
-/plugin install .
 /setup
 ```
 
