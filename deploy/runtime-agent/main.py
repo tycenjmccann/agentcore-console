@@ -34,31 +34,30 @@ if os.path.exists(_pw_node) and not os.access(_pw_node, os.X_OK):
         os.chmod("/tmp/playwright-node", 0o755)
         os.environ["PLAYWRIGHT_NODEJS_PATH"] = "/tmp/playwright-node"
 
-# --- Install Node.js at startup (once per session) ---
-# direct_code_deploy runtimes don't have Node.js pre-installed.
-# This installs a standalone Node.js binary to /tmp so shell, claude_code, and npm work.
-_node_marker = "/tmp/.node_installed"
-if not os.path.exists(_node_marker):
-    try:
-        subprocess.run(
-            ["bash", "-c", """
-            cd /tmp && \
-            curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-arm64.tar.gz | tar -xz && \
-            ln -sf /tmp/node-v20.18.0-linux-arm64/bin/node /tmp/node && \
-            ln -sf /tmp/node-v20.18.0-linux-arm64/bin/npm /tmp/npm && \
-            ln -sf /tmp/node-v20.18.0-linux-arm64/bin/npx /tmp/npx && \
-            export PATH="/tmp/node-v20.18.0-linux-arm64/bin:$PATH" && \
-            npm install -g @anthropic-ai/claude-code 2>/dev/null && \
-            touch /tmp/.node_installed
-            """],
-            capture_output=True, text=True, timeout=180,
-            env={**os.environ, "PATH": f"/tmp/node-v20.18.0-linux-arm64/bin:{os.environ.get('PATH', '')}"},
-        )
-        os.environ["PATH"] = f"/tmp/node-v20.18.0-linux-arm64/bin:/tmp/.npm-global/bin:{os.environ.get('PATH', '')}"
-    except Exception as e:
-        print(f"[WARN] Node.js install failed: {e} — shell/claude_code may not work")
-else:
-    os.environ["PATH"] = f"/tmp/node-v20.18.0-linux-arm64/bin:/tmp/.npm-global/bin:{os.environ.get('PATH', '')}"
+# --- Node.js path setup (for Playwright validation, npm-based tools) ---
+# Container image has Node.js pre-installed. For direct_code_deploy, install if missing.
+import shutil as _shutil
+if not _shutil.which("node"):
+    _node_marker = "/tmp/.node_installed"
+    if not os.path.exists(_node_marker):
+        try:
+            subprocess.run(
+                ["bash", "-c", """
+                cd /tmp && \
+                curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-arm64.tar.gz | tar -xz && \
+                ln -sf /tmp/node-v20.18.0-linux-arm64/bin/node /tmp/node && \
+                ln -sf /tmp/node-v20.18.0-linux-arm64/bin/npm /tmp/npm && \
+                ln -sf /tmp/node-v20.18.0-linux-arm64/bin/npx /tmp/npx && \
+                touch /tmp/.node_installed
+                """],
+                capture_output=True, text=True, timeout=120,
+                env={**os.environ, "PATH": f"/tmp/node-v20.18.0-linux-arm64/bin:{os.environ.get('PATH', '')}"},
+            )
+            os.environ["PATH"] = f"/tmp/node-v20.18.0-linux-arm64/bin:{os.environ.get('PATH', '')}"
+        except Exception as e:
+            print(f"[WARN] Node.js install failed: {e} — Playwright validation may not work")
+    else:
+        os.environ["PATH"] = f"/tmp/node-v20.18.0-linux-arm64/bin:{os.environ.get('PATH', '')}"
 
 import json
 import logging
@@ -133,6 +132,9 @@ MODEL_ID = os.getenv("MODEL_ID", "us.anthropic.claude-opus-4-6-v1")
 READ_TIMEOUT = int(os.getenv("READ_TIMEOUT", "600"))  # 10 minutes — no more urllib3 kills
 GATEWAY_ARN = os.getenv("GATEWAY_ARN", "arn:aws:bedrock-agentcore:us-east-1:023392223961:gateway/datesparkiamgw-vjme4fyj6k")
 ARTIFACT_BUCKET = os.getenv("ARTIFACT_BUCKET", "agentcore-artifacts-023392223961-us-east-1")
+
+# Claude Code Runtime — dedicated coding agent invoked instead of subprocess
+CLAUDE_CODE_RUNTIME_ARN = os.getenv("CLAUDE_CODE_RUNTIME_ARN", "")
 
 # System prompt: prefer S3 (for large prompts), fall back to env var
 _prompt_s3_key = os.getenv("SYSTEM_PROMPT_S3_KEY", "")
@@ -484,10 +486,122 @@ def _create_mcp_clients():
     return clients
 
 
-# ─── Claude Code SDK Tool ────────────────────────────────────────────────────
-# Agents that write code delegate to Claude Code for higher-quality implementation.
-# Claude Code reads CLAUDE.md in the repo, follows project conventions, and handles
-# complex multi-file edits better than raw shell/editor tool usage.
+# ─── Claude Code Runtime Tool ─────────────────────────────────────────────────
+# Delegates coding work to a dedicated Claude Code AgentCore Runtime.
+# The runtime has persistent /mnt/workspace (repos stay cloned, deps stay installed)
+# and full OTel observability (every tool call is traced in CloudWatch).
+#
+# Pattern: InvokeAgentRuntimeCommand (shell execution into the runtime session)
+# This matches the official aws-samples/sample-agent-assisted-sdlc architecture:
+#   - The runtime is a health server + OTel collector (see deploy/claude-code-runtime/)
+#   - Claude Code is launched via shell command into the session's microVM
+#   - Stdout/stderr stream back via HTTP/2 event stream (contentDelta events)
+#   - The workspace at /mnt/workspace persists across invocations for the same session
+
+def _execute_runtime_command(session_id: str, command: str, timeout: int = 900, workflow_id: str = "", agent_id: str = "") -> dict:
+    """Run a shell command in the Claude Code runtime session via InvokeAgentRuntimeCommand.
+
+    Uses the same SigV4-signed HTTP pattern as the aws-samples reference:
+    POST /runtimes/{arn}/commands with streaming event response.
+
+    Returns dict with stdout, stderr, exitCode.
+    """
+    import urllib.parse
+    import requests
+    from botocore.auth import SigV4Auth
+    from botocore.awsrequest import AWSRequest
+    from botocore.session import Session as BotocoreSession
+    from botocore.eventstream import EventStreamBuffer
+
+    encoded_arn = urllib.parse.quote(CLAUDE_CODE_RUNTIME_ARN, safe="")
+    url = (
+        f"https://bedrock-agentcore.{REGION}.amazonaws.com"
+        f"/runtimes/{encoded_arn}/commands?qualifier=DEFAULT"
+    )
+
+    body = json.dumps({"command": command, "timeout": timeout})
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/vnd.amazon.eventstream",
+        "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": session_id,
+        "Host": f"bedrock-agentcore.{REGION}.amazonaws.com",
+    }
+
+    # SigV4 sign
+    session = BotocoreSession()
+    credentials = session.get_credentials().get_frozen_credentials()
+    req = AWSRequest(method="POST", url=url, data=body.encode(), headers=headers)
+    SigV4Auth(credentials, "bedrock-agentcore", REGION).add_auth(req)
+    signed_headers = dict(req.headers)
+
+    try:
+        resp = requests.post(
+            url, data=body, headers=signed_headers,
+            timeout=timeout + 30, stream=True
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"[claude_code] Runtime command HTTP failure: {e}")
+        return {"stdout": "", "stderr": f"HTTP error: {e}", "exitCode": -1}
+
+    # Parse streaming event response (same pattern as pipeline.py in aws-samples)
+    stdout_parts: list = []
+    stderr_parts: list = []
+    exit_code = -1
+
+    buf = EventStreamBuffer()
+    for chunk in resp.iter_content(chunk_size=4096):
+        if not chunk:
+            continue
+        buf.add_data(chunk)
+        for ev in buf:
+            if not ev.payload:
+                continue
+            try:
+                decoded = json.loads(ev.payload)
+                inner = decoded.get("chunk") if isinstance(decoded, dict) else None
+                event = inner if isinstance(inner, dict) else decoded
+                if "contentDelta" in event:
+                    d = event["contentDelta"]
+                    if "stdout" in d:
+                        stdout_parts.append(d["stdout"])
+                    if "stderr" in d:
+                        stderr_parts.append(d["stderr"])
+                elif "contentStop" in event:
+                    exit_code = int(event["contentStop"].get("exitCode", -1))
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+    stdout = "".join(stdout_parts)
+    stderr = "".join(stderr_parts)
+
+    # Publish completion event to DynamoDB for real-time UI visibility
+    if workflow_id and agent_id:
+        try:
+            import time as _time, random as _random, string as _string
+            event_id = f"{int(_time.time() * 1000)}-{''.join(_random.choices(_string.ascii_lowercase, k=4))}"
+            _ddb_events_client.put_item(
+                TableName=_EVENTS_TABLE,
+                Item={
+                    "workflowId": {"S": workflow_id},
+                    "eventId": {"S": event_id},
+                    "type": {"S": "agent.streaming"},
+                    "detail": {"M": {
+                        "agentId": {"S": agent_id},
+                        "type": {"S": "trace"},
+                        "toolName": {"S": "claude_code_runtime"},
+                        "source": {"S": "claude_code_runtime"},
+                        "workflowId": {"S": workflow_id},
+                        "exitCode": {"N": str(exit_code)},
+                    }},
+                    "timestamp": {"S": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())},
+                },
+            )
+        except Exception:
+            pass  # Non-critical
+
+    return {"stdout": stdout, "stderr": stderr, "exitCode": exit_code}
+
 
 # All agents get claude_code — even non-dev agents benefit from it for
 # reading repos, analyzing code structure, generating docs from source, etc.
@@ -495,6 +609,11 @@ def _create_mcp_clients():
 @tool
 def claude_code(task: str, working_directory: str = "/tmp") -> str:
     """Delegate a coding task to Claude Code — a specialized AI coding agent.
+
+    Claude Code runs on a dedicated AgentCore Runtime with:
+    - Persistent workspace (/mnt/workspace) — repos stay cloned, deps installed
+    - Full OTel observability — every tool call traced in CloudWatch
+    - Interactive shell access (agentcore exec --it) for debugging
 
     Claude Code excels at:
     - Cloning repos and understanding existing codebases (reads CLAUDE.md automatically)
@@ -512,14 +631,75 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
               - What to build (specific files, endpoints, features)
               - Acceptance criteria (what success looks like)
               - Any constraints (don't modify X, use library Y)
-        working_directory: Directory to operate in (default: /tmp)
+        working_directory: Directory to operate in (for runtime: path under /mnt/workspace)
     """
-    import subprocess
-    import shutil
-
     logger.info(f"[claude_code] Delegating task: {task[:150]}...")
 
-    # Ensure claude CLI is available (install if needed — first invocation only)
+    # Extract repo name from task for session affinity (persistent workspace per repo)
+    import re
+    repo_match = re.search(r'github\.com/[\w.-]+/([\w.-]+)', task)
+    repo_slug = repo_match.group(1).rstrip(".git") if repo_match else "default"
+
+    # Use runtime if configured — otherwise fall back to local subprocess
+    if CLAUDE_CODE_RUNTIME_ARN:
+        # Session ID keyed by repo — workspace persists across invocations for same repo
+        runtime_session_id = f"env-{repo_slug}"
+
+        # Get workflow context from the calling agent's invocation
+        wf_id = os.getenv("_CURRENT_WORKFLOW_ID", "unknown")
+        ag_id = os.getenv("_CURRENT_AGENT_ID", "unknown")
+
+        logger.info(f"[claude_code] Invoking runtime (session={runtime_session_id}, repo={repo_slug})")
+
+        # Build the claude CLI command — shell into the runtime microVM
+        # This is the official pattern: InvokeAgentRuntimeCommand runs claude CLI
+        # in the persistent session workspace.
+        # Matches aws-samples/sample-agent-assisted-sdlc (project-management/shared/assistants/claude.py)
+        cc_model = os.environ.get("ANTHROPIC_MODEL") or os.environ.get("CLAUDE_MODEL") or "us.anthropic.claude-opus-4-6-v1"
+        work_dir = working_directory if working_directory != "/tmp" else "/mnt/workspace"
+
+        # Persistent Claude config (survives microVM stop/restart, same pattern as AWS sample)
+        claude_data_dir = "/mnt/workspace/.claude-data"
+
+        # Write task to file to avoid shell escaping issues with complex prompts
+        import base64
+        task_b64 = base64.b64encode(task.encode()).decode()
+        command = (
+            f"mkdir -p {claude_data_dir} && "
+            f"export CLAUDE_CONFIG_DIR={claude_data_dir} && "
+            # OTel resource attributes for trace correlation in CloudWatch
+            f'export OTEL_RESOURCE_ATTRIBUTES="${{OTEL_RESOURCE_ATTRIBUTES:+$OTEL_RESOURCE_ATTRIBUTES,}}'
+            f'session.id={runtime_session_id},gen_ai.conversation.id={runtime_session_id}" && '
+            f"cd {work_dir} && "
+            f"echo {task_b64} | base64 -d > /tmp/task_prompt.txt && "
+            f"claude --print --dangerously-skip-permissions "
+            f"--output-format text "
+            f"--model {cc_model} "
+            f"--max-turns 50 "
+            f'-p "$(cat /tmp/task_prompt.txt)"'
+        )
+
+        result = _execute_runtime_command(
+            session_id=runtime_session_id,
+            command=command,
+            timeout=900,  # 15 min
+            workflow_id=wf_id,
+            agent_id=ag_id,
+        )
+
+        output = result["stdout"].strip()
+        if result["exitCode"] != 0 and result["stderr"]:
+            output += f"\n\nSTDERR: {result['stderr'][-500:]}"
+
+        logger.info(f"[claude_code] Runtime complete. {len(output)} chars, exit code: {result['exitCode']}")
+        if result["exitCode"] != 0:
+            logger.warning(f"[claude_code] FAILED — stdout: {output[:200]!r}")
+        return output if output else f"Claude Code exited with code {result['exitCode']}. Stderr: {result['stderr'][-300:]}"
+
+    # ─── Fallback: local subprocess (when CLAUDE_CODE_RUNTIME_ARN not set) ────
+    import shutil
+    logger.info("[claude_code] CLAUDE_CODE_RUNTIME_ARN not set — using local subprocess fallback")
+
     claude_bin = shutil.which("claude")
     if not claude_bin:
         logger.info("[claude_code] Installing Claude Code CLI...")
@@ -533,7 +713,6 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
         except Exception as e:
             return f"ERROR: Failed to install Claude Code CLI: {e}. Use shell/editor tools directly instead."
 
-    # Determine model for Claude Code (check both env vars Claude Code recognizes)
     cc_model = os.environ.get("ANTHROPIC_MODEL") or os.environ.get("CLAUDE_MODEL") or "us.anthropic.claude-opus-4-6-v1"
 
     try:
@@ -550,7 +729,7 @@ def claude_code(task: str, working_directory: str = "/tmp") -> str:
             cwd=working_directory,
             capture_output=True,
             text=True,
-            timeout=540,  # 9 min (leave 1 min buffer for agent to process result)
+            timeout=540,
             env={
                 **os.environ,
                 "CLAUDE_CODE_ENTRYPOINT": "agentis-pipeline",
@@ -656,6 +835,10 @@ async def agent_invocation(payload, context):
     workflow_id = payload.get("workflow_id", "unknown")
     agent_id = payload.get("agent_id", "unknown")
     model_override = payload.get("model_override")
+
+    # Set context env vars so the claude_code tool can access workflow/agent IDs
+    os.environ["_CURRENT_WORKFLOW_ID"] = workflow_id
+    os.environ["_CURRENT_AGENT_ID"] = agent_id
 
     logger.info(f"[{agent_id}] Starting invocation for workflow {workflow_id}")
     logger.info(f"[{agent_id}] Model: {model_override or MODEL_ID}, read_timeout: {READ_TIMEOUT}s")
