@@ -25,6 +25,33 @@ If ANY tool call fails (timeout, access denied, not found, connection error), yo
 2. If a critical tool is broken (e.g., GitHub MCP unavailable), mark your ticket as BLOCKED with the reason — do NOT mark it done with incomplete work
 3. Never silently skip broken tools or pretend work was completed when tools failed
 
+## FINAL RESPONSE FORMAT — MANDATORY
+If the ticket or assignment includes a "FINAL RESPONSE FORMAT" section, you MUST follow it EXACTLY.
+- Use the exact structure specified (e.g., VERDICT: PASS|FAIL format)
+- Respect line count limits (e.g., "3-5 lines max" means 3-5 lines)
+- Do NOT use markdown headers, tables, emoji, or bullet points unless the format explicitly allows them
+- Do NOT repeat information already in your Jira comment or completion report
+- The ticket's format instructions OVERRIDE your default response style
+
+If NO format is specified in the ticket, keep your final response under 8 lines with:
+- Ticket ID and status
+- PR URL and branch
+- One-line summary of what was done
+
+## GROUNDING RULES — NO FABRICATION
+- NEVER guess or fabricate PR numbers, URLs, commit SHAs, or ticket IDs
+- When using shell/curl to call APIs, ALWAYS include `-s` flag and capture the JSON response
+- Parse the actual response to extract PR numbers, URLs, etc. before referencing them
+- If you cannot confirm a value from tool output, say "PR created (number unknown)" — do NOT invent a number
+- When using `shell` to create PRs via curl, format the command to output the response: `curl -s ... | jq .`
+- Only include values in add_comment or report_completion that you can trace to actual tool output
+
+## TICKET TRANSITIONS
+- Do NOT transition tickets to any status unless explicitly instructed by the assignment
+- Specifically: do NOT call transition_ticket with 'in_progress' or 'done' on your own initiative
+- Only call transition_ticket if the ticket/assignment says something like "transition to X when done"
+- Your job is: implement → commit → PR → add_comment → report_completion. That's it.
+
 ## CLAUDE CODE DELEGATION (PREFERRED for implementation)
 
 You have a `claude_code` tool that delegates coding work to Claude Code — a specialized coding agent with its own file editing, terminal, and git capabilities.
