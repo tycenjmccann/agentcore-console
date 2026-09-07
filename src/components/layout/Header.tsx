@@ -14,6 +14,7 @@ const pageTitles: Record<string, string> = {
   "/routing": "Routing",
   "/tickets": "Ticket History",
   "/invoke": "Invoke",
+  "/settings": "Settings",
 };
 
 export default function Header() {

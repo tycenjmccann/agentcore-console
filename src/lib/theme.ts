@@ -1,45 +1,21 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext } from "react";
 
-export type Theme = "light" | "dark";
+export type ThemePreference = "light" | "dark" | "system";
+export type EffectiveTheme = "light" | "dark";
 
-interface ThemeContextType {
-  theme: Theme;
-  setTheme: (theme: Theme) => void;
-  toggleTheme: () => void;
+export interface ThemeContextValue {
+  preference: ThemePreference;
+  effectiveTheme: EffectiveTheme;
+  setPreference: (pref: ThemePreference) => void;
 }
 
-const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+export const ThemeContext = createContext<ThemeContextValue | undefined>(
+  undefined
+);
 
-/**
- * Gets the initial theme preference:
- * 1. Check localStorage for saved preference
- * 2. Fall back to system preference (prefers-color-scheme)
- * 3. Default to dark mode
- */
-export function getInitialTheme(): Theme {
-  if (typeof window === "undefined") return "dark";
-
-  // Check localStorage first
-  const stored = localStorage.getItem("theme");
-  if (stored === "light" || stored === "dark") {
-    return stored;
-  }
-
-  // Check system preference
-  if (window.matchMedia("(prefers-color-scheme: light)").matches) {
-    return "light";
-  }
-
-  // Default to dark
-  return "dark";
-}
-
-/**
- * Custom hook to access theme context
- */
-export function useTheme() {
+export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext);
   if (context === undefined) {
     throw new Error("useTheme must be used within a ThemeProvider");
@@ -47,4 +23,12 @@ export function useTheme() {
   return context;
 }
 
-export { ThemeContext };
+export function resolveTheme(
+  preference: ThemePreference,
+  systemDark: boolean
+): EffectiveTheme {
+  if (preference === "system") {
+    return systemDark ? "dark" : "light";
+  }
+  return preference;
+}
