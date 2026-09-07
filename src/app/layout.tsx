@@ -3,7 +3,8 @@ import { Inter } from "next/font/google";
 import "@/styles/globals.css";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
-import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeProvider } from "@/providers/ThemeProvider";
+import { ThemeScript } from "@/components/ThemeScript";
 import { SidebarProvider } from "@/components/layout/sidebar/SidebarContext";
 import MainContent from "@/components/layout/MainContent";
 
@@ -22,26 +23,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  var theme = localStorage.getItem('theme');
-                  if (!theme) {
-                    theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-                  }
-                  document.documentElement.setAttribute('data-theme', theme);
-                  if (localStorage.getItem('sidebar-collapsed') === 'true') {
-                    document.documentElement.setAttribute('data-sidebar-collapsed', 'true');
-                  }
-                } catch (e) {
-                  document.documentElement.setAttribute('data-theme', 'dark');
-                }
-              })();
-            `,
-          }}
-        />
+        <ThemeScript />
       </head>
       <body className={inter.className}>
         <ThemeProvider>
